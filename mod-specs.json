@@ -1,0 +1,388 @@
+{
+    "systems": [
+        {
+            "id": "coruscant",
+            "visiblename": "Coruscant",
+            "description": "The Coruscant system.",
+            "nodes": [
+                {
+                    "id": "coruscanthtz",
+                    "visiblename": "Coruscant Hyperspace Transit Zone",
+                    "system": "Coruscant",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "coruscanthtzenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "coruscantplanet",
+                    "visiblename": "Coruscant",
+                    "system": "Coruscant",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": ["componentfactory"],
+                    "shipyardlist": ["tieshipyard"],
+                    "environment": "coruscanthtzenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                }
+            ]
+        },
+        {
+            "id": "alderaan",
+            "visiblename": "Alderaan",
+            "description": "The Alderaan system.",
+            "nodes": [
+                {
+                    "id": "alderaanhtz",
+                    "visiblename": "Alderaan Hyperspace Transit Zone",
+                    "system": "Alderaan",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "coruscanthtzenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                }
+            ]
+        },
+        {
+            "id": "yavin",
+            "visiblename": "Yavin",
+            "description": "The Yavin system.",
+            "nodes": [
+                {
+                    "id": "yavinhtz",
+                    "visiblename": "Yavin Hyperspace Transit Zone",
+                    "system": "Yavin",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "coruscanthtzenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                }
+            ]
+        },
+        {
+            "id": "tatooine",
+            "visiblename": "Tatooine",
+            "description": "The Tatooine system.",
+            "nodes": [
+                {
+                    "id": "tatooinehtz",
+                    "visiblename": "Tatooine Hyperspace Transit Zone",
+                    "system": "Tatooine",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "coruscanthtzenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                }
+            ]
+        },
+        {
+            "id": "hoth",
+            "visiblename": "Hoth",
+            "description": "The Hoth system.",
+            "nodes": [
+                {
+                    "id": "hothhtz",
+                    "visiblename": "Hoth Hyperspace Transit Zone",
+                    "system": "Hoth",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "coruscanthtzenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "hothplanet",
+                    "visiblename": "Hoth",
+                    "system": "Hoth",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "coruscanthtzenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "hothasteroids",
+                    "visiblename": "Hoth Asteroid Field",
+                    "system": "Hoth",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "asteroids",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "coruscanthtzenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                }
+            ]
+        },
+        {
+            "id": "tatooine",
+            "visiblename": "Tatooine",
+            "description": "The Tatooine system.",
+            "nodes": [
+                {
+                    "id": "vulpterhtz",
+                    "visiblename": "Vulpter Hyperspace Transit Zone",
+                    "system": "Vulpter",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "coruscanthtzenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                }
+            ]
+        }
+    ],
+    "nodeflavors": [
+        {
+            "id": "htz",
+            "visiblename": "Hyperspace Transit Zone",
+            "description": "A hyperspace transit zone is a small region of space connecting hyperspace lanes between star systems. A system's HTZ is usually located near its most populous planet."
+        },
+        {
+            "id": "planet",
+            "visiblename": "Planet",
+            "description": "Planetary bodies are the source of most life in the galaxy, and also the main centers of civilization and industry."
+        },
+        {
+            "id": "ring",
+            "visiblename": "Planetary Ring",
+            "description": "A ring of dust and ice, ranging from fine gravel to airspeeder-sized chunks."
+        },
+        {
+            "id": "asteroids",
+            "visiblename": "Asteroid Field",
+            "description": "A field of rocky detritus, perhaps debris from a planetary collision."
+        },
+        {
+            "id": "nebula",
+            "visiblename": "Nebula",
+            "description": "A small in-system gas cloud."
+        },
+        {
+            "id": "station",
+            "visiblename": "Space Station",
+            "description": "A stationary space installation."
+        },
+        {
+            "id": "shipyard",
+            "visiblename": "Shipyard",
+            "description": "A space-based construction facility for producing spacecraft."
+        },
+        {
+            "id": "debris",
+            "visiblename": "Debris Field",
+            "description": "A field of non-natural debris, resulting from the destruction of a vessel or space station."
+        }
+    ],
+    "links": [
+        [
+            "coruscanthtz",
+            "vulpterhtz"
+        ],
+        [
+            "vulpterhtz",
+            "tatooinehtz"
+        ],
+        [
+            "coruscanthtz",
+            "alderaanhtz"
+        ],
+        [
+            "tatooinehtz",
+            "hothhtz"
+        ],
+        [
+            "alderaanhtz",
+            "yavinhtz"
+        ]
+    ],
+    "factions": [
+        {
+            "id": "empire",
+            "visiblename": "Galactic Empire",
+            "description": "The empire which currently rules the galaxy. They're not very nice.",
+            "efficiencydefault": 1.25,
+            "efficiencytarget": 0.75,
+            "efficiencydelta": 0.01
+        },
+        {
+            "id": "rebels",
+            "visiblename": "Rebel Alliance",
+            "description": "People who fight the Empire. Somewhat nicer.",
+            "efficiencydefault": 0.75,
+            "efficiencytarget": 1.25,
+            "efficiencydelta": 0.01
+        },
+        {
+            "id": "pirates",
+            "visiblename": "Pirates",
+            "description": "Assorted criminals who prey on innocents. (Also non-innocents.) They're not very nice either.",
+            "efficiencydefault": 1.0,
+            "efficiencytarget": 1.0,
+            "efficiencydelta": 0.01
+        }
+    ],
+    "factoryclasses": [
+        {
+            "id": "componentfactory",
+            "visiblename": "Component Factory",
+            "description": "foo fie foe fum",
+            "inputs": [
+                {
+                    "resourcetype": "steel",
+                    "contents": 100,
+                    "rate": 10,
+                    "target": 200,
+                    "capacity": 500
+                }
+            ],
+            "outputs": [
+                {
+                    "resourcetype": "components",
+                    "contents": 60,
+                    "rate": 30,
+                    "target": 200,
+                    "capacity": 500
+                }
+            ]
+        }
+    ],
+    "shipyardclasses": [
+        {
+            "id": "tieshipyard",
+            "visiblename": "TIE Shipyard",
+            "description": "foo fie foe fum",
+            "inputs": [
+                {
+                    "resourcetype": "steel",
+                    "contents": 100,
+                    "rate": 10,
+                    "target": 200,
+                    "capacity": 500
+                }
+            ],
+            "outputs": [
+                "tieln"
+            ],
+            "constructrate": 50,
+            "efficiency": 1.0
+
+        }
+    ],
+    "resources": [
+        {
+            "id": "steel",
+            "visiblename": "Durasteel",
+            "description": "A tough alloy of various metals, ubiquitous in construction all across the galaxy.",
+            "cargovol": 10,
+            "valuemult": 1
+        },
+        {
+            "id": "components",
+            "visiblename": "Industrial Components",
+            "description": "An assortment of standard parts useful in all sorts of construction projects.",
+            "cargovol": 20,
+            "valuemult": 5
+        },
+        {
+            "id": "food",
+            "visiblename": "Food Supplies",
+            "description": "Foodstuffs consumed by sentient populations of all sorts.",
+            "cargovol": 5,
+            "valuemult": 1
+        },
+        {
+            "id": "people",
+            "visiblename": "Personnel",
+            "description": "Some guys. They're kind of annoying to transport.",
+            "cargovol": 1,
+            "valuemult": 5
+        },
+        {
+            "id": "lightlaser",
+            "visiblename": "Light Laser Cannon",
+            "description": "A basic laser weapon used by fighters.",
+            "cargovol": 10,
+            "valuemult": 1
+        },
+        {
+            "id": "prottorp",
+            "visiblename": "Proton Torpedo",
+            "description": "A common but powerful torpedo weapon. Consumable.",
+            "cargovol": 2,
+            "valuemult": 2
+        }
+    ],
+
+    "shipclasses": [
+        {
+            "id": "tieln",
+            "visiblename": "TIE/LN space superiority fighter",
+            "description": "Dirt-cheap mass-produced fighter of the Empire.",
+            "basestrength": 10,
+            "defaultweapons": {
+                "lightlaser": 1,
+                "prottorp": 4
+            },
+            "hangarvol": 20,
+            "cargovol": 10,
+            "factoryclasslist": [],
+            "shipyardclasslist": [],
+            "defectchance": {}
+        },
+        {
+            "id": "isd",
+            "visiblename": "Imperial II-class Star Destroyer",
+            "description": "Powerful capital vessel, deployed in large numbers by the Empire.",
+            "basestrength": 1000,
+            "hangarcap": 2000,
+            "weaponcap": 500,
+            "factoryclasslist": [],
+            "shipyardclasslist": [],
+            "hyperdrive": 2,
+            "compconfig": {
+                "tieln": 72
+            },
+            "defectchance": {}
+        }
+    ],
+    "fleetclasses": [
+        {
+            "id": "impmedfleet",
+            "visiblename": "Medium Imperial Fleet",
+            "description": "A mid-sized Imperial fleet.",
+            "fleetconfig": {
+                "isd": 4
+            },
+            "defectchance": {}
+        }
+    ]
+}
