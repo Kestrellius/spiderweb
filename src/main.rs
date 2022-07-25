@@ -4,6 +4,7 @@ use serde_json::{from_reader, to_writer_pretty};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::prelude::*;
+use std::time::{Duration, Instant};
 
 mod json {
 
@@ -208,6 +209,9 @@ mod json {
                 shipclasses,
                 shipinstances: HashMap::new(),
                 shipinstancecounter: 0_usize,
+                fleetclasses,
+                fleetinstances: HashMap::new(),
+                turn: 0_u64,
             }
         }
     }
@@ -291,6 +295,7 @@ mod json {
                     .get(&self.allegiance)
                     .expect("Allegiance field is not correctly defined!"),
                 efficiency: self.efficiency.unwrap_or(1.0),
+                threat: factionidmap.values().map(|&id| (id, 0_f32)).collect(),
             };
             (self.id, node)
         }
@@ -343,6 +348,7 @@ mod json {
         rate: Option<u64>,
         target: u64,
         capacity: u64,
+        propagate: Option<bool>,
     }
 
     impl Stockpile {
@@ -358,6 +364,7 @@ mod json {
                 rate: self.rate.unwrap_or(0),
                 target: self.target,
                 capacity: self.capacity,
+                propagate: self.propagate.unwrap_or(true),
             };
             stockpile
         }
@@ -423,7 +430,7 @@ mod json {
                 outputs: self
                     .outputs
                     .drain()
-                    .map(|(k,v)| (*shipclassidmap.get(&k).unwrap(), v))
+                    .map(|(k, v)| (*shipclassidmap.get(&k).unwrap(), v))
                     .collect(),
                 constructrate: self.constructrate,
                 efficiency: self.efficiency,
@@ -580,16 +587,65 @@ mod internal {
         pub shipclasses: Vec<ShipClass>,
         pub shipinstances: HashMap<ShipInstanceID, ShipInstance>,
         pub shipinstancecounter: usize,
+        pub fleetclasses: Vec<FleetClass>,
+        pub fleetinstances: HashMap<FleetInstanceID, FleetInstance>,
+        pub turn: u64,
     }
 
     impl Root {
+        pub fn process_turn(&mut self) {
+            self.nodes
+                .iter_mut()
+                .enumerate()
+                .for_each(|(nodeindex, node)| {
+                    let nodeid = NodeID(nodeindex);
+                    node.factoryinstancelist
+                        .iter_mut()
+                        .for_each(|factory| factory.process(node.efficiency));
+                });
+            let ship_plan_list: Vec<(ShipClassID, ShipLocationFlavor, FactionID)> = self
+                .nodes
+                .iter_mut()
+                .enumerate()
+                .map(|(nodeindex, node)| {
+                    let nodeid = NodeID(nodeindex);
+                    node.shipyardinstancelist
+                        .iter_mut()
+                        .map(|shipyard| {
+                            let ship_plans =
+                                shipyard.plan_ships(node.efficiency, &self.shipclasses);
+                            ship_plans
+                                .iter()
+                                .map(|&ship_plan| {
+                                    (ship_plan, ShipLocationFlavor::Node(nodeid), node.allegiance)
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .flatten()
+                        .collect::<Vec<_>>()
+                })
+                .flatten()
+                .collect();
+            let n_newships = ship_plan_list
+                .iter()
+                .map(|&(id, location, faction)| self.create_ship(id, location, faction))
+                .count();
+            println!("Built {} new ships.", n_newships);
+            self.turn += 1;
+            println!("It is now turn {}.", self.turn);
+        }
         fn create_ship(
             &mut self,
             class_id: ShipClassID,
             location: ShipLocationFlavor,
             faction: FactionID,
         ) -> ShipInstanceID {
-            let new_ship = self.shipclasses[class_id.0].instantiate(location, faction);
+            let new_ship = self.shipclasses[class_id.0].instantiate(
+                location,
+                faction,
+                &self.factoryclasses,
+                &self.shipyardclasses,
+            );
             self.shipinstancecounter += 1;
             let ship_instance_id = ShipInstanceID(self.shipinstancecounter);
             if self
@@ -603,6 +659,200 @@ mod internal {
                 );
             }
             ship_instance_id
+        }
+        fn calculate_values<S: Salience<P> + Copy, P: Polarity>(
+            &self,
+            salience: S,
+            faction: FactionID,
+        ) -> Vec<f32> {
+            let node_salience_map: Vec<(NodeID, f32)> = self
+                .nodes
+                .iter()
+                .enumerate()
+                .filter(|(_, node)| node.allegiance == faction)
+                .filter_map(|(i, node)| {
+                    let id = NodeID(i);
+                    salience
+                        .get_value((id, node), &self.shipinstances, &self.fleetinstances)
+                        .map(|v| (id, v))
+                })
+                .collect();
+            let degradations: Vec<f32> = self.nodes.iter().map(|node| 0.75_f32).collect();
+            let node_salience_state: Vec<Vec<f32>> = self
+                .nodes
+                .iter()
+                .enumerate()
+                .map(|(i, node)| {
+                    let id = NodeID(i);
+                    node_salience_map
+                        .iter()
+                        .map(
+                            |&(sourceid, value)| {
+                                if sourceid == id {
+                                    value
+                                } else {
+                                    0_f32
+                                }
+                            },
+                        )
+                        .collect()
+                })
+                .collect();
+            let node_salience_state = (0..5).fold(node_salience_state, |mut state, n_iter| {
+                println!("Completed {} iterations of salience propagation.", n_iter);
+                self.edges.iter().for_each(|(a, b)| {});
+                state
+            });
+            node_salience_state
+                .iter()
+                .map(|salience| salience.iter().sum())
+                .collect()
+        }
+    }
+
+    trait Polarity {}
+
+    mod polarity {
+
+        use super::Polarity;
+
+        pub struct Supply {}
+
+        impl Polarity for Supply {}
+
+        pub struct Demand {}
+
+        impl Polarity for Demand {}
+    }
+
+    trait Salience<P: Polarity> {
+        fn get_value(
+            self,
+            node: (NodeID, &Node),
+            shipinstances: &HashMap<ShipInstanceID, ShipInstance>,
+            fleetinstances: &HashMap<FleetInstanceID, FleetInstance>,
+        ) -> Option<f32>;
+    }
+
+    impl Salience<polarity::Supply> for ResourceID {
+        fn get_value(
+            self,
+            (nodeid, node): (NodeID, &Node),
+            shipinstances: &HashMap<ShipInstanceID, ShipInstance>,
+            fleetinstances: &HashMap<FleetInstanceID, FleetInstance>,
+        ) -> Option<f32> {
+            let factorysupply: u64 = node
+                .factoryinstancelist
+                .iter()
+                .map(|factory| {
+                    factory
+                        .outputs
+                        .iter()
+                        .filter(|output| (output.resourcetype == self) & (output.propagate == true))
+                        .map(|output| output.contents.saturating_sub(output.target))
+                        .sum::<u64>()
+                })
+                .sum::<u64>();
+            let shipsupply: u64 = shipinstances
+                .values()
+                .filter(|ship| ship.get_node(&shipinstances, &fleetinstances) == nodeid)
+                .map(|ship| {
+                    ship.factoryinstancelist
+                        .iter()
+                        .map(|factory| {
+                            factory
+                                .outputs
+                                .iter()
+                                .filter(|output| {
+                                    (output.resourcetype == self) & (output.propagate == true)
+                                })
+                                .map(|output| output.contents.saturating_sub(output.target))
+                                .sum::<u64>()
+                        })
+                        .sum::<u64>()
+                })
+                .sum::<u64>();
+            let sum = (factorysupply + shipsupply) as f32;
+            if sum == 0_f32 {
+                None
+            } else {
+                Some(sum)
+            }
+        }
+    }
+
+    impl Salience<polarity::Demand> for ResourceID {
+        fn get_value(
+            self,
+            (nodeid, node): (NodeID, &Node),
+            shipinstances: &HashMap<ShipInstanceID, ShipInstance>,
+            fleetinstances: &HashMap<FleetInstanceID, FleetInstance>,
+        ) -> Option<f32> {
+            let factorydemand: u64 = node
+                .factoryinstancelist
+                .iter()
+                .map(|factory| {
+                    factory
+                        .inputs
+                        .iter()
+                        .filter(|input| (input.resourcetype == self) & (input.propagate == true))
+                        .map(|input| input.target.saturating_sub(input.contents))
+                        .sum::<u64>()
+                })
+                .sum::<u64>();
+            let shipyarddemand: u64 = node
+                .shipyardinstancelist
+                .iter()
+                .map(|shipyard| {
+                    shipyard
+                        .inputs
+                        .iter()
+                        .filter(|input| (input.resourcetype == self) & (input.propagate == true))
+                        .map(|input| input.target.saturating_sub(input.contents))
+                        .sum::<u64>()
+                })
+                .sum::<u64>();
+            let shipdemand: u64 = shipinstances
+                .values()
+                .filter(|ship| ship.get_node(&shipinstances, &fleetinstances) == nodeid)
+                .map(|ship| {
+                    let factorydemand = ship
+                        .factoryinstancelist
+                        .iter()
+                        .map(|factory| {
+                            factory
+                                .inputs
+                                .iter()
+                                .filter(|input| {
+                                    (input.resourcetype == self) & (input.propagate == true)
+                                })
+                                .map(|input| input.target.saturating_sub(input.contents))
+                                .sum::<u64>()
+                        })
+                        .sum::<u64>();
+                    let shipyarddemand = ship
+                        .shipyardinstancelist
+                        .iter()
+                        .map(|shipyard| {
+                            shipyard
+                                .inputs
+                                .iter()
+                                .filter(|input| {
+                                    (input.resourcetype == self) & (input.propagate == true)
+                                })
+                                .map(|input| input.target.saturating_sub(input.contents))
+                                .sum::<u64>()
+                        })
+                        .sum::<u64>();
+                    factorydemand + shipyarddemand
+                })
+                .sum::<u64>();
+            let sum = (factorydemand + shipyarddemand + shipdemand) as f32;
+            if sum == 0_f32 {
+                None
+            } else {
+                Some(sum)
+            }
         }
     }
 
@@ -645,7 +895,7 @@ mod internal {
     #[derive(Debug, Hash, Copy, Clone, Eq, PartialEq)]
     pub struct FleetClassID(pub usize);
 
-    #[derive(Copy, Clone, Debug)]
+    #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
     pub struct FleetInstanceID(u64);
 
     #[derive(Copy, Clone, Debug)]
@@ -679,6 +929,7 @@ mod internal {
         pub environment: String, //name of the FRED environment to use for missions set in this node
         pub allegiance: FactionID, //faction that currently holds the node
         pub efficiency: f64, //efficiency of any production facilities in this node; changes over time based on faction ownership
+        pub threat: HashMap<FactionID, f32>,
     }
 
     #[derive(Debug, Hash, Clone, Eq, PartialEq)]
@@ -732,6 +983,7 @@ mod internal {
         pub rate: u64,
         pub target: u64,
         pub capacity: u64,
+        pub propagate: bool,
     }
 
     impl Stockpile {
@@ -933,9 +1185,15 @@ mod internal {
             }
         }
 
-        fn construct_ships(&mut self, location_efficiency: f64, shipclasstable: &Vec<ShipClass>) -> Vec<ShipClassID> {
+        fn plan_ships(
+            &mut self,
+            location_efficiency: f64,
+            shipclasstable: &Vec<ShipClass>,
+        ) -> Vec<ShipClassID> {
             self.process(location_efficiency);
-            (0..).map_while(|_| self.try_choose_ship(shipclasstable)).collect()
+            (0..)
+                .map_while(|_| self.try_choose_ship(shipclasstable))
+                .collect()
         }
     }
     #[derive(Debug, Clone)]
@@ -967,12 +1225,28 @@ mod internal {
                     .sum()
             })
         }
-        fn instantiate(&self, location: ShipLocationFlavor, faction: FactionID) -> ShipInstance {
+        fn instantiate(
+            &self,
+            location: ShipLocationFlavor,
+            faction: FactionID,
+            factoryclasses: &Vec<FactoryClass>,
+            shipyardclasses: &Vec<ShipyardClass>,
+        ) -> ShipInstance {
             ShipInstance {
-                visiblename: "FooShip1".to_string(),
+                visiblename: uuid::Uuid::new_v4().to_string(),
                 shipclass: self.id,
                 hull: self.basehull,
                 strength: self.basestrength,
+                factoryinstancelist: self
+                    .factoryclasslist
+                    .iter()
+                    .map(|classid| factoryclasses[classid.0].instantiate(true))
+                    .collect(),
+                shipyardinstancelist: self
+                    .shipyardclasslist
+                    .iter()
+                    .map(|classid| shipyardclasses[classid.0].instantiate(true))
+                    .collect(),
                 location,
                 allegiance: faction,
                 experience: 0,
@@ -992,13 +1266,30 @@ mod internal {
     #[derive(Debug)]
     pub struct ShipInstance {
         visiblename: String,
-        shipclass: ShipClassID,       //which class of ship this is
-        hull: Option<u64>, //how many hitpoints the ship has; strikecraft don't have hitpoints
+        shipclass: ShipClassID, //which class of ship this is
+        hull: Option<u64>,      //how many hitpoints the ship has; strikecraft don't have hitpoints
         strength: u64, //ship's strength score, based on its class strength score but affected by its current hull percentage and experience score
+        factoryinstancelist: Vec<FactoryInstance>,
+        shipyardinstancelist: Vec<ShipyardInstance>,
         location: ShipLocationFlavor, //where the ship is -- a node if it's unaffiliated, a fleet if it's in one
         allegiance: FactionID,        //which faction this ship belongs to
         experience: u64, //XP gained by this ship, which affects strength score and in-mission AI class
         efficiency: f64,
+    }
+
+    impl ShipInstance {
+        pub fn get_node(
+            &self,
+            shipinstances: &HashMap<ShipInstanceID, ShipInstance>,
+            fleetinstances: &HashMap<FleetInstanceID, FleetInstance>,
+        ) -> NodeID {
+            match self.location {
+                ShipLocationFlavor::Node(id) => id,
+                ShipLocationFlavor::Fleet(id) => fleetinstances.get(&id).unwrap().location,
+                ShipLocationFlavor::Host(flavor) => flavor.get_node(shipinstances, fleetinstances),
+                ShipLocationFlavor::Detachment(node, fleet) => node,
+            }
+        }
     }
 
     #[derive(Debug, Copy, Clone)]
@@ -1013,6 +1304,22 @@ mod internal {
     enum HostFlavor {
         Garrison(NodeID),
         Carrier(ShipInstanceID),
+    }
+
+    impl HostFlavor {
+        pub fn get_node(
+            &self,
+            shipinstances: &HashMap<ShipInstanceID, ShipInstance>,
+            fleetinstances: &HashMap<FleetInstanceID, FleetInstance>,
+        ) -> NodeID {
+            match self {
+                HostFlavor::Garrison(id) => *id,
+                HostFlavor::Carrier(id) => shipinstances
+                    .get(id)
+                    .unwrap()
+                    .get_node(shipinstances, fleetinstances),
+            }
+        }
     }
 
     #[derive(Debug, Hash, Clone, Eq, PartialEq)]
@@ -1145,7 +1452,16 @@ mod internal {
 
 fn main() {
     let file = File::open("mod-specs.json").unwrap();
+    let start = Instant::now();
     let json_root: json::Root = serde_json::from_reader(file).unwrap();
-    let root = json_root.hydrate();
-    dbg!(root);
+    let duration = start.elapsed();
+    dbg!(duration);
+    let mut root = json_root.hydrate();
+    for i in 0..50 {
+        root.process_turn();
+    }
+    dbg!(root.nodes);
+    dbg!(root.shipinstances);
+    dbg!(root.shipinstancecounter);
+    dbg!(root.turn);
 }

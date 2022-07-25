@@ -8,7 +8,6 @@
                 {
                     "id": "coruscanthtz",
                     "visiblename": "Coruscant Hyperspace Transit Zone",
-                    "system": "Coruscant",
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "htz",
@@ -21,7 +20,6 @@
                 {
                     "id": "coruscantplanet",
                     "visiblename": "Coruscant",
-                    "system": "Coruscant",
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
@@ -41,7 +39,6 @@
                 {
                     "id": "alderaanhtz",
                     "visiblename": "Alderaan Hyperspace Transit Zone",
-                    "system": "Alderaan",
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "htz",
@@ -61,7 +58,6 @@
                 {
                     "id": "yavinhtz",
                     "visiblename": "Yavin Hyperspace Transit Zone",
-                    "system": "Yavin",
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "htz",
@@ -70,7 +66,31 @@
                     "environment": "coruscanthtzenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
-                }
+                },
+				{
+					"id": "yavinplanet",
+                    "visiblename": "Yavin",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "coruscanthtzenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+				},
+				{
+					"id": "yavin4",
+                    "visiblename": "Yavin 4",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "coruscanthtzenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+				}
             ]
         },
         {
@@ -81,7 +101,6 @@
                 {
                     "id": "tatooinehtz",
                     "visiblename": "Tatooine Hyperspace Transit Zone",
-                    "system": "Tatooine",
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "htz",
@@ -90,7 +109,18 @@
                     "environment": "coruscanthtzenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
-                }
+                },
+				{"id": "tatooineplanet",
+                    "visiblename": "Tatooine",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "coruscanthtzenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+				}
             ]
         },
         {
@@ -101,7 +131,6 @@
                 {
                     "id": "hothhtz",
                     "visiblename": "Hoth Hyperspace Transit Zone",
-                    "system": "Hoth",
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "htz",
@@ -114,7 +143,6 @@
                 {
                     "id": "hothplanet",
                     "visiblename": "Hoth",
-                    "system": "Hoth",
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
@@ -127,7 +155,6 @@
                 {
                     "id": "hothasteroids",
                     "visiblename": "Hoth Asteroid Field",
-                    "system": "Hoth",
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "asteroids",
@@ -140,9 +167,9 @@
             ]
         },
         {
-            "id": "tatooine",
-            "visiblename": "Tatooine",
-            "description": "The Tatooine system.",
+            "id": "vulpter",
+            "visiblename": "Vulpter",
+            "description": "The Vulpter system.",
             "nodes": [
                 {
                     "id": "vulpterhtz",
@@ -156,7 +183,19 @@
                     "environment": "coruscanthtzenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
-                }
+                },
+				{
+                    "id": "vulpterplanet",
+                    "visiblename": "Vulpter",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": ["componentfactory"],
+                    "shipyardlist": [],
+                    "environment": "coruscanthtzenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                },
             ]
         }
     ],
@@ -283,16 +322,16 @@
             "inputs": [
                 {
                     "resourcetype": "steel",
-                    "contents": 100,
-                    "rate": 10,
+                    "contents": 113,
+                    "rate": 17,
                     "target": 200,
                     "capacity": 500
                 }
             ],
-            "outputs": [
-                "tieln"
-            ],
-            "constructrate": 50,
+            "outputs": {
+                "tieln":5
+            },
+            "constructrate": 71,
             "efficiency": 1.0
 
         }
@@ -347,7 +386,7 @@
             "id": "tieln",
             "visiblename": "TIE/LN space superiority fighter",
             "description": "Dirt-cheap mass-produced fighter of the Empire.",
-            "basestrength": 10,
+            "basestrength": 11,
             "defaultweapons": {
                 "lightlaser": 1,
                 "prottorp": 4
