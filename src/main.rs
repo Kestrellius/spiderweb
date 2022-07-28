@@ -91,19 +91,28 @@ mod json {
                 .map(|(i, nodeflavor)| (nodeflavor.id.clone(), internal::NodeFlavorID(i)))
                 .collect();
 
-            let (factionidmap, factions): (
-                HashMap<String, internal::FactionID>,
-                Vec<internal::Faction>,
-            ) = self
+            let factionidmap: HashMap<String, internal::FactionID> = self
+                .factions
+                .iter()
+                .enumerate()
+                .map(|(i, faction)| {
+                    let stringid = faction.id.clone();
+                    let kv_pair = (stringid, internal::FactionID(i));
+                    kv_pair
+                })
+                .collect();
+
+            let factions: Vec<internal::Faction> = self
                 .factions
                 .drain(0..)
                 .enumerate()
                 .map(|(i, faction)| {
-                    let (stringid, internal_faction) = faction.hydrate();
-                    let kv_pair = (stringid, internal::FactionID(i));
-                    (kv_pair, internal_faction)
+                    let id = internal::FactionID(i);
+                    assert_eq!(id, *factionidmap.get(&faction.id).unwrap());
+                    let internal_faction = faction.hydrate(&factionidmap);
+                    internal_faction
                 })
-                .unzip();
+                .collect();
 
             let (resourceidmap, resources): (
                 HashMap<String, internal::ResourceID>,
@@ -326,18 +335,23 @@ mod json {
         efficiencydefault: f64, //starting value for production facility efficiency
         efficiencytarget: f64, //end value for efficiency, toward which efficiency changes over time in a node held by this faction
         efficiencydelta: f64,  //rate at which efficiency changes
+        relations: HashMap<String, f32>,
     }
 
     impl Faction {
-        fn hydrate(self) -> (String, internal::Faction) {
+        fn hydrate(self, factionidmap: &HashMap<String, internal::FactionID>) -> internal::Faction {
             let faction = internal::Faction {
                 visiblename: self.visiblename,
                 description: self.description,
                 efficiencydefault: self.efficiencydefault,
                 efficiencytarget: self.efficiencytarget,
                 efficiencydelta: self.efficiencydelta,
+                relations: factionidmap
+                    .iter()
+                    .map(|(name, id)| (*id, self.relations.get(name).map(|&x| x).unwrap_or(0_f32)))
+                    .collect(),
             };
-            (self.id, faction)
+            faction
         }
     }
 
@@ -660,16 +674,26 @@ mod internal {
             }
             ship_instance_id
         }
+
+        fn get_node_strength(&self, nodeid: NodeID, faction: FactionID) -> u64 {
+            self.shipinstances
+                .values()
+                .filter(|ship| ship.get_node(&self.shipinstances, &self.fleetinstances) == nodeid)
+                .filter(|ship| ship.allegiance == faction)
+                .map(|ship| ship.strength)
+                .sum()
+        }
+
         fn calculate_values<S: Salience<P> + Copy, P: Polarity>(
             &self,
             salience: S,
-            faction: FactionID,
+            factionid: FactionID,
         ) -> Vec<f32> {
             let node_salience_map: Vec<(NodeID, f32)> = self
                 .nodes
                 .iter()
                 .enumerate()
-                .filter(|(_, node)| node.allegiance == faction)
+                .filter(|(_, node)| node.allegiance == factionid)
                 .filter_map(|(i, node)| {
                     let id = NodeID(i);
                     salience
@@ -677,7 +701,24 @@ mod internal {
                         .map(|v| (id, v))
                 })
                 .collect();
-            let degradations: Vec<f32> = self.nodes.iter().map(|node| 0.75_f32).collect();
+            let tagged_threats: Vec<HashMap<FactionID, f32>> = self
+                .nodes
+                .iter()
+                .enumerate()
+                .map(|(i, node)| {
+                    let id = NodeID(i);
+                    node.threat
+                        .iter()
+                        .map(|(f, t)| {
+                            let value = t * self.factions[factionid.0].relations.get(f).unwrap();
+                            (*f, value)
+                        })
+                        .collect()
+                })
+                .collect();
+            let node_degradations Vec<f32> = 
+                let threat_deg = tagged_threats.iter().scale_from_threat(faction, )
+                DEG_MULT * 
             let node_salience_state: Vec<Vec<f32>> = self
                 .nodes
                 .iter()
@@ -710,6 +751,12 @@ mod internal {
         }
     }
 
+    fn scale_from_threat(faction: FactionID, threat: f32, scale: f32) -> f32 {
+        let scaled = (1_f32 - 1_f32 / (threat.abs() / scale + 1_f32)).copysign(i);
+        let shifted = (scaled + 1_f32) / 2_f32;
+        shifted
+    }
+
     trait Polarity {}
 
     mod polarity {
@@ -726,6 +773,7 @@ mod internal {
     }
 
     trait Salience<P: Polarity> {
+        const DEG_MULT: f32;
         fn get_value(
             self,
             node: (NodeID, &Node),
@@ -735,6 +783,7 @@ mod internal {
     }
 
     impl Salience<polarity::Supply> for ResourceID {
+        const DEG_MULT: f32 = 1.0;
         fn get_value(
             self,
             (nodeid, node): (NodeID, &Node),
@@ -782,6 +831,7 @@ mod internal {
     }
 
     impl Salience<polarity::Demand> for ResourceID {
+        const DEG_MULT: f32 = 1.0;
         fn get_value(
             self,
             (nodeid, node): (NodeID, &Node),
@@ -932,6 +982,9 @@ mod internal {
         pub threat: HashMap<FactionID, f32>,
     }
 
+    impl Node {
+    }
+
     #[derive(Debug, Hash, Clone, Eq, PartialEq)]
     pub struct NodeFlavor {
         pub visiblename: String,
@@ -966,6 +1019,7 @@ mod internal {
         pub efficiencydefault: f64, //starting value for production facility efficiency
         pub efficiencytarget: f64, //end value for efficiency, toward which efficiency changes over time in a node held by this faction
         pub efficiencydelta: f64,  //rate at which efficiency changes
+        pub relations: HashMap<FactionID, f32>,
     }
 
     #[derive(Debug, Hash, Clone, Eq, PartialEq)]
