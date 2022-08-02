@@ -716,9 +716,13 @@ mod internal {
                         .collect()
                 })
                 .collect();
-            let node_degradations Vec<f32> = 
-                let threat_deg = tagged_threats.iter().scale_from_threat(faction, )
-                DEG_MULT * 
+            let node_degradations: Vec<f32> = tagged_threats
+                .iter()
+                .map(|map| {
+                    let sum = map.values().sum();
+                    scale_from_threat(sum, 20_f32) * S::DEG_MULT * 0.8
+                })
+                .collect();
             let node_salience_state: Vec<Vec<f32>> = self
                 .nodes
                 .iter()
@@ -751,10 +755,42 @@ mod internal {
         }
     }
 
-    fn scale_from_threat(faction: FactionID, threat: f32, scale: f32) -> f32 {
-        let scaled = (1_f32 - 1_f32 / (threat.abs() / scale + 1_f32)).copysign(i);
-        let shifted = (scaled + 1_f32) / 2_f32;
-        shifted
+    #[cfg(test)]
+    mod test {
+        use super::scale_from_threat;
+        #[test]
+        fn threat_scaling_test() {
+            let inputs:Vec<f32> = vec![0.5_f32,-0.5_f32,5_f32,-6_f32,-100_f32,101_f32,1042_f32,5391_f32,-1632_f32,-9998_f32,-4141_f32,43677_f32];
+
+            for input in inputs {
+                test_scale_from_threat(input);
+            }
+        }
+        fn test_scale_from_threat(input:f32) {
+            let scaled = scale_from_threat(input, 1000_f32);
+            assert!(scaled<1_f32);
+            assert!(scaled>0_f32);
+            println!("{:05.1}\t{:.3}",input,scaled);
+        }
+    }
+
+    fn scale_from_threat(threat: f32, scaling_factor: f32) -> f32 {
+        if scaling_factor <= 0. {
+            panic!(
+                "Attempted to scale by nonpositive factor {}",
+                scaling_factor
+            );
+        }
+
+        let base = 0.95;
+        let minimum_valid_threat_value = threat.abs() + scaling_factor;
+        let downscaled_threat = minimum_valid_threat_value / scaling_factor;
+
+        let delta_base = 1. - (1. / downscaled_threat);
+        let maximum_delta = if threat >= 0. { 0.05 } else { -0.95 };
+        let delta = maximum_delta * delta_base;
+
+        base + delta
     }
 
     trait Polarity {}
@@ -982,8 +1018,7 @@ mod internal {
         pub threat: HashMap<FactionID, f32>,
     }
 
-    impl Node {
-    }
+    impl Node {}
 
     #[derive(Debug, Hash, Clone, Eq, PartialEq)]
     pub struct NodeFlavor {
