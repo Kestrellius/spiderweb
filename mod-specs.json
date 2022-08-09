@@ -23,8 +23,12 @@
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
-                    "factorylist": ["componentfactory"],
-                    "shipyardlist": ["tieshipyard"],
+                    "factorylist": [
+                        "componentfactory"
+                    ],
+                    "shipyardlist": [
+                        "tieshipyard"
+                    ],
                     "environment": "coruscanthtzenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
@@ -67,8 +71,8 @@
                     "allegiance": "empire",
                     "efficiency": 2.5
                 },
-				{
-					"id": "yavinplanet",
+                {
+                    "id": "yavinplanet",
                     "visiblename": "Yavin",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -78,9 +82,9 @@
                     "environment": "coruscanthtzenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
-				},
-				{
-					"id": "yavin4",
+                },
+                {
+                    "id": "yavin4",
                     "visiblename": "Yavin 4",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -90,7 +94,7 @@
                     "environment": "coruscanthtzenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
-				}
+                }
             ]
         },
         {
@@ -110,7 +114,8 @@
                     "allegiance": "empire",
                     "efficiency": 2.5
                 },
-				{"id": "tatooineplanet",
+                {
+                    "id": "tatooineplanet",
                     "visiblename": "Tatooine",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -120,7 +125,7 @@
                     "environment": "coruscanthtzenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
-				}
+                }
             ]
         },
         {
@@ -181,19 +186,21 @@
                     "factorylist": [],
                     "shipyardlist": [],
                     "environment": "coruscanthtzenv",
-                    "allegiance": "empire",
+                    "allegiance": "rebels",
                     "efficiency": 2.5
                 },
-				{
+                {
                     "id": "vulpterplanet",
                     "visiblename": "Vulpter",
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
-                    "factorylist": ["componentfactory"],
+                    "factorylist": [
+                        "componentfactory"
+                    ],
                     "shipyardlist": [],
                     "environment": "coruscanthtzenv",
-                    "allegiance": "empire",
+                    "allegiance": "rebels",
                     "efficiency": 2.5
                 }
             ]
@@ -270,7 +277,12 @@
             "description": "The empire which currently rules the galaxy. They're not very nice.",
             "efficiencydefault": 1.25,
             "efficiencytarget": 0.75,
-            "efficiencydelta": 0.01
+            "efficiencydelta": 0.01,
+            "relations": {
+                "empire": 1,
+                "rebels": -1,
+                "pirates": -1
+            }
         },
         {
             "id": "rebels",
@@ -278,7 +290,12 @@
             "description": "People who fight the Empire. Somewhat nicer.",
             "efficiencydefault": 0.75,
             "efficiencytarget": 1.25,
-            "efficiencydelta": 0.01
+            "efficiencydelta": 0.01,
+            "relations": {
+                "empire": -1,
+                "rebels": 1,
+                "pirates": -1
+            }
         },
         {
             "id": "pirates",
@@ -286,7 +303,12 @@
             "description": "Assorted criminals who prey on innocents. (Also non-innocents.) They're not very nice either.",
             "efficiencydefault": 1.0,
             "efficiencytarget": 1.0,
-            "efficiencydelta": 0.01
+            "efficiencydelta": 0.01,
+            "relations": {
+                "empire": -1,
+                "rebels": -1,
+                "pirates": 1
+            }
         }
     ],
     "factoryclasses": [
@@ -306,10 +328,10 @@
             "outputs": [
                 {
                     "resourcetype": "components",
-                    "contents": 60,
+                    "contents": 500,
                     "rate": 30,
-                    "target": 200,
-                    "capacity": 500
+                    "target": 1000,
+                    "capacity": 1500
                 }
             ]
         }
@@ -329,11 +351,10 @@
                 }
             ],
             "outputs": {
-                "tieln":5
+                "tieln": 5
             },
             "constructrate": 71,
             "efficiency": 1.0
-
         }
     ],
     "resources": [
@@ -380,7 +401,6 @@
             "valuemult": 2
         }
     ],
-
     "shipclasses": [
         {
             "id": "tieln",

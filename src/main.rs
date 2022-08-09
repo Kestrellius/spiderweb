@@ -684,12 +684,14 @@ mod internal {
                 .sum()
         }
 
-        fn calculate_values<S: Salience<P> + Copy, P: Polarity>(
+        pub fn calculate_values<S: Salience<P> + Copy, P: Polarity>(
             &self,
             salience: S,
             factionid: FactionID,
+            n_iters: usize,
         ) -> Vec<f32> {
-            let node_salience_map: Vec<(NodeID, f32)> = self
+            //Length equals nodes owned by faction and producing specified salience
+            let node_initial_salience_map: Vec<(NodeID, f32)> = self
                 .nodes
                 .iter()
                 .enumerate()
@@ -701,6 +703,7 @@ mod internal {
                         .map(|v| (id, v))
                 })
                 .collect();
+            //Length equals all nodes
             let tagged_threats: Vec<HashMap<FactionID, f32>> = self
                 .nodes
                 .iter()
@@ -716,6 +719,7 @@ mod internal {
                         .collect()
                 })
                 .collect();
+            //Length equals all nodes
             let node_degradations: Vec<f32> = tagged_threats
                 .iter()
                 .map(|map| {
@@ -723,35 +727,41 @@ mod internal {
                     scale_from_threat(sum, 20_f32) * S::DEG_MULT * 0.8
                 })
                 .collect();
+            //Outer vec length equals all nodes; inner vec equals nodes owned by faction and producing specified salience -- but only the instance of self-node contains a nonzero value
             let node_salience_state: Vec<Vec<f32>> = self
                 .nodes
                 .iter()
                 .enumerate()
                 .map(|(i, node)| {
                     let id = NodeID(i);
-                    node_salience_map
+                    node_initial_salience_map
                         .iter()
-                        .map(
-                            |&(sourceid, value)| {
-                                if sourceid == id {
-                                    value
-                                } else {
-                                    0_f32
-                                }
-                            },
-                        )
+                        .map(|&(sourcenodeid, value)| value * ((sourcenodeid == id) as u8) as f32)
                         .collect()
                 })
                 .collect();
-            let node_salience_state = (0..5).fold(node_salience_state, |mut state, n_iter| {
+
+            let n_tags = node_initial_salience_map.len();
+            let node_salience_state = (0..n_iters).fold(node_salience_state, |mut state, n_iter| {
                 println!("Completed {} iterations of salience propagation.", n_iter);
-                self.edges.iter().for_each(|(a, b)| {});
+                self.edges.iter().for_each(|(a, b)| {
+                    let deg_a = node_degradations[a.0];
+                    let deg_b = node_degradations[b.0];
+                    for i in 0..n_tags {
+                        state[a.0][i] = state[a.0][i].max(state[b.0][i] * deg_b);
+                        state[b.0][i] = state[b.0][i].max(state[a.0][i] * deg_a);
+                    }
+                });
                 state
             });
             node_salience_state
                 .iter()
                 .map(|salience| salience.iter().sum())
                 .collect()
+        }
+
+        pub fn update_node_threats(&mut self, n_steps:usize){
+            self.factions()
         }
     }
 
@@ -760,17 +770,20 @@ mod internal {
         use super::scale_from_threat;
         #[test]
         fn threat_scaling_test() {
-            let inputs:Vec<f32> = vec![0.5_f32,-0.5_f32,5_f32,-6_f32,-100_f32,101_f32,1042_f32,5391_f32,-1632_f32,-9998_f32,-4141_f32,43677_f32];
+            let inputs: Vec<f32> = vec![
+                0.5_f32, -0.5_f32, 5_f32, -6_f32, -100_f32, 101_f32, 1042_f32, 5391_f32, -1632_f32,
+                -9998_f32, -4141_f32, 43677_f32,
+            ];
 
             for input in inputs {
                 test_scale_from_threat(input);
             }
         }
-        fn test_scale_from_threat(input:f32) {
+        fn test_scale_from_threat(input: f32) {
             let scaled = scale_from_threat(input, 1000_f32);
-            assert!(scaled<1_f32);
-            assert!(scaled>0_f32);
-            println!("{:05.1}\t{:.3}",input,scaled);
+            assert!(scaled < 1_f32);
+            assert!(scaled > 0_f32);
+            println!("{:05.1}\t{:.3}", input, scaled);
         }
     }
 
@@ -795,7 +808,7 @@ mod internal {
 
     trait Polarity {}
 
-    mod polarity {
+    pub mod polarity {
 
         use super::Polarity;
 
@@ -818,6 +831,26 @@ mod internal {
         ) -> Option<f32>;
     }
 
+    impl Salience<polarity::Supply> for FactionID {
+        const DEG_MULT: f32 = 0.5;
+        fn get_value(
+            self,
+            (nodeid, node): (NodeID, &Node),
+            shipinstances: &HashMap<ShipInstanceID, ShipInstance>,
+            fleetinstances: &HashMap<FleetInstanceID, FleetInstance>,
+        ) -> Option<f32> {
+            let node_strength:u64 = shipinstances
+            .values()
+            .filter(|ship| ship.get_node(shipinstances, fleetinstances) == nodeid)
+            .filter(|ship| ship.allegiance == self)
+            .map(|ship| ship.strength)
+            .sum();
+            Some(node_strength)
+                .filter(|&strength| strength != 0)
+                .map(|strength| strength as f32)
+        }
+    }
+
     impl Salience<polarity::Supply> for ResourceID {
         const DEG_MULT: f32 = 1.0;
         fn get_value(
@@ -834,7 +867,7 @@ mod internal {
                         .outputs
                         .iter()
                         .filter(|output| (output.resourcetype == self) & (output.propagate == true))
-                        .map(|output| output.contents.saturating_sub(output.target))
+                        .map(|output| output.contents)
                         .sum::<u64>()
                 })
                 .sum::<u64>();
@@ -851,7 +884,7 @@ mod internal {
                                 .filter(|output| {
                                     (output.resourcetype == self) & (output.propagate == true)
                                 })
-                                .map(|output| output.contents.saturating_sub(output.target))
+                                .map(|output| output.contents)
                                 .sum::<u64>()
                         })
                         .sum::<u64>()
@@ -1165,12 +1198,15 @@ mod internal {
 
         fn process(&mut self, location_efficiency: f64) {
             if let FactoryState::Active = self.get_state() {
+                dbg!("Factory is active.");
                 self.inputs
                     .iter_mut()
                     .for_each(|stockpile| stockpile.input_process());
                 self.outputs
                     .iter_mut()
                     .for_each(|stockpile| stockpile.output_process(location_efficiency));
+            } else {
+                dbg!("Factory is inactive.");
             }
         }
     }
@@ -1546,11 +1582,45 @@ fn main() {
     let duration = start.elapsed();
     dbg!(duration);
     let mut root = json_root.hydrate();
-    for i in 0..50 {
+    //for i in 0..50 {
+    //    root.process_turn();
+    //}
+    //    dbg!(root.nodes);
+    //    dbg!(root.shipinstances);
+    //    dbg!(root.shipinstancecounter);
+    let empire = internal::FactionID(0);
+    let steel = internal::ResourceID(0);
+    let components = internal::ResourceID(1);
+
+    while root.turn < 5 {
         root.process_turn();
     }
-    dbg!(root.nodes);
-    dbg!(root.shipinstances);
-    dbg!(root.shipinstancecounter);
-    dbg!(root.turn);
+
+    let threat_values = root
+        .calculate_values::<internal::ResourceID, internal::polarity::Supply>(empire, empire, 5);
+    salience_values
+        .iter()
+        .copied()
+        .zip(root.nodes.iter().map(|node| node.visiblename.clone()))
+        .for_each(|(value, node)| println!("{:.3}\t{}", value, node));
+
+    let salience_values = root
+        .calculate_values::<internal::ResourceID, internal::polarity::Supply>(components, empire, 5);
+    salience_values
+        .iter()
+        .copied()
+        .zip(root.nodes.iter().map(|node| node.visiblename.clone()))
+        .for_each(|(value, node)| println!("{:.3}\t{}", value, node));
+
+
+
+    root.process_turn();
+
+    let salience_values = root
+        .calculate_values::<internal::ResourceID, internal::polarity::Supply>(components, empire, 5);
+    salience_values
+        .iter()
+        .copied()
+        .zip(root.nodes.iter().map(|node| node.visiblename.clone()))
+        .for_each(|(value, node)| println!("{:.3}\t{}", value, node));
 }
