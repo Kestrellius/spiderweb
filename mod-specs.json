@@ -13,7 +13,7 @@
                     "flavor": "htz",
                     "factorylist": [],
                     "shipyardlist": [],
-                    "environment": "coruscanthtzenv",
+                    "environment": "blankenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
                 },
@@ -24,149 +24,230 @@
                     "description": "I can't be bothered",
                     "flavor": "planet",
                     "factorylist": [
-                        "componentfactory"
+                        "population"
                     ],
                     "shipyardlist": [
                         "tieshipyard"
                     ],
-                    "environment": "coruscanthtzenv",
+                    "environment": "blankenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
                 }
             ]
         },
         {
-            "id": "alderaan",
-            "visiblename": "Alderaan",
-            "description": "The Alderaan system.",
+            "id": "kuat",
+            "visiblename": "Kuat",
+            "description": "The Kuat system.",
             "nodes": [
                 {
-                    "id": "alderaanhtz",
-                    "visiblename": "Alderaan Hyperspace Transit Zone",
+                    "id": "kuathtz",
+                    "visiblename": "Kuat Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "htz",
                     "factorylist": [],
                     "shipyardlist": [],
-                    "environment": "coruscanthtzenv",
+                    "environment": "blankenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "kuatplanet",
+                    "visiblename": "Kuat",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": ["componentfactory"],
+                    "shipyardlist": ["isdshipyard", "tieshipyard"],
+                    "environment": "blankenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
                 }
             ]
         },
         {
-            "id": "yavin",
-            "visiblename": "Yavin",
-            "description": "The Yavin system.",
+            "id": "anaxes",
+            "visiblename": "Anaxes",
+            "description": "The Anaxes system.",
             "nodes": [
                 {
-                    "id": "yavinhtz",
-                    "visiblename": "Yavin Hyperspace Transit Zone",
+                    "id": "anaxeshtz",
+                    "visiblename": "Anaxes Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "htz",
                     "factorylist": [],
                     "shipyardlist": [],
-                    "environment": "coruscanthtzenv",
+                    "environment": "blankenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
                 },
                 {
-                    "id": "yavinplanet",
-                    "visiblename": "Yavin",
+                    "id": "anaxesplanet",
+                    "visiblename": "Anaxes",
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
-                    "factorylist": [],
-                    "shipyardlist": [],
-                    "environment": "coruscanthtzenv",
-                    "allegiance": "empire",
-                    "efficiency": 2.5
-                },
-                {
-                    "id": "yavin4",
-                    "visiblename": "Yavin 4",
-                    "distance": 3,
-                    "description": "I can't be bothered",
-                    "flavor": "planet",
-                    "factorylist": [],
-                    "shipyardlist": [],
-                    "environment": "coruscanthtzenv",
+                    "factorylist": ["farm", "population"],
+                    "shipyardlist": ["tieshipyard"],
+                    "environment": "blankenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
                 }
             ]
         },
         {
-            "id": "tatooine",
-            "visiblename": "Tatooine",
-            "description": "The Tatooine system.",
+            "id": "chandrila",
+            "visiblename": "Chandrila",
+            "description": "The Chandrila system.",
             "nodes": [
                 {
-                    "id": "tatooinehtz",
-                    "visiblename": "Tatooine Hyperspace Transit Zone",
+                    "id": "chandrilahtz",
+                    "visiblename": "Chandrila Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "htz",
                     "factorylist": [],
                     "shipyardlist": [],
-                    "environment": "coruscanthtzenv",
+                    "environment": "blankenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
                 },
                 {
-                    "id": "tatooineplanet",
-                    "visiblename": "Tatooine",
+                    "id": "chandrilaplanet",
+                    "visiblename": "Chandrila",
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
-                    "factorylist": [],
+                    "factorylist": ["farm", "population"],
                     "shipyardlist": [],
-                    "environment": "coruscanthtzenv",
+                    "environment": "blankenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
                 }
             ]
         },
         {
-            "id": "hoth",
-            "visiblename": "Hoth",
-            "description": "The Hoth system.",
+            "id": "empressteta",
+            "visiblename": "Empress Teta",
+            "description": "The Empress Teta system.",
             "nodes": [
                 {
-                    "id": "hothhtz",
-                    "visiblename": "Hoth Hyperspace Transit Zone",
+                    "id": "empresstetahtz",
+                    "visiblename": "Empress Teta Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "htz",
                     "factorylist": [],
                     "shipyardlist": [],
-                    "environment": "coruscanthtzenv",
+                    "environment": "blankenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
                 },
                 {
-                    "id": "hothplanet",
-                    "visiblename": "Hoth",
+                    "id": "empresstetaplanet",
+                    "visiblename": "Empress Teta",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": ["steelmine", "farm"],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                }
+            ]
+        },
+        {
+            "id": "carida",
+            "visiblename": "Carida",
+            "description": "The Carida system.",
+            "nodes": [
+                {
+                    "id": "caridahtz",
+                    "visiblename": "Carida Hyperspace Transit Zone",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "caridaplanet",
+                    "visiblename": "Carida",
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
                     "factorylist": [],
-                    "shipyardlist": [],
-                    "environment": "coruscanthtzenv",
+                    "shipyardlist": ["isdshipyard"],
+                    "environment": "blankenv",
                     "allegiance": "empire",
+                    "efficiency": 2.5
+                }
+            ]
+        },
+        {
+            "id": "corellia",
+            "visiblename": "Corellia",
+            "description": "The Corellia system.",
+            "nodes": [
+                {
+                    "id": "corelliahtz",
+                    "visiblename": "Corellia Hyperspace Transit Zone",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
                     "efficiency": 2.5
                 },
                 {
-                    "id": "hothasteroids",
-                    "visiblename": "Hoth Asteroid Field",
+                    "id": "corelliaplanet",
+                    "visiblename": "Corellia",
                     "distance": 3,
                     "description": "I can't be bothered",
-                    "flavor": "asteroids",
+                    "flavor": "planet",
+                    "factorylist": ["componentfactory"],
+                    "shipyardlist": ["nebulonbshipyard","z95shipyard"],
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
+                    "efficiency": 2.5
+                }
+            ]
+        },
+        {
+            "id": "duro",
+            "visiblename": "duro",
+            "description": "The Duro system.",
+            "nodes": [
+                {
+                    "id": "durohtz",
+                    "visiblename": "Duro Hyperspace Transit Zone",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
                     "factorylist": [],
                     "shipyardlist": [],
-                    "environment": "coruscanthtzenv",
-                    "allegiance": "empire",
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "duroplanet",
+                    "visiblename": "Duro",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": ["steelmine", "farm"],
+                    "shipyardlist": ["z95shipyard"],
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
                     "efficiency": 2.5
                 }
             ]
@@ -185,8 +266,8 @@
                     "flavor": "htz",
                     "factorylist": [],
                     "shipyardlist": [],
-                    "environment": "coruscanthtzenv",
-                    "allegiance": "rebels",
+                    "environment": "blankenv",
+                    "allegiance": "empire",
                     "efficiency": 2.5
                 },
                 {
@@ -199,7 +280,403 @@
                         "componentfactory"
                     ],
                     "shipyardlist": [],
-                    "environment": "coruscanthtzenv",
+                    "environment": "blankenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                }
+            ]
+        },
+        {
+            "id": "alderaan",
+            "visiblename": "Alderaan",
+            "description": "The Alderaan system.",
+            "nodes": [
+                {
+                    "id": "alderaanhtz",
+                    "visiblename": "Alderaan Hyperspace Transit Zone",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "alderaanplanet",
+                    "visiblename": "Alderaan",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": ["farm", "population"],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                }
+            ]
+        },
+        {
+            "id": "yavin",
+            "visiblename": "Yavin",
+            "description": "The Yavin system.",
+            "nodes": [
+                {
+                    "id": "yavinhtz",
+                    "visiblename": "Yavin Hyperspace Transit Zone",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "yavinplanet",
+                    "visiblename": "Yavin",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "yavin4",
+                    "visiblename": "Yavin 4",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
+                    "efficiency": 2.5
+                }
+            ]
+        },
+        {
+            "id": "tatooine",
+            "visiblename": "Tatooine",
+            "description": "The Tatooine system.",
+            "nodes": [
+                {
+                    "id": "tatooinehtz",
+                    "visiblename": "Tatooine Hyperspace Transit Zone",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "tatooineplanet",
+                    "visiblename": "Tatooine",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": [],
+                    "shipyardlist": ["z95shipyard"],
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
+                    "efficiency": 2.5
+                }
+            ]
+        },
+        {
+            "id": "hoth",
+            "visiblename": "Hoth",
+            "description": "The Hoth system.",
+            "nodes": [
+                {
+                    "id": "hothhtz",
+                    "visiblename": "Hoth Hyperspace Transit Zone",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "hothplanet",
+                    "visiblename": "Hoth",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "hothasteroids",
+                    "visiblename": "Hoth Asteroid Field",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "asteroids",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
+                    "efficiency": 2.5
+                }
+            ]
+        },
+        {
+            "id": "bilbringi",
+            "visiblename": "Bilbringi",
+            "description": "The Bilbringi system.",
+            "nodes": [
+                {
+                    "id": "bilbringihtz",
+                    "visiblename": "bilbringi Hyperspace Transit Zone",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "bilbringiplanet",
+                    "visiblename": "Bilbringi",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": ["componentfactory", "farm"],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                }
+            ]
+        },
+        {
+            "id": "bespin",
+            "visiblename": "Bespin",
+            "description": "The Bespin system.",
+            "nodes": [
+                {
+                    "id": "bespinhtz",
+                    "visiblename": "Bespin Hyperspace Transit Zone",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "bespinplanet",
+                    "visiblename": "Bespin",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": ["steelmine", "population"],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
+                    "efficiency": 2.5
+                }
+            ]
+        },
+        {
+            "id": "endor",
+            "visiblename": "Endor",
+            "description": "The Endor system.",
+            "nodes": [
+                {
+                    "id": "endorhtz",
+                    "visiblename": "Endor Hyperspace Transit Zone",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "endorplanet",
+                    "visiblename": "Endor",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                }
+            ]
+        },
+        {
+            "id": "moncala",
+            "visiblename": "Mon Cala",
+            "description": "The Mon Cala system.",
+            "nodes": [
+                {
+                    "id": "moncalahtz",
+                    "visiblename": "Mon Cala Hyperspace Transit Zone",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "moncalaplanet",
+                    "visiblename": "Mon Cala",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": ["steelmine", "farm"],
+                    "shipyardlist": ["nebulonbshipyard", "z95shipyard"],
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
+                    "efficiency": 2.5
+                }
+            ]
+        },
+        {
+            "id": "rothana",
+            "visiblename": "Rothana",
+            "description": "The Rothana system.",
+            "nodes": [
+                {
+                    "id": "rothanahtz",
+                    "visiblename": "Rothana Hyperspace Transit Zone",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "rothanaplanet",
+                    "visiblename": "Rothana",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": ["steelmine", "componentfactory"],
+                    "shipyardlist": ["isdshipyard", "tieshipyard"],
+                    "environment": "blankenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                }
+            ]
+        },
+        {
+            "id": "sullust",
+            "visiblename": "Sullust",
+            "description": "The Sullust system.",
+            "nodes": [
+                {
+                    "id": "sullusthtz",
+                    "visiblename": "Sullust Hyperspace Transit Zone",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "sullustplanet",
+                    "visiblename": "Sullust",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": ["farm", "population"],
+                    "shipyardlist": ["nebulonbshipyard"],
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
+                    "efficiency": 2.5
+                }
+            ]
+        },
+        {
+            "id": "bothawui",
+            "visiblename": "Bothawui",
+            "description": "The Bothawui system.",
+            "nodes": [
+                {
+                    "id": "bothawuihtz",
+                    "visiblename": "Bothawui Hyperspace Transit Zone",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "bothawuiplanet",
+                    "visiblename": "Bothawui",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": ["population"],
+                    "shipyardlist": ["z95shipyard"],
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
+                    "efficiency": 2.5
+                }
+            ]
+        },
+        {
+            "id": "dantooine",
+            "visiblename": "Dantooine",
+            "description": "The Dantooine system.",
+            "nodes": [
+                {
+                    "id": "dantooinehtz",
+                    "visiblename": "Dantooine Hyperspace Transit Zone",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "htz",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "allegiance": "rebels",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "dantooineplanet",
+                    "visiblename": "Dantooine",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": ["farm"],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
                     "allegiance": "rebels",
                     "efficiency": 2.5
                 }
@@ -268,6 +745,86 @@
         [
             "alderaanhtz",
             "yavinhtz"
+        ],
+        [
+            "alderaanhtz",
+            "caridahtz"
+        ],
+        [
+            "coruscanthtz",
+            "anaxeshtz"
+        ],
+        [
+            "vulpterhtz",
+            "empresstetahtz"
+        ],
+        [
+            "coruscanthtz",
+            "kuathtz"
+        ],
+        [
+            "anaxeshtz",
+            "kuathtz"
+        ],
+        [
+            "caridahtz",
+            "bilbringihtz"
+        ],
+        [
+            "tatooinehtz",
+            "bothawuihtz"
+        ],
+        [
+            "durohtz",
+            "caridahtz"
+        ],
+        [
+            "empresstetahtz",
+            "bespinhtz"
+        ],
+        [
+            "empresstetahtz",
+            "sullusthtz"
+        ],
+        [
+            "sullusthtz",
+            "dantooinehtz"
+        ],
+        [
+            "dantooinehtz",
+            "yavinhtz"
+        ],
+        [
+            "dantooinehtz",
+            "endorhtz"
+        ],
+        [
+            "endorhtz",
+            "sullusthtz"
+        ],
+        [
+            "rothanahtz",
+            "hothhtz"
+        ],
+        [
+            "durohtz",
+            "corelliahtz"
+        ],
+        [
+            "kuathtz",
+            "corelliahtz"
+        ],
+        [
+            "vulpterhtz",
+            "chandrilahtz"
+        ],
+        [
+            "chandrilahtz",
+            "moncalahtz"
+        ],
+        [
+            "moncalahtz",
+            "sullusthtz"
         ]
     ],
     "factions": [
@@ -313,6 +870,21 @@
     ],
     "factoryclasses": [
         {
+            "id": "steelmine",
+            "visiblename": "Durasteel Mine",
+            "description": "foo fie foe fum",
+            "inputs": [],
+            "outputs": [
+                {
+                    "resourcetype": "steel",
+                    "contents": 1000,
+                    "rate": 100,
+                    "target": 2000,
+                    "capacity": 3000
+                }
+            ]
+        },
+        {
             "id": "componentfactory",
             "visiblename": "Component Factory",
             "description": "foo fie foe fum",
@@ -332,6 +904,45 @@
                     "rate": 30,
                     "target": 1000,
                     "capacity": 1500
+                }
+            ]
+        },
+        {
+            "id": "farm",
+            "visiblename": "Farm",
+            "description": "foo fie foe fum",
+            "inputs": [
+            ],
+            "outputs": [
+                {
+                    "resourcetype": "food",
+                    "contents": 100,
+                    "rate": 50,
+                    "target": 1000,
+                    "capacity": 1500
+                }
+            ]
+        },
+        {
+            "id": "population",
+            "visiblename": "Civilian Population",
+            "description": "foo fie foe fum",
+            "inputs": [
+                {
+                    "resourcetype": "food",
+                    "contents": 1000,
+                    "rate": 200,
+                    "target": 400,
+                    "capacity": 5000
+                }
+            ],
+            "outputs": [
+                {
+                    "resourcetype": "personnel",
+                    "contents": 20,
+                    "rate": 5,
+                    "target": 50,
+                    "capacity": 100
                 }
             ]
         }
@@ -354,6 +965,63 @@
                 "tieln": 5
             },
             "constructrate": 71,
+            "efficiency": 1.0
+        },
+        {
+            "id": "z95shipyard",
+            "visiblename": "Z-95 Shipyard",
+            "description": "foo fie foe fum",
+            "inputs": [
+                {
+                    "resourcetype": "steel",
+                    "contents": 300,
+                    "rate": 25,
+                    "target": 500,
+                    "capacity": 1000
+                }
+            ],
+            "outputs": {
+                "z95": 5
+            },
+            "constructrate": 100,
+            "efficiency": 1.0
+        },
+        {
+            "id": "isdshipyard",
+            "visiblename": "Star Destroyer Shipyard",
+            "description": "foo fie foe fum",
+            "inputs": [
+                {
+                    "resourcetype": "steel",
+                    "contents": 5000,
+                    "rate": 1000,
+                    "target": 2000,
+                    "capacity": 10000
+                }
+            ],
+            "outputs": {
+                "isd": 1
+            },
+            "constructrate": 1500,
+            "efficiency": 1.0
+        },
+        {
+            "id": "nebulonbshipyard",
+            "visiblename": "Nebulon-B Shipyard",
+            "description": "foo fie foe fum",
+            "inputs": [
+                {
+                    "resourcetype": "steel",
+                    "contents": 2000,
+                    "rate": 500,
+                    "target": 1500,
+                    "capacity": 5000
+                }
+            ],
+            "outputs": {
+                "nebulonb": 1
+            },
+            "constructrate": 500,
             "efficiency": 1.0
         }
     ],
@@ -380,7 +1048,7 @@
             "valuemult": 1
         },
         {
-            "id": "people",
+            "id": "personnel",
             "visiblename": "Personnel",
             "description": "Some guys. They're kind of annoying to transport.",
             "cargovol": 1,
@@ -418,6 +1086,22 @@
             "defectchance": {}
         },
         {
+            "id": "z95",
+            "visiblename": "Z-95 Headhunter",
+            "description": "An aging, but still effective, light starfighter used by rebels, pirates, local governments, and civilian operators.",
+            "basestrength": 16,
+            "defaultweapons": {
+                "lightlaser": 1,
+                "prottorp": 4
+            },
+            "hangarvol": 30,
+            "cargovol": 15,
+            "factoryclasslist": [],
+            "shipyardclasslist": [],
+            "hyperdrive": 2,
+            "defectchance": {}
+        },
+        {
             "id": "isd",
             "visiblename": "Imperial II-class Star Destroyer",
             "description": "Powerful capital vessel, deployed in large numbers by the Empire.",
@@ -430,6 +1114,16 @@
             "compconfig": {
                 "tieln": 72
             },
+            "defectchance": {}
+        },
+        {
+            "id": "nebulonb",
+            "visiblename": "EF76 Nebulon-B Escort Frigate",
+            "description": "A light capital ship, quick but well-armed for its size.",
+            "basestrength": 150,
+            "factoryclasslist": [],
+            "shipyardclasslist": [],
+            "hyperdrive": 2,
             "defectchance": {}
         }
     ],

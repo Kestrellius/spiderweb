@@ -14,6 +14,7 @@ mod json {
     use serde::{Deserialize, Serialize};
     use serde_json::{from_reader, to_writer_pretty};
     use std::collections::{HashMap, HashSet};
+    use std::iter;
 
     #[derive(Debug, Clone, Serialize, Deserialize)] //structure for modder-defined json
     pub struct Root {
@@ -25,6 +26,7 @@ mod json {
         shipyardclasses: Vec<ShipyardClass>,
         resources: Vec<Resource>,
         shipclasses: Vec<ShipClass>,
+        shipais: Vec<ShipAI>,
         fleetclasses: Vec<FleetClass>,
     }
 
@@ -142,12 +144,32 @@ mod json {
                 })
                 .unzip();
 
-            let shipclassidmap: HashMap<String, internal::ShipClassID> = self
-                .shipclasses
-                .iter()
-                .enumerate()
-                .map(|(i, shipclass)| (shipclass.id.clone(), internal::ShipClassID(i)))
-                .collect();
+            let generic_demand_ship = ShipClass {
+                id: "generic_demand_ship".to_string(),
+                visiblename: "Generic Demand Ship".to_string(),
+                description: "".to_string(),
+                basehull: None,  //how many hull hitpoints this ship has by default
+                basestrength: 0, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
+                aiclass: None,
+                defaultweapons: None, //a strikecraft's default weapons, which it always has with it
+                hangarcap: None,      //this ship's capacity for carrying active strikecraft
+                weaponcap: None,      //this ship's capacity for carrying strikecraft weapons
+                cargocap: None,       //this ship's capacity for carrying cargo
+                hangarvol: None, //how much hangar space this ship takes up when carried by a host
+                cargovol: None, //how much cargo space this ship takes up when transported by a cargo ship
+                factoryclasslist: Vec::new(),
+                shipyardclasslist: Vec::new(),
+                hyperdrive: None, //number of links this ship can traverse in one turn
+                compconfig: None, //ideal configuration for this ship's strikecraft complement
+                defectchance: None,
+            };
+
+            let shipclassidmap: HashMap<String, internal::ShipClassID> =
+                iter::once(&generic_demand_ship)
+                    .chain(self.shipclasses.iter())
+                    .enumerate()
+                    .map(|(i, shipclass)| (shipclass.id.clone(), internal::ShipClassID(i)))
+                    .collect();
             let (shipyardclassidmap, shipyardclasses): (
                 HashMap<String, internal::ShipyardClassID>,
                 Vec<internal::ShipyardClass>,
@@ -179,19 +201,32 @@ mod json {
                     node
                 })
                 .collect();
-
-            let shipclasses: Vec<internal::ShipClass> = self
-                .shipclasses
+            let (shipaiidmap, shipais): (
+                HashMap<String, internal::ShipAIID>,
+                Vec<internal::ShipAI>,
+            ) = self
+                .shipais
                 .drain(0..)
+                .enumerate()
+                .map(|(i, shipai)| {
+                    let (stringid, internal_shipai) = shipai.hydrate(&resourceidmap);
+                    let kv_pair = (stringid, internal::ShipAIID(i));
+                    (kv_pair, internal_shipai)
+                })
+                .unzip();
+            let shipclasses: Vec<internal::ShipClass> = iter::once(generic_demand_ship)
+                .chain(self.shipclasses.drain(0..))
                 .map(|shipclass| {
                     shipclass.hydrate(
                         &resourceidmap,
                         &shipclassidmap,
                         &factoryclassidmap,
                         &shipyardclassidmap,
+                        &shipaiidmap,
                     )
                 })
                 .collect();
+
             let (fleetclassidmap, fleetclasses): (
                 HashMap<String, internal::FleetClassID>,
                 Vec<internal::FleetClass>,
@@ -215,6 +250,7 @@ mod json {
                 factoryclasses,
                 shipyardclasses,
                 resources,
+                shipais,
                 shipclasses,
                 shipinstances: HashMap::new(),
                 shipinstancecounter: 0_usize,
@@ -295,7 +331,9 @@ mod json {
                     .shipyardlist
                     .iter()
                     .map(|stringid| {
-                        let classid = shipyardclassidmap.get(stringid).unwrap();
+                        let classid = shipyardclassidmap
+                            .get(stringid)
+                            .expect(&format!("Shipyard '{}' does not exist.", stringid));
                         shipyardlist[classid.0].instantiate(true)
                     })
                     .collect(),
@@ -481,6 +519,7 @@ mod json {
         description: String,
         basehull: Option<u64>, //how many hull hitpoints this ship has by default
         basestrength: u64, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
+        aiclass: Option<String>,
         defaultweapons: Option<HashMap<String, u64>>, //a strikecraft's default weapons, which it always has with it
         hangarcap: Option<u64>, //this ship's capacity for carrying active strikecraft
         weaponcap: Option<u64>, //this ship's capacity for carrying strikecraft weapons
@@ -501,6 +540,7 @@ mod json {
             shipclassidmap: &HashMap<String, internal::ShipClassID>,
             factoryclassidmap: &HashMap<String, internal::FactoryClassID>,
             shipyardclassidmap: &HashMap<String, internal::ShipyardClassID>,
+            shipaiidmap: &HashMap<String, internal::ShipAIID>,
         ) -> internal::ShipClass {
             let shipclass = internal::ShipClass {
                 id: *shipclassidmap.get(&self.id).unwrap(),
@@ -508,6 +548,7 @@ mod json {
                 description: self.description,
                 basehull: self.basehull,
                 basestrength: self.basestrength,
+                aiclass: self.aiclass.map(|x| *shipaiidmap.get(&x).unwrap()),
                 defaultweapons: self.defaultweapons.map(|map| {
                     map.iter()
                         .map(|(id, n)| {
@@ -556,6 +597,32 @@ mod json {
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct ShipAI {
+        id: String,
+        ship_attract_specific: f32, //a multiplier for demand gradients corresponding to the specific class of a ship using this AI
+        ship_attract_generic: f32, //a multiplier for the extent to which a ship using this AI will follow generic ship demand gradients
+        resource_attract: HashMap<String, f32>, //a list of resources whose demand gradients this AI will follow, and individual strength multipliers
+    }
+
+    impl ShipAI {
+        fn hydrate(
+            self,
+            resourceidmap: &HashMap<String, internal::ResourceID>,
+        ) -> (String, internal::ShipAI) {
+            let shipai = internal::ShipAI {
+                ship_attract_specific: self.ship_attract_specific,
+                ship_attract_generic: self.ship_attract_generic,
+                resource_attract: self
+                    .resource_attract
+                    .iter()
+                    .map(|(stringid, v)| (*resourceidmap.get(stringid).unwrap(), *v))
+                    .collect(),
+            };
+            (self.id, shipai)
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
     struct FleetClass {
         id: String,
         visiblename: String,
@@ -587,6 +654,7 @@ mod json {
 mod internal {
 
     use std::collections::{HashMap, HashSet};
+    use ordered_float::NotNan;
 
     #[derive(Debug)]
     pub struct Root {
@@ -598,6 +666,7 @@ mod internal {
         pub factoryclasses: Vec<FactoryClass>,
         pub shipyardclasses: Vec<ShipyardClass>,
         pub resources: Vec<Resource>,
+        pub shipais: Vec<ShipAI>,
         pub shipclasses: Vec<ShipClass>,
         pub shipinstances: HashMap<ShipInstanceID, ShipInstance>,
         pub shipinstancecounter: usize,
@@ -742,26 +811,44 @@ mod internal {
                 .collect();
 
             let n_tags = node_initial_salience_map.len();
-            let node_salience_state = (0..n_iters).fold(node_salience_state, |mut state, n_iter| {
-                println!("Completed {} iterations of salience propagation.", n_iter);
-                self.edges.iter().for_each(|(a, b)| {
-                    let deg_a = node_degradations[a.0];
-                    let deg_b = node_degradations[b.0];
-                    for i in 0..n_tags {
-                        state[a.0][i] = state[a.0][i].max(state[b.0][i] * deg_b);
-                        state[b.0][i] = state[b.0][i].max(state[a.0][i] * deg_a);
-                    }
+            let node_salience_state =
+                (0..n_iters).fold(node_salience_state, |mut state, n_iter| {
+                    println!("Completed {} iterations of salience propagation.", n_iter);
+                    self.edges.iter().for_each(|(a, b)| {
+                        let deg_a = node_degradations[a.0];
+                        let deg_b = node_degradations[b.0];
+                        for i in 0..n_tags {
+                            state[a.0][i] = state[a.0][i].max(state[b.0][i] * deg_b);
+                            state[b.0][i] = state[b.0][i].max(state[a.0][i] * deg_a);
+                        }
+                    });
+                    state
                 });
-                state
-            });
             node_salience_state
                 .iter()
                 .map(|salience| salience.iter().sum())
                 .collect()
         }
 
-        pub fn update_node_threats(&mut self, n_steps:usize){
-            self.factions()
+        pub fn update_node_threats(&mut self, n_steps: usize) {
+            let faction_threat: Vec<(FactionID, Vec<f32>)> = self
+                .factions
+                .iter()
+                .enumerate()
+                .map(|(i, _)| {
+                    let id = FactionID(i);
+                    let v = self.calculate_values(id, id, n_steps);
+                    (id, v)
+                })
+                .collect();
+            faction_threat.iter().for_each(|(factionid, threat_list)| {
+                threat_list
+                    .iter()
+                    .zip(self.nodes.iter_mut())
+                    .for_each(|(&threat_v, node)| {
+                        node.threat.insert(*factionid, threat_v).unwrap();
+                    })
+            })
         }
     }
 
@@ -839,12 +926,12 @@ mod internal {
             shipinstances: &HashMap<ShipInstanceID, ShipInstance>,
             fleetinstances: &HashMap<FleetInstanceID, FleetInstance>,
         ) -> Option<f32> {
-            let node_strength:u64 = shipinstances
-            .values()
-            .filter(|ship| ship.get_node(shipinstances, fleetinstances) == nodeid)
-            .filter(|ship| ship.allegiance == self)
-            .map(|ship| ship.strength)
-            .sum();
+            let node_strength: u64 = shipinstances
+                .values()
+                .filter(|ship| ship.get_node(shipinstances, fleetinstances) == nodeid)
+                .filter(|ship| ship.allegiance == self)
+                .map(|ship| ship.strength)
+                .sum();
             Some(node_strength)
                 .filter(|&strength| strength != 0)
                 .map(|strength| strength as f32)
@@ -984,7 +1071,7 @@ mod internal {
     #[derive(Debug, Hash, Copy, Clone, Eq, PartialEq)]
     pub struct NodeFlavorID(pub usize);
 
-    #[derive(Debug, Hash, Copy, Clone, Eq, PartialEq)]
+    #[derive(Debug, Hash, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
     pub struct FactionID(pub usize);
 
     #[derive(Debug, Hash, Copy, Clone, Eq, PartialEq)]
@@ -1005,8 +1092,8 @@ mod internal {
     #[derive(Debug, Hash, Copy, Clone, Eq, PartialEq)]
     pub struct ShipClassID(pub usize);
 
-    #[derive(Copy, Clone, Debug)]
-    pub struct ShipAIID(usize);
+    #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+    pub struct ShipAIID(pub usize);
 
     #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
     pub struct ShipInstanceID(usize);
@@ -1321,6 +1408,14 @@ mod internal {
                 .collect()
         }
     }
+
+    #[derive(Debug, Clone)]
+    pub struct ShipAI {
+        pub ship_attract_specific: f32, //a multiplier for demand gradients corresponding to the specific class of a ship using this AI
+        pub ship_attract_generic: f32, //a multiplier for the extent to which a ship using this AI will follow generic ship demand gradients
+        pub resource_attract: HashMap<ResourceID, f32>, //a list of resources whose demand gradients this AI will follow, and individual strength multipliers
+    }
+
     #[derive(Debug, Clone)]
     pub struct ShipClass {
         pub id: ShipClassID,
@@ -1328,6 +1423,7 @@ mod internal {
         pub description: String,
         pub basehull: Option<u64>, //how many hull hitpoints this ship has by default
         pub basestrength: u64, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
+        pub aiclass: Option<ShipAIID>,
         pub defaultweapons: Option<HashMap<ResourceID, u64>>, //a strikecraft's default weapons, which it always has with it
         pub hangarcap: Option<u64>, //this ship's capacity for carrying active strikecraft
         pub weaponcap: Option<u64>, //this ship's capacity for carrying strikecraft weapons
@@ -1380,14 +1476,6 @@ mod internal {
         }
     }
 
-    #[derive(Debug, Clone)]
-    pub struct ShipAI {
-        id: ShipAIID,
-        ship_attract_specific: f64, //a multiplier for demand gradients corresponding to the specific class of a ship using this AI
-        ship_attract_generic: f64, //a multiplier for the extent to which a ship using this AI will follow generic ship demand gradients
-        resource_attract: HashMap<ResourceID, f64>, //a list of resources whose demand gradients this AI will follow, and individual strength multipliers
-    }
-
     #[derive(Debug)]
     pub struct ShipInstance {
         visiblename: String,
@@ -1413,6 +1501,43 @@ mod internal {
                 ShipLocationFlavor::Fleet(id) => fleetinstances.get(&id).unwrap().location,
                 ShipLocationFlavor::Host(flavor) => flavor.get_node(shipinstances, fleetinstances),
                 ShipLocationFlavor::Detachment(node, fleet) => node,
+            }
+        }
+        pub fn navigate(
+            &self,
+            nodes: &Vec<Node>,
+            neighbors: &HashMap<NodeID, Vec<NodeID>>,
+            shipinstances: &HashMap<ShipInstanceID, ShipInstance>,
+            fleetinstances: &HashMap<FleetInstanceID, FleetInstance>,
+            resource_salience_map: &Vec<Vec<f32>>, //outer vec is nodes, inner vec is resources
+            shipclass_salience_map: &Vec<Vec<f32>>, //outer vec is nodes, inner vec is shipclasses
+            shipclasses: &Vec<ShipClass>,
+            shipais: &Vec<ShipAI>,
+        ) -> NodeID {
+            let position: NodeID = self.get_node(&shipinstances, &fleetinstances);
+            if let Some(self_ai) = shipclasses[self.shipclass.0].aiclass {
+                *neighbors
+                    .get(&position)
+                    .unwrap()
+                    .iter()
+                    .max_by_key(|nodeid| {
+                        let resource_value: f32 = shipais[self_ai.0]
+                            .resource_attract
+                            .iter()
+                            .map(|(resourceid, scalar)| {
+                                resource_salience_map[nodeid.0][resourceid.0] * scalar
+                            })
+                            .sum();
+                        let ship_value_specific: f32 = shipclass_salience_map[nodeid.0]
+                            [self.shipclass.0]
+                            * shipais[self_ai.0].ship_attract_specific;
+                        let ship_value_generic: f32 = shipclass_salience_map[nodeid.0][0]
+                            * shipais[self_ai.0].ship_attract_generic;
+
+                        NotNan::new(resource_value + ship_value_specific + ship_value_generic).unwrap()
+                    }).unwrap_or(&position)
+            } else {
+                position
             }
         }
     }
@@ -1589,6 +1714,8 @@ fn main() {
     //    dbg!(root.shipinstances);
     //    dbg!(root.shipinstancecounter);
     let empire = internal::FactionID(0);
+    let rebels = internal::FactionID(1);
+    let pirates = internal::FactionID(2);
     let steel = internal::ResourceID(0);
     let components = internal::ResourceID(1);
 
@@ -1596,31 +1723,33 @@ fn main() {
         root.process_turn();
     }
 
-    let threat_values = root
-        .calculate_values::<internal::ResourceID, internal::polarity::Supply>(empire, empire, 5);
-    salience_values
-        .iter()
-        .copied()
-        .zip(root.nodes.iter().map(|node| node.visiblename.clone()))
-        .for_each(|(value, node)| println!("{:.3}\t{}", value, node));
+    for i in 0..10 {
+        root.update_node_threats(10);
+        //dbg!();
+    }
 
-    let salience_values = root
-        .calculate_values::<internal::ResourceID, internal::polarity::Supply>(components, empire, 5);
-    salience_values
-        .iter()
-        .copied()
-        .zip(root.nodes.iter().map(|node| node.visiblename.clone()))
-        .for_each(|(value, node)| println!("{:.3}\t{}", value, node));
-
-
+    //dbg!(&root.nodes);
 
     root.process_turn();
 
-    let salience_values = root
-        .calculate_values::<internal::ResourceID, internal::polarity::Supply>(components, empire, 5);
+    root.nodes.iter().for_each(|node| {
+        let mut threat_list: Vec<(internal::FactionID, f32)> =
+            node.threat.iter().map(|(fid, v)| (*fid, *v)).collect();
+        threat_list.sort_by_key(|(id, _)| *id);
+        println!("{}", node.visiblename);
+        for (_, threat) in threat_list {
+            print!("{:.6}, ", threat);
+        }
+        print!("\n");
+    })
+
+    /*let salience_values = root
+        .calculate_values::<internal::ResourceID, internal::polarity::Supply>(
+            components, empire, 5,
+        );
     salience_values
         .iter()
         .copied()
         .zip(root.nodes.iter().map(|node| node.visiblename.clone()))
-        .for_each(|(value, node)| println!("{:.3}\t{}", value, node));
+        .for_each(|(value, node)| println!("{:.3}\t{}", value, node));*/
 }
