@@ -150,7 +150,7 @@ mod json {
                 description: "".to_string(),
                 basehull: None,  //how many hull hitpoints this ship has by default
                 basestrength: 0, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
-                aiclass: None,
+                aiclass: "yes".to_string(),
                 defaultweapons: None, //a strikecraft's default weapons, which it always has with it
                 hangarcap: None,      //this ship's capacity for carrying active strikecraft
                 weaponcap: None,      //this ship's capacity for carrying strikecraft weapons
@@ -159,6 +159,7 @@ mod json {
                 cargovol: None, //how much cargo space this ship takes up when transported by a cargo ship
                 factoryclasslist: Vec::new(),
                 shipyardclasslist: Vec::new(),
+                stockpiles: Vec::new(),
                 hyperdrive: None, //number of links this ship can traverse in one turn
                 compconfig: None, //ideal configuration for this ship's strikecraft complement
                 defectchance: None,
@@ -209,7 +210,8 @@ mod json {
                 .drain(0..)
                 .enumerate()
                 .map(|(i, shipai)| {
-                    let (stringid, internal_shipai) = shipai.hydrate(&resourceidmap);
+                    let (stringid, internal_shipai) =
+                        shipai.hydrate(&resourceidmap, &shipclassidmap);
                     let kv_pair = (stringid, internal::ShipAIID(i));
                     (kv_pair, internal_shipai)
                 })
@@ -393,6 +395,8 @@ mod json {
         }
     }
 
+
+
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     pub struct Stockpile {
         resourcetype: String,
@@ -519,7 +523,7 @@ mod json {
         description: String,
         basehull: Option<u64>, //how many hull hitpoints this ship has by default
         basestrength: u64, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
-        aiclass: Option<String>,
+        aiclass: String,
         defaultweapons: Option<HashMap<String, u64>>, //a strikecraft's default weapons, which it always has with it
         hangarcap: Option<u64>, //this ship's capacity for carrying active strikecraft
         weaponcap: Option<u64>, //this ship's capacity for carrying strikecraft weapons
@@ -528,6 +532,7 @@ mod json {
         cargovol: Option<u64>, //how much cargo space this ship takes up when transported by a cargo ship
         factoryclasslist: Vec<String>,
         shipyardclasslist: Vec<String>,
+        stockpiles: Vec<Stockpile>,
         hyperdrive: Option<u64>, //number of links this ship can traverse in one turn
         compconfig: Option<HashMap<String, u64>>, //ideal configuration for this ship's strikecraft complement
         defectchance: Option<HashMap<String, f64>>,
@@ -548,7 +553,7 @@ mod json {
                 description: self.description,
                 basehull: self.basehull,
                 basestrength: self.basestrength,
-                aiclass: self.aiclass.map(|x| *shipaiidmap.get(&x).unwrap()),
+                aiclass: *shipaiidmap.get(&self.aiclass).unwrap(),
                 defaultweapons: self.defaultweapons.map(|map| {
                     map.iter()
                         .map(|(id, n)| {
@@ -584,6 +589,11 @@ mod json {
                             .unwrap_or_else(|| panic!("{} is not found", id))
                     })
                     .collect(),
+                stockpiles: self
+                    .stockpiles
+                    .iter()
+                    .map(|stockpile| stockpile.clone().hydrate(&resourceidmap))
+                    .collect(),
                 hyperdrive: self.hyperdrive,
                 compconfig: self.compconfig.map(|map| {
                     map.iter()
@@ -599,19 +609,26 @@ mod json {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct ShipAI {
         id: String,
-        ship_attract_specific: f32, //a multiplier for demand gradients corresponding to the specific class of a ship using this AI
-        ship_attract_generic: f32, //a multiplier for the extent to which a ship using this AI will follow generic ship demand gradients
-        resource_attract: HashMap<String, f32>, //a list of resources whose demand gradients this AI will follow, and individual strength multipliers
+        ship_attract_specific: f32, //a multiplier for supply gradients corresponding to the specific class of a ship using this AI
+        ship_attract_generic: f32, //a multiplier for the extent to which a ship using this AI will follow generic ship supply gradients
+        ship_cargo_attract: HashMap<String, f32>, //a list of ship classes whose supply gradients this AI will follow (so as to carry e.g. fighters that can't travel on their own), and individual strength multipliers
+        resource_attract: HashMap<String, f32>, //a list of resources whose supply gradients this AI will follow, and individual strength multipliers
     }
 
     impl ShipAI {
         fn hydrate(
             self,
             resourceidmap: &HashMap<String, internal::ResourceID>,
+            shipclassidmap: &HashMap<String, internal::ShipClassID>,
         ) -> (String, internal::ShipAI) {
             let shipai = internal::ShipAI {
                 ship_attract_specific: self.ship_attract_specific,
                 ship_attract_generic: self.ship_attract_generic,
+                ship_cargo_attract: self
+                    .ship_cargo_attract
+                    .iter()
+                    .map(|(stringid, v)| (*shipclassidmap.get(stringid).unwrap(), *v))
+                    .collect(),
                 resource_attract: self
                     .resource_attract
                     .iter()
@@ -653,8 +670,8 @@ mod json {
 
 mod internal {
 
-    use std::collections::{HashMap, HashSet};
     use ordered_float::NotNan;
+    use std::collections::{HashMap, HashSet};
 
     #[derive(Debug)]
     pub struct Root {
@@ -728,6 +745,7 @@ mod internal {
                 faction,
                 &self.factoryclasses,
                 &self.shipyardclasses,
+                &self.shipais,
             );
             self.shipinstancecounter += 1;
             let ship_instance_id = ShipInstanceID(self.shipinstancecounter);
@@ -1185,6 +1203,10 @@ mod internal {
         pub valuemult: u64, //how valuable the AI considers one unit of this resource to be
     }
 
+    trait Stockpile2 {
+        fn contents(&self) -> HashMap<ResourceID,u64>;
+    }
+
     #[derive(Debug, Clone, PartialEq)]
     pub struct Stockpile {
         pub resourcetype: ResourceID,
@@ -1413,6 +1435,7 @@ mod internal {
     pub struct ShipAI {
         pub ship_attract_specific: f32, //a multiplier for demand gradients corresponding to the specific class of a ship using this AI
         pub ship_attract_generic: f32, //a multiplier for the extent to which a ship using this AI will follow generic ship demand gradients
+        pub ship_cargo_attract: HashMap<ShipClassID, f32>,
         pub resource_attract: HashMap<ResourceID, f32>, //a list of resources whose demand gradients this AI will follow, and individual strength multipliers
     }
 
@@ -1423,7 +1446,7 @@ mod internal {
         pub description: String,
         pub basehull: Option<u64>, //how many hull hitpoints this ship has by default
         pub basestrength: u64, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
-        pub aiclass: Option<ShipAIID>,
+        pub aiclass: ShipAIID,
         pub defaultweapons: Option<HashMap<ResourceID, u64>>, //a strikecraft's default weapons, which it always has with it
         pub hangarcap: Option<u64>, //this ship's capacity for carrying active strikecraft
         pub weaponcap: Option<u64>, //this ship's capacity for carrying strikecraft weapons
@@ -1432,6 +1455,7 @@ mod internal {
         pub cargovol: Option<u64>, //how much cargo space this ship takes up when transported by a cargo ship
         pub factoryclasslist: Vec<FactoryClassID>,
         pub shipyardclasslist: Vec<ShipyardClassID>,
+        pub stockpiles: Vec<Stockpile>,
         pub hyperdrive: Option<u64>, //number of links this ship can traverse in one turn
         pub compconfig: Option<HashMap<ShipClassID, u64>>, //ideal configuration for this ship's strikecraft complement
         pub defectchance: HashMap<FactionID, f64>,         //
@@ -1452,6 +1476,7 @@ mod internal {
             faction: FactionID,
             factoryclasses: &Vec<FactoryClass>,
             shipyardclasses: &Vec<ShipyardClass>,
+            shipais: &Vec<ShipAI>,
         ) -> ShipInstance {
             ShipInstance {
                 visiblename: uuid::Uuid::new_v4().to_string(),
@@ -1468,6 +1493,7 @@ mod internal {
                     .iter()
                     .map(|classid| shipyardclasses[classid.0].instantiate(true))
                     .collect(),
+                stockpiles: self.stockpiles.clone(),
                 location,
                 allegiance: faction,
                 experience: 0,
@@ -1484,6 +1510,7 @@ mod internal {
         strength: u64, //ship's strength score, based on its class strength score but affected by its current hull percentage and experience score
         factoryinstancelist: Vec<FactoryInstance>,
         shipyardinstancelist: Vec<ShipyardInstance>,
+        stockpiles: Vec<Stockpile>,
         location: ShipLocationFlavor, //where the ship is -- a node if it's unaffiliated, a fleet if it's in one
         allegiance: FactionID,        //which faction this ship belongs to
         experience: u64, //XP gained by this ship, which affects strength score and in-mission AI class
@@ -1515,30 +1542,35 @@ mod internal {
             shipais: &Vec<ShipAI>,
         ) -> NodeID {
             let position: NodeID = self.get_node(&shipinstances, &fleetinstances);
-            if let Some(self_ai) = shipclasses[self.shipclass.0].aiclass {
-                *neighbors
-                    .get(&position)
-                    .unwrap()
-                    .iter()
-                    .max_by_key(|nodeid| {
-                        let resource_value: f32 = shipais[self_ai.0]
-                            .resource_attract
-                            .iter()
-                            .map(|(resourceid, scalar)| {
-                                resource_salience_map[nodeid.0][resourceid.0] * scalar
-                            })
-                            .sum();
-                        let ship_value_specific: f32 = shipclass_salience_map[nodeid.0]
-                            [self.shipclass.0]
-                            * shipais[self_ai.0].ship_attract_specific;
-                        let ship_value_generic: f32 = shipclass_salience_map[nodeid.0][0]
-                            * shipais[self_ai.0].ship_attract_generic;
+            let self_ai = shipclasses[self.shipclass.0].aiclass;
+            *neighbors
+                .get(&position)
+                .unwrap()
+                .iter()
+                .max_by_key(|nodeid| {
+                    let resource_value: f32 = shipais[self_ai.0]
+                        .resource_attract
+                        .iter()
+                        .map(|(resourceid, scalar)| {
+                            resource_salience_map[nodeid.0][resourceid.0] * scalar
+                        })
+                        .sum();
+                    let ship_cargo_value: f32 = shipais[self_ai.0]
+                        .ship_cargo_attract
+                        .iter()
+                        .map(|(shipclassid, scalar)| {
+                            shipclass_salience_map[nodeid.0][shipclassid.0] * scalar
+                        })
+                        .sum();
+                    let ship_value_specific: f32 = shipclass_salience_map[nodeid.0]
+                        [self.shipclass.0]
+                        * shipais[self_ai.0].ship_attract_specific;
+                    let ship_value_generic: f32 = shipclass_salience_map[nodeid.0][0]
+                        * shipais[self_ai.0].ship_attract_generic;
 
-                        NotNan::new(resource_value + ship_value_specific + ship_value_generic).unwrap()
-                    }).unwrap_or(&position)
-            } else {
-                position
-            }
+                    NotNan::new(resource_value + ship_value_specific + ship_value_generic).unwrap()
+                })
+                .unwrap_or(&position)
         }
     }
 
