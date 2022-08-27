@@ -93,23 +93,33 @@ mod json {
                 .map(|(i, nodeflavor)| (nodeflavor.id.clone(), internal::NodeFlavorID(i)))
                 .collect();
 
-            let factionidmap: HashMap<String, internal::FactionID> = self
+            let factionidmap: HashMap<String, internal::Key::<internal::Faction>> = self
                 .factions
                 .iter()
                 .enumerate()
                 .map(|(i, faction)| {
                     let stringid = faction.id.clone();
-                    let kv_pair = (stringid, internal::FactionID(i));
+                    let kv_pair = (stringid, internal::Key::new_from_index(i));
                     kv_pair
                 })
                 .collect();
+
+            //let mut factions = internal::Table::new();
+            //for faction in self.factions {
+            //    factions.insert(faction)
+            //}
+
+            //let factionidmap: HashMap<String, internal::Key::<Faction>> = self.factions.iter().map(|faction|{
+            //    let stringid = faction.id;
+            //    let hydrated = faction.hydrate()
+            //}).collect()
 
             let factions: Vec<internal::Faction> = self
                 .factions
                 .drain(0..)
                 .enumerate()
                 .map(|(i, faction)| {
-                    let id = internal::FactionID(i);
+                    let id = internal::Key::new_from_index(i);
                     assert_eq!(id, *factionidmap.get(&faction.id).unwrap());
                     let internal_faction = faction.hydrate(&factionidmap);
                     internal_faction
@@ -131,7 +141,7 @@ mod json {
                 .unzip();
 
             let (factoryclassidmap, factoryclasses): (
-                HashMap<String, internal::FactoryClassID>,
+                HashMap<String, internal::Key<internal::FactoryClass>>,
                 Vec<internal::FactoryClass>,
             ) = self
                 .factoryclasses
@@ -139,7 +149,7 @@ mod json {
                 .enumerate()
                 .map(|(i, factoryclass)| {
                     let (stringid, internal_factoryclass) = factoryclass.hydrate(&resourceidmap);
-                    let kv_pair = (stringid, internal::FactoryClassID(i));
+                    let kv_pair = (stringid, internal::Key::new_from_index(i));
                     (kv_pair, internal_factoryclass)
                 })
                 .unzip();
@@ -193,7 +203,7 @@ mod json {
                     let (stringid, node) = node.hydrate(
                         &nodeflavoridmap,
                         &factionidmap,
-                        &factoryclasses,
+                        &internal::Table::from_vec(factoryclasses.clone()),
                         &factoryclassidmap,
                         &shipyardclasses,
                         &shipyardclassidmap,
@@ -203,7 +213,7 @@ mod json {
                 })
                 .collect();
             let (shipaiidmap, shipais): (
-                HashMap<String, internal::ShipAIID>,
+                HashMap<String, internal::Key<internal::ShipAI>>,
                 Vec<internal::ShipAI>,
             ) = self
                 .shipais
@@ -212,7 +222,7 @@ mod json {
                 .map(|(i, shipai)| {
                     let (stringid, internal_shipai) =
                         shipai.hydrate(&resourceidmap, &shipclassidmap);
-                    let kv_pair = (stringid, internal::ShipAIID(i));
+                    let kv_pair = (stringid, internal::Key::new_from_index(i));
                     (kv_pair, internal_shipai)
                 })
                 .unzip();
@@ -230,7 +240,7 @@ mod json {
                 .collect();
 
             let (fleetclassidmap, fleetclasses): (
-                HashMap<String, internal::FleetClassID>,
+                HashMap<String, internal::Key<internal::FleetClass>>,
                 Vec<internal::FleetClass>,
             ) = self
                 .fleetclasses
@@ -238,7 +248,7 @@ mod json {
                 .enumerate()
                 .map(|(i, fleetclass)| {
                     let (stringid, internal_fleetclass) = fleetclass.hydrate(&shipclassidmap);
-                    let kv_pair = (stringid, internal::FleetClassID(i));
+                    let kv_pair = (stringid, internal::Key::new_from_index(i));
                     (kv_pair, internal_fleetclass)
                 })
                 .unzip();
@@ -248,15 +258,15 @@ mod json {
                 nodes,
                 edges,
                 neighbors,
-                factions,
-                factoryclasses,
+                factions: internal::Table::from_vec(factions),
+                factoryclasses: internal::Table::from_vec(factoryclasses),
                 shipyardclasses,
                 resources,
-                shipais,
+                shipais: internal::Table::from_vec(shipais),
                 shipclasses,
                 shipinstances: HashMap::new(),
                 shipinstancecounter: 0_usize,
-                fleetclasses,
+                fleetclasses: internal::Table::from_vec(fleetclasses),
                 fleetinstances: HashMap::new(),
                 turn: 0_u64,
             }
@@ -307,10 +317,10 @@ mod json {
         fn hydrate(
             self,
             nodeflavoridmap: &HashMap<String, internal::NodeFlavorID>,
-            factionidmap: &HashMap<String, internal::FactionID>,
-            factorylist: &Vec<internal::FactoryClass>,
-            factoryclassidmap: &HashMap<String, internal::FactoryClassID>,
-            shipyardlist: &Vec<internal::ShipyardClass>,
+            factionidmap: &HashMap<String, internal::Key::<internal::Faction>>,
+            factoryclasses: &internal::Table<internal::FactoryClass>,
+            factoryclassidmap: &HashMap<String, internal::Key<internal::FactoryClass>>,
+            shipyardclasses: &Vec<internal::ShipyardClass>,
             shipyardclassidmap: &HashMap<String, internal::ShipyardClassID>,
         ) -> (String, internal::Node) {
             let node = internal::Node {
@@ -326,7 +336,7 @@ mod json {
                     .iter()
                     .map(|stringid| {
                         let classid = factoryclassidmap.get(stringid).unwrap();
-                        factorylist[classid.0].instantiate(true)
+                        factoryclasses.get(*classid).instantiate(true)
                     })
                     .collect(),
                 shipyardinstancelist: self
@@ -336,7 +346,7 @@ mod json {
                         let classid = shipyardclassidmap
                             .get(stringid)
                             .expect(&format!("Shipyard '{}' does not exist.", stringid));
-                        shipyardlist[classid.0].instantiate(true)
+                        shipyardclasses[classid.0].instantiate(true)
                     })
                     .collect(),
                 environment: self.environment,
@@ -379,7 +389,7 @@ mod json {
     }
 
     impl Faction {
-        fn hydrate(self, factionidmap: &HashMap<String, internal::FactionID>) -> internal::Faction {
+        fn hydrate(self, factionidmap: &HashMap<String, internal::Key::<internal::Faction>>) -> internal::Faction {
             let faction = internal::Faction {
                 visiblename: self.visiblename,
                 description: self.description,
@@ -395,8 +405,6 @@ mod json {
         }
     }
 
-
-
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     pub struct Stockpile {
         resourcetype: String,
@@ -411,8 +419,8 @@ mod json {
         fn hydrate(
             self,
             resourceidmap: &HashMap<String, internal::ResourceID>,
-        ) -> internal::Stockpile {
-            let stockpile = internal::Stockpile {
+        ) -> internal::UnipotentResourceStockpile {
+            let stockpile = internal::UnipotentResourceStockpile {
                 resourcetype: *resourceidmap
                     .get(&self.resourcetype)
                     .expect("Resource is invalid!"),
@@ -543,9 +551,9 @@ mod json {
             self,
             resourceidmap: &HashMap<String, internal::ResourceID>,
             shipclassidmap: &HashMap<String, internal::ShipClassID>,
-            factoryclassidmap: &HashMap<String, internal::FactoryClassID>,
+            factoryclassidmap: &HashMap<String, internal::Key<internal::FactoryClass>>,
             shipyardclassidmap: &HashMap<String, internal::ShipyardClassID>,
-            shipaiidmap: &HashMap<String, internal::ShipAIID>,
+            shipaiidmap: &HashMap<String, internal::Key<internal::ShipAI>>,
         ) -> internal::ShipClass {
             let shipclass = internal::ShipClass {
                 id: *shipclassidmap.get(&self.id).unwrap(),
@@ -671,7 +679,112 @@ mod json {
 mod internal {
 
     use ordered_float::NotNan;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::{hash_map, HashMap, HashSet};
+    use std::hash::{Hash, Hasher};
+    use std::iter;
+    use std::marker::PhantomData;
+    use std::cmp::Ordering;
+
+    #[derive(Debug)]
+    pub struct Key<T> {
+        index: usize,
+        phantom: PhantomData<T>,
+    }
+
+    impl<T> Ord for Key<T> {
+        fn cmp(&self, other: &Self) -> Ordering {
+            self.index.cmp(&other.index)
+        }
+    }
+    
+    impl<T> PartialOrd for Key<T> {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+
+    impl<T> Key<T> {
+        pub fn new_from_index(i:usize) -> Self {
+            Key {
+                index: i,
+                phantom: PhantomData::default(),
+            }
+        }
+    }
+
+    impl<T> Hash for Key<T> {
+        fn hash<H: Hasher>(&self, state: &mut H) {
+            self.index.hash(state);
+        }
+    }
+
+    impl<T> PartialEq for Key<T> {
+        fn eq(&self, other: &Self) -> bool {
+            self.index == other.index
+        }
+    }
+    impl<T> Eq for Key<T> {}
+
+    impl<T> Copy for Key<T> {}
+
+    impl<T> Clone for Key<T> {
+        fn clone(&self) -> Key<T> {
+            *self
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct Table<T> {
+        next_index: usize,
+        map: HashMap<Key<T>, T>,
+    }
+
+    impl<T> Table<T> {
+        pub fn new() -> Self {
+            Table {
+                next_index: 0,
+                map: HashMap::new(),
+            }
+        }
+        pub fn put(&mut self, value: T) -> Key<T> {
+            let key = Key {
+                index: self.next_index,
+                phantom: PhantomData::default(),
+            };
+            self.next_index += 1;
+            self.map.insert(key, value);
+            key
+        }
+        pub fn get(&self, key: Key<T>) -> &T {
+            self.map
+                .get(&key)
+                .expect("Tried to get an entry that doesn't exist!")
+        }
+        pub fn get_mut(&mut self, key: Key<T>) -> &mut T {
+            self.map
+                .get_mut(&key)
+                .expect("Tried to get an entry that doesn't exist!")
+        }
+        pub fn len(&self) -> usize {
+            self.map.len()
+        }
+        pub fn del(&mut self, key: Key<T>) {
+            self.map
+                .remove(&key)
+                .expect("Tried to remove an entry that doesn't exist!");
+        }
+        pub fn iter(&self) -> hash_map::Iter<Key<T>, T> {
+            self.map.iter()
+        }
+        pub fn iter_mut(&mut self) -> hash_map::IterMut<Key<T>, T> {
+            self.map.iter_mut()
+        }
+        pub fn from_vec(mut vec: Vec<T>) -> Self {
+            let mut table:Table<T> = Table::new();
+            vec.into_iter().for_each(|entity| {table.put(entity);});
+            table
+        }
+    }
 
     #[derive(Debug)]
     pub struct Root {
@@ -679,15 +792,15 @@ mod internal {
         pub nodes: Vec<Node>,
         pub edges: HashSet<(NodeID, NodeID)>,
         pub neighbors: HashMap<NodeID, Vec<NodeID>>,
-        pub factions: Vec<Faction>,
-        pub factoryclasses: Vec<FactoryClass>,
+        pub factions: Table<Faction>,
+        pub factoryclasses: Table<FactoryClass>,
         pub shipyardclasses: Vec<ShipyardClass>,
         pub resources: Vec<Resource>,
-        pub shipais: Vec<ShipAI>,
+        pub shipais: Table<ShipAI>,
         pub shipclasses: Vec<ShipClass>,
         pub shipinstances: HashMap<ShipInstanceID, ShipInstance>,
         pub shipinstancecounter: usize,
-        pub fleetclasses: Vec<FleetClass>,
+        pub fleetclasses: Table<FleetClass>,
         pub fleetinstances: HashMap<FleetInstanceID, FleetInstance>,
         pub turn: u64,
     }
@@ -703,7 +816,7 @@ mod internal {
                         .iter_mut()
                         .for_each(|factory| factory.process(node.efficiency));
                 });
-            let ship_plan_list: Vec<(ShipClassID, ShipLocationFlavor, FactionID)> = self
+            let ship_plan_list: Vec<(ShipClassID, ShipLocationFlavor, Key::<Faction>)> = self
                 .nodes
                 .iter_mut()
                 .enumerate()
@@ -738,7 +851,7 @@ mod internal {
             &mut self,
             class_id: ShipClassID,
             location: ShipLocationFlavor,
-            faction: FactionID,
+            faction: Key::<Faction>,
         ) -> ShipInstanceID {
             let new_ship = self.shipclasses[class_id.0].instantiate(
                 location,
@@ -762,7 +875,7 @@ mod internal {
             ship_instance_id
         }
 
-        fn get_node_strength(&self, nodeid: NodeID, faction: FactionID) -> u64 {
+        fn get_node_strength(&self, nodeid: NodeID, faction: Key::<Faction>) -> u64 {
             self.shipinstances
                 .values()
                 .filter(|ship| ship.get_node(&self.shipinstances, &self.fleetinstances) == nodeid)
@@ -774,7 +887,7 @@ mod internal {
         pub fn calculate_values<S: Salience<P> + Copy, P: Polarity>(
             &self,
             salience: S,
-            factionid: FactionID,
+            factionid: Key::<Faction>,
             n_iters: usize,
         ) -> Vec<f32> {
             //Length equals nodes owned by faction and producing specified salience
@@ -791,7 +904,7 @@ mod internal {
                 })
                 .collect();
             //Length equals all nodes
-            let tagged_threats: Vec<HashMap<FactionID, f32>> = self
+            let tagged_threats: Vec<HashMap<Key::<Faction>, f32>> = self
                 .nodes
                 .iter()
                 .enumerate()
@@ -800,7 +913,7 @@ mod internal {
                     node.threat
                         .iter()
                         .map(|(f, t)| {
-                            let value = t * self.factions[factionid.0].relations.get(f).unwrap();
+                            let value = t * self.factions.get(factionid).relations.get(f).unwrap();
                             (*f, value)
                         })
                         .collect()
@@ -849,12 +962,10 @@ mod internal {
         }
 
         pub fn update_node_threats(&mut self, n_steps: usize) {
-            let faction_threat: Vec<(FactionID, Vec<f32>)> = self
+            let faction_threat: Vec<(Key::<Faction>, Vec<f32>)> = self
                 .factions
                 .iter()
-                .enumerate()
-                .map(|(i, _)| {
-                    let id = FactionID(i);
+                .map(|(&id,_)| {
                     let v = self.calculate_values(id, id, n_steps);
                     (id, v)
                 })
@@ -936,7 +1047,7 @@ mod internal {
         ) -> Option<f32>;
     }
 
-    impl Salience<polarity::Supply> for FactionID {
+    impl Salience<polarity::Supply> for Key::<Faction> {
         const DEG_MULT: f32 = 0.5;
         fn get_value(
             self,
@@ -1089,14 +1200,8 @@ mod internal {
     #[derive(Debug, Hash, Copy, Clone, Eq, PartialEq)]
     pub struct NodeFlavorID(pub usize);
 
-    #[derive(Debug, Hash, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
-    pub struct FactionID(pub usize);
-
     #[derive(Debug, Hash, Copy, Clone, Eq, PartialEq)]
     pub struct ResourceID(pub usize);
-
-    #[derive(Debug, Hash, Copy, Clone, Eq, PartialEq)]
-    pub struct FactoryClassID(pub usize);
 
     #[derive(Debug, Hash, Copy, Clone, Eq, PartialEq)]
     pub struct FactoryInstanceID(pub usize);
@@ -1111,13 +1216,7 @@ mod internal {
     pub struct ShipClassID(pub usize);
 
     #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
-    pub struct ShipAIID(pub usize);
-
-    #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
     pub struct ShipInstanceID(usize);
-
-    #[derive(Debug, Hash, Copy, Clone, Eq, PartialEq)]
-    pub struct FleetClassID(pub usize);
 
     #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
     pub struct FleetInstanceID(u64);
@@ -1151,9 +1250,9 @@ mod internal {
         pub factoryinstancelist: Vec<FactoryInstance>, //this is populated at runtime from the factoryclasslist, not specified in json
         pub shipyardinstancelist: Vec<ShipyardInstance>,
         pub environment: String, //name of the FRED environment to use for missions set in this node
-        pub allegiance: FactionID, //faction that currently holds the node
+        pub allegiance: Key::<Faction>, //faction that currently holds the node
         pub efficiency: f64, //efficiency of any production facilities in this node; changes over time based on faction ownership
-        pub threat: HashMap<FactionID, f32>,
+        pub threat: HashMap<Key::<Faction>, f32>,
     }
 
     impl Node {}
@@ -1192,7 +1291,7 @@ mod internal {
         pub efficiencydefault: f64, //starting value for production facility efficiency
         pub efficiencytarget: f64, //end value for efficiency, toward which efficiency changes over time in a node held by this faction
         pub efficiencydelta: f64,  //rate at which efficiency changes
-        pub relations: HashMap<FactionID, f32>,
+        pub relations: HashMap<Key::<Faction>, f32>,
     }
 
     #[derive(Debug, Hash, Clone, Eq, PartialEq)]
@@ -1203,12 +1302,64 @@ mod internal {
         pub valuemult: u64, //how valuable the AI considers one unit of this resource to be
     }
 
-    trait Stockpile2 {
-        fn contents(&self) -> HashMap<ResourceID,u64>;
+    #[derive(Debug, Clone, Copy)]
+    pub enum GenericCargo {
+        Resource { id: ResourceID, value: u64 },
+        ShipInstance(ShipInstanceID),
+    }
+
+    #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+    pub enum CollatedCargo {
+        Resource(ResourceID),
+        ShipClass(ShipClassID),
+    }
+
+    trait Stockpileness {
+        fn get_contents(&self) -> Vec<GenericCargo>;
+        fn collate_contents(&self) -> HashMap<CollatedCargo, u64>;
+        fn get_capacity(&self) -> u64;
+        fn get_allowed(&self) -> (Vec<ResourceID>, Vec<ShipClassID>);
+        fn insert_cargo(&mut self, cargo: GenericCargo);
+        fn remove_cargo(&mut self, cargo: GenericCargo);
+    }
+
+    impl<A: Stockpileness, B: Stockpileness> Stockpileness for (A, B) {
+        fn get_contents(&self) -> Vec<GenericCargo> {
+            self.0
+                .get_contents()
+                .iter()
+                .chain(self.1.get_contents().iter())
+                .copied()
+                .collect()
+        }
+        //It actually works now
+        fn collate_contents(&self) -> HashMap<CollatedCargo, u64> {
+            self.0
+                .collate_contents()
+                .iter()
+                .chain(self.1.collate_contents().iter())
+                .fold(HashMap::new(), |mut acc, (k, v)| {
+                    *acc.entry(*k).or_insert(0) += v;
+                    acc
+                })
+        }
+        fn get_capacity(&self) -> u64 {
+            self.0.get_capacity() + self.1.get_capacity()
+        }
+        fn get_allowed(&self) -> (Vec<ResourceID>, Vec<ShipClassID>) {
+            //self.0
+            //    .collate_contents()
+            //    .iter()
+            //    .chain(self.1.collate_contents().iter())
+            //    .collect()
+            (Vec::new(), Vec::new())
+        }
+        fn insert_cargo(&mut self, cargo: GenericCargo) {}
+        fn remove_cargo(&mut self, cargo: GenericCargo) {}
     }
 
     #[derive(Debug, Clone, PartialEq)]
-    pub struct Stockpile {
+    pub struct UnipotentResourceStockpile {
         pub resourcetype: ResourceID,
         pub contents: u64,
         pub rate: u64,
@@ -1217,7 +1368,49 @@ mod internal {
         pub propagate: bool,
     }
 
-    impl Stockpile {
+    impl Stockpileness for UnipotentResourceStockpile {
+        fn get_contents(&self) -> Vec<GenericCargo> {
+            vec![GenericCargo::Resource {
+                id: self.resourcetype,
+                value: self.contents,
+            }]
+        }
+        fn collate_contents(&self) -> HashMap<CollatedCargo, u64> {
+            iter::once((CollatedCargo::Resource(self.resourcetype), self.contents)).collect()
+        }
+        fn get_capacity(&self) -> u64 {
+            self.capacity
+        }
+        fn get_allowed(&self) -> (Vec<ResourceID>, Vec<ShipClassID>) {
+            (vec![self.resourcetype], Vec::new())
+        }
+        fn insert_cargo(&mut self, cargo: GenericCargo) {
+            match cargo {
+                GenericCargo::Resource { id, value } => {
+                    if id == self.resourcetype {
+                        self.contents += value;
+                    } else {
+                        panic!("Attempted to insert invalid resource!");
+                    }
+                }
+                _ => panic!("Non-resource objects cannot be inserted into a unipotent stockpile."),
+            }
+        }
+        fn remove_cargo(&mut self, cargo: GenericCargo) {
+            match cargo {
+                GenericCargo::Resource { id, value } => {
+                    if id == self.resourcetype {
+                        self.contents -= value;
+                    } else {
+                        panic!("Attempted to remove invalid resource!");
+                    }
+                }
+                _ => panic!("Non-resource objects cannot be removed from a unipotent stockpile."),
+            }
+        }
+    }
+
+    impl UnipotentResourceStockpile {
         fn input_is_sufficient(&self) -> bool {
             self.contents >= self.rate
         }
@@ -1248,12 +1441,47 @@ mod internal {
         }
     }
 
+    #[derive(Debug, Clone)]
+    pub struct PluripotentStockpile {
+        pub contents: Vec<GenericCargo>,
+        pub target: u64,
+        pub capacity: u64,
+        pub propagate: bool,
+    }
+
+    impl Stockpileness for PluripotentStockpile {
+        fn get_contents(&self) -> Vec<GenericCargo> {
+            self.contents.clone()
+        }
+        fn collate_contents(&self) -> HashMap<CollatedCargo, u64> {
+            self.contents.iter().fold(HashMap::new(), |mut acc, cargo| {
+                //match cargo {
+                //    GenericCargo::Resource {r_id, r_v} => {
+                //        acc.insert(r_id, r_v)
+                //    }
+                //    GenericCargo::ShipInstance {s_id} => {
+                //        acc.entry(s_id.shipclass).or_insert()
+                //    }
+                //}
+                acc
+            })
+        }
+        fn get_capacity(&self) -> u64 {
+            0_u64
+        }
+        fn get_allowed(&self) -> (Vec<ResourceID>, Vec<ShipClassID>) {
+            (Vec::new(), Vec::new())
+        }
+        fn insert_cargo(&mut self, cargo: GenericCargo) {}
+        fn remove_cargo(&mut self, cargo: GenericCargo) {}
+    }
+
     #[derive(Debug, Clone, PartialEq)]
     pub struct FactoryClass {
         pub visiblename: String,
         pub description: String,
-        pub inputs: Vec<Stockpile>, //the data for the factory's asset consumption
-        pub outputs: Vec<Stockpile>, //the data for the factory's asset production
+        pub inputs: Vec<UnipotentResourceStockpile>, //the data for the factory's asset consumption
+        pub outputs: Vec<UnipotentResourceStockpile>, //the data for the factory's asset production
     }
 
     impl FactoryClass {
@@ -1274,8 +1502,8 @@ mod internal {
         visiblename: String,
         description: String,
         visibility: bool,
-        inputs: Vec<Stockpile>,  //the data for the factory's asset consumption
-        outputs: Vec<Stockpile>, //the data for the factory's asset production
+        inputs: Vec<UnipotentResourceStockpile>, //the data for the factory's asset consumption
+        outputs: Vec<UnipotentResourceStockpile>, //the data for the factory's asset production
     }
 
     //FactoryInstance sufficiency method
@@ -1351,7 +1579,7 @@ mod internal {
     pub struct ShipyardClass {
         pub visiblename: Option<String>,
         pub description: Option<String>,
-        pub inputs: Vec<Stockpile>,
+        pub inputs: Vec<UnipotentResourceStockpile>,
         pub outputs: HashMap<ShipClassID, u64>,
         pub constructrate: u64,
         pub efficiency: f64,
@@ -1377,7 +1605,7 @@ mod internal {
         visiblename: Option<String>,
         description: Option<String>,
         visibility: bool,
-        inputs: Vec<Stockpile>,
+        inputs: Vec<UnipotentResourceStockpile>,
         outputs: HashMap<ShipClassID, u64>,
         constructpoints: u64,
         constructrate: u64,
@@ -1446,19 +1674,19 @@ mod internal {
         pub description: String,
         pub basehull: Option<u64>, //how many hull hitpoints this ship has by default
         pub basestrength: u64, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
-        pub aiclass: ShipAIID,
+        pub aiclass: Key<ShipAI>,
         pub defaultweapons: Option<HashMap<ResourceID, u64>>, //a strikecraft's default weapons, which it always has with it
         pub hangarcap: Option<u64>, //this ship's capacity for carrying active strikecraft
         pub weaponcap: Option<u64>, //this ship's capacity for carrying strikecraft weapons
         pub cargocap: Option<u64>,  //this ship's capacity for carrying cargo
         pub hangarvol: Option<u64>, //how much hangar space this ship takes up when carried by a host
         pub cargovol: Option<u64>, //how much cargo space this ship takes up when transported by a cargo ship
-        pub factoryclasslist: Vec<FactoryClassID>,
+        pub factoryclasslist: Vec<Key<FactoryClass>>,
         pub shipyardclasslist: Vec<ShipyardClassID>,
-        pub stockpiles: Vec<Stockpile>,
+        pub stockpiles: Vec<UnipotentResourceStockpile>,
         pub hyperdrive: Option<u64>, //number of links this ship can traverse in one turn
         pub compconfig: Option<HashMap<ShipClassID, u64>>, //ideal configuration for this ship's strikecraft complement
-        pub defectchance: HashMap<FactionID, f64>,         //
+        pub defectchance: HashMap<Key::<Faction>, f64>,         //
     }
 
     impl ShipClass {
@@ -1473,10 +1701,10 @@ mod internal {
         fn instantiate(
             &self,
             location: ShipLocationFlavor,
-            faction: FactionID,
-            factoryclasses: &Vec<FactoryClass>,
+            faction: Key::<Faction>,
+            factoryclasses: &Table<FactoryClass>,
             shipyardclasses: &Vec<ShipyardClass>,
-            shipais: &Vec<ShipAI>,
+            shipais: &Table<ShipAI>,
         ) -> ShipInstance {
             ShipInstance {
                 visiblename: uuid::Uuid::new_v4().to_string(),
@@ -1486,7 +1714,7 @@ mod internal {
                 factoryinstancelist: self
                     .factoryclasslist
                     .iter()
-                    .map(|classid| factoryclasses[classid.0].instantiate(true))
+                    .map(|classid| factoryclasses.get(*classid).instantiate(true))
                     .collect(),
                 shipyardinstancelist: self
                     .shipyardclasslist
@@ -1510,9 +1738,9 @@ mod internal {
         strength: u64, //ship's strength score, based on its class strength score but affected by its current hull percentage and experience score
         factoryinstancelist: Vec<FactoryInstance>,
         shipyardinstancelist: Vec<ShipyardInstance>,
-        stockpiles: Vec<Stockpile>,
+        stockpiles: Vec<UnipotentResourceStockpile>,
         location: ShipLocationFlavor, //where the ship is -- a node if it's unaffiliated, a fleet if it's in one
-        allegiance: FactionID,        //which faction this ship belongs to
+        allegiance: Key::<Faction>,        //which faction this ship belongs to
         experience: u64, //XP gained by this ship, which affects strength score and in-mission AI class
         efficiency: f64,
     }
@@ -1539,7 +1767,7 @@ mod internal {
             resource_salience_map: &Vec<Vec<f32>>, //outer vec is nodes, inner vec is resources
             shipclass_salience_map: &Vec<Vec<f32>>, //outer vec is nodes, inner vec is shipclasses
             shipclasses: &Vec<ShipClass>,
-            shipais: &Vec<ShipAI>,
+            shipais: &Table<ShipAI>,
         ) -> NodeID {
             let position: NodeID = self.get_node(&shipinstances, &fleetinstances);
             let self_ai = shipclasses[self.shipclass.0].aiclass;
@@ -1548,14 +1776,14 @@ mod internal {
                 .unwrap()
                 .iter()
                 .max_by_key(|nodeid| {
-                    let resource_value: f32 = shipais[self_ai.0]
+                    let resource_value: f32 = shipais.get(self_ai)
                         .resource_attract
                         .iter()
                         .map(|(resourceid, scalar)| {
                             resource_salience_map[nodeid.0][resourceid.0] * scalar
                         })
                         .sum();
-                    let ship_cargo_value: f32 = shipais[self_ai.0]
+                    let ship_cargo_value: f32 = shipais.get(self_ai)
                         .ship_cargo_attract
                         .iter()
                         .map(|(shipclassid, scalar)| {
@@ -1564,9 +1792,9 @@ mod internal {
                         .sum();
                     let ship_value_specific: f32 = shipclass_salience_map[nodeid.0]
                         [self.shipclass.0]
-                        * shipais[self_ai.0].ship_attract_specific;
+                        * shipais.get(self_ai).ship_attract_specific;
                     let ship_value_generic: f32 = shipclass_salience_map[nodeid.0][0]
-                        * shipais[self_ai.0].ship_attract_generic;
+                        * shipais.get(self_ai).ship_attract_generic;
 
                     NotNan::new(resource_value + ship_value_specific + ship_value_generic).unwrap()
                 })
@@ -1649,9 +1877,9 @@ mod internal {
 
     #[derive(Debug)]
     pub struct FleetInstance {
-        fleetclass: FleetClassID,
+        fleetclass: Key<FleetClass>,
         location: NodeID,
-        allegiance: FactionID,
+        allegiance: Key::<Faction>,
     }
 
     #[derive(Debug)]
@@ -1725,10 +1953,10 @@ mod internal {
     pub struct Engagement {
         id: EngagementID,
         visiblename: String,
-        fleets: HashMap<FactionID, Vec<FleetInstanceID>>,
-        forces: HashMap<FactionID, Vec<ShipInstanceID>>,
+        fleets: HashMap<Key::<Faction>, Vec<FleetInstanceID>>,
+        forces: HashMap<Key::<Faction>, Vec<ShipInstanceID>>,
         location: NodeID,
-        objectives: HashMap<FactionID, ObjectiveID>,
+        objectives: HashMap<Key::<Faction>, ObjectiveID>,
     }
 }
 
@@ -1745,9 +1973,9 @@ fn main() {
     //    dbg!(root.nodes);
     //    dbg!(root.shipinstances);
     //    dbg!(root.shipinstancecounter);
-    let empire = internal::FactionID(0);
-    let rebels = internal::FactionID(1);
-    let pirates = internal::FactionID(2);
+    let empire = root.factions.get(internal::Key::<internal::Faction>::new_from_index(0));
+    let rebels = root.factions.get(internal::Key::<internal::Faction>::new_from_index(1));
+    let pirates = root.factions.get(internal::Key::<internal::Faction>::new_from_index(2));
     let steel = internal::ResourceID(0);
     let components = internal::ResourceID(1);
 
@@ -1765,7 +1993,7 @@ fn main() {
     root.process_turn();
 
     root.nodes.iter().for_each(|node| {
-        let mut threat_list: Vec<(internal::FactionID, f32)> =
+        let mut threat_list: Vec<(internal::Key::<internal::Faction>, f32)> =
             node.threat.iter().map(|(fid, v)| (*fid, *v)).collect();
         threat_list.sort_by_key(|(id, _)| *id);
         println!("{}", node.visiblename);
