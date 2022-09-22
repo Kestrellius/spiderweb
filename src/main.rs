@@ -679,7 +679,7 @@ mod json {
 mod internal {
 
     use ordered_float::NotNan;
-    use std::collections::{hash_map, HashMap, HashSet};
+    use std::collections::{hash_map, HashMap, HashSet, btree_map, BTreeMap};
     use std::hash::{Hash, Hasher};
     use std::iter;
     use std::marker::PhantomData;
@@ -736,14 +736,14 @@ mod internal {
     #[derive(Debug)]
     pub struct Table<T> {
         next_index: usize,
-        map: HashMap<Key<T>, T>,
+        map: BTreeMap<Key<T>, T>,
     }
 
     impl<T> Table<T> {
         pub fn new() -> Self {
             Table {
                 next_index: 0,
-                map: HashMap::new(),
+                map: BTreeMap::new(),
             }
         }
         pub fn put(&mut self, value: T) -> Key<T> {
@@ -773,10 +773,10 @@ mod internal {
                 .remove(&key)
                 .expect("Tried to remove an entry that doesn't exist!");
         }
-        pub fn iter(&self) -> hash_map::Iter<Key<T>, T> {
+        pub fn iter(&self) -> btree_map::Iter<Key<T>, T> {
             self.map.iter()
         }
-        pub fn iter_mut(&mut self) -> hash_map::IterMut<Key<T>, T> {
+        pub fn iter_mut(&mut self) -> btree_map::IterMut<Key<T>, T> {
             self.map.iter_mut()
         }
         pub fn from_vec(mut vec: Vec<T>) -> Self {
