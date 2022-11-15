@@ -110,16 +110,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rust"
-version = "0.1.0"
-dependencies = [
- "ordered-float",
- "serde",
- "serde_json",
- "uuid",
-]
-
-[[package]]
 name = "ryu"
 version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -154,6 +144,16 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "spiderweb"
+version = "0.1.0"
+dependencies = [
+ "ordered-float",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]
