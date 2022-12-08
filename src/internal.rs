@@ -345,6 +345,16 @@ impl Root {
                 })
         })
     }
+
+    //NOTE: This function is broken and is supposed to have an array of both supply and demand values in the core
+    pub fn calculate_global_resource_salience(&self) -> Vec<Vec<Vec<[f32; 2]>>> {
+        self.factions.iter().map(|(factionid, _)|{
+            self.resources.iter().map(|(resourceid, _)|{
+                let supply = self.calculate_values::<polarity::Supply, P>(resourceid, factionid, 5);
+            });
+        });
+        Vec::new()
+    }
 }
 
 #[cfg(test)]
@@ -1176,8 +1186,8 @@ impl ShipInstance {
         fleetinstances: &Table<FleetInstance>,
         //NOTE: I have flipped around the order of the vecs here in the resource and shipclass salience maps
         //because that will make it easier to get the necessary map out of calculate_values
-        resource_salience_map: &Vec<Vec<f32>>, //outer vec is resources, inner vec is nodes
-        shipclass_salience_map: &Vec<Vec<f32>>, //outer vec is shipclasses, inner vec is nodes
+        resource_salience_map: &Vec<Vec<[f32; 2]>>, //outer vec is resources, inner vec is nodes
+        shipclass_salience_map: &Vec<Vec<[f32; 2]>>, //outer vec is shipclasses, inner vec is nodes
         shipclasses: &Table<ShipClass>,
         shipais: &Table<ShipAI>,
     ) -> Key<Node> {
@@ -1203,7 +1213,9 @@ impl ShipInstance {
                         //Possibly this will break something somehow.
                         //we index into the salience map by resource and then by node
                         //to determine how much supply there is in this node for each resource the subject ship wants
-                        resource_salience_map[resourceid.index][nodeid.index] * scalar
+                        let demand = resource_salience_map[resourceid.index][nodeid.index][0];
+                        let supply = resource_salience_map[resourceid.index][nodeid.index][1];
+                        demand * supply * scalar
                     })
                     .sum();
                 //this checks how much value the node holds with regards to shipclasses the subject ship is seeking (to carry as cargo)
@@ -1214,16 +1226,18 @@ impl ShipInstance {
                     .map(|(shipclassid, scalar)| {
                         //we index into the salience map by shipclass and then by node
                         //to determine how much supply there is in this node for each shipclass the subject ship wants
-                        shipclass_salience_map[shipclassid.index][nodeid.index] * scalar
+                        let demand = shipclass_salience_map[shipclassid.index][nodeid.index][0];
+                        let supply = shipclass_salience_map[shipclassid.index][nodeid.index][1];
+                        demand * supply * scalar
                     })
                     .sum();
                 //this checks how much demand there is in the node for ships of the subject ship's class
                 let ship_value_specific: f32 = shipclass_salience_map[self.shipclass.index]
-                    [nodeid.index]
+                    [nodeid.index][0]
                     * shipais.get(self_ai).ship_attract_specific;
                 //oh, THIS is why we needed the placeholder ship class
                 //this checks how much demand there is in the node for ships in general
-                let ship_value_generic: f32 = shipclass_salience_map[0][nodeid.index]
+                let ship_value_generic: f32 = shipclass_salience_map[0][nodeid.index][0]
                     * shipais.get(self_ai).ship_attract_generic;
 
                 NotNan::new(resource_value + ship_value_specific + ship_value_generic).unwrap()
