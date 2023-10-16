@@ -4,7 +4,7 @@ use std::collections::{btree_map, hash_map, BTreeMap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::iter;
 use std::marker::PhantomData;
-use std::sync::atomic::{self, AtomicI64};
+use std::sync::atomic::{self, AtomicU64};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
@@ -348,9 +348,13 @@ impl Root {
 
     //NOTE: This function is broken and is supposed to have an array of both supply and demand values in the core
     pub fn calculate_global_resource_salience(&self) -> Vec<Vec<Vec<[f32; 2]>>> {
-        self.factions.iter().map(|(factionid, _)|{
-            self.resources.iter().map(|(resourceid, _)|{
-                let supply = self.calculate_values::<polarity::Supply, P>(resourceid, factionid, 5);
+        self.factions.iter().map(|(factionid, _)| {
+            self.resources.iter().map(|(resourceid, _)| {
+                let supply = self.calculate_values::<Key<Resource>, polarity::Supply>(
+                    *resourceid,
+                    *factionid,
+                    5,
+                );
             });
         });
         Vec::new()
@@ -412,10 +416,12 @@ pub mod polarity {
 
     use super::Polarity;
 
+    #[derive(Copy, Clone)]
     pub struct Supply {}
 
     impl Polarity for Supply {}
 
+    #[derive(Copy, Clone)]
     pub struct Demand {}
 
     impl Polarity for Demand {}
@@ -693,6 +699,21 @@ pub enum GenericCargo {
     ShipInstance(Key<ShipInstance>),
 }
 
+impl GenericCargo {
+    fn is_resource(self) -> Option<(Key<Resource>, u64)> {
+        match self {
+            GenericCargo::Resource { id, value } => Some((id, value)),
+            _ => None,
+        }
+    }
+    fn is_shipinstance(self) -> Option<Key<ShipInstance>> {
+        match self {
+            GenericCargo::ShipInstance(k) => Some(k),
+            _ => None,
+        }
+    }
+}
+
 //CollatedCargo tells us the type of resource or ship that the cargo entity is; it's used in a hashmap with an integer denoting the quantity
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum CollatedCargo {
@@ -701,22 +722,33 @@ pub enum CollatedCargo {
 }
 
 trait Stockpileness {
-    fn get_contents(&self) -> Vec<GenericCargo>;
+    fn get_resource_contents(&self) -> HashMap<Key<Resource>, u64>;
+    fn get_ship_contents(&self) -> HashSet<Key<ShipInstance>>;
     fn collate_contents(&self) -> HashMap<CollatedCargo, u64>;
     fn get_capacity(&self) -> u64;
+    fn get_fullness(&self, root: &Root) -> u64;
     fn get_allowed(&self) -> (Vec<Key<Resource>>, Vec<Key<ShipClass>>);
-    fn insert_cargo(&mut self, cargo: GenericCargo);
-    fn remove_cargo(&mut self, cargo: GenericCargo);
+    fn insert_cargo(&mut self, root: &Root, cargo: GenericCargo) -> Option<GenericCargo>;
+    fn remove_cargo(&mut self, root: &Root, cargo: GenericCargo) -> Option<GenericCargo>;
 }
 
 //this is a horrible incomprehensible nightmare that Amaryllis put me through for some reason
+//okay, so, a year later, what this actually does is that it takes two individual stockpiles and allows them to function together as a single stockpile
 impl<A: Stockpileness, B: Stockpileness> Stockpileness for (A, B) {
-    fn get_contents(&self) -> Vec<GenericCargo> {
+    fn get_resource_contents(&self) -> HashMap<Key<Resource>, u64> {
         self.0
-            .get_contents()
+            .get_resource_contents()
             .iter()
-            .chain(self.1.get_contents().iter())
-            .copied()
+            .chain(self.1.get_resource_contents().iter())
+            .map(|(&k, &v)| (k, v))
+            .collect()
+    }
+    fn get_ship_contents(&self) -> HashSet<Key<ShipInstance>> {
+        self.0
+            .get_ship_contents()
+            .iter()
+            .chain(self.1.get_ship_contents().iter())
+            .map(|&k| k)
             .collect()
     }
     //It actually works now
@@ -733,6 +765,9 @@ impl<A: Stockpileness, B: Stockpileness> Stockpileness for (A, B) {
     fn get_capacity(&self) -> u64 {
         self.0.get_capacity() + self.1.get_capacity()
     }
+    fn get_fullness(&self, root: &Root) -> u64 {
+        self.0.get_fullness(root) + self.1.get_fullness(root)
+    }
     fn get_allowed(&self) -> (Vec<Key<Resource>>, Vec<Key<ShipClass>>) {
         //self.0
         //    .collate_contents()
@@ -741,8 +776,12 @@ impl<A: Stockpileness, B: Stockpileness> Stockpileness for (A, B) {
         //    .collect()
         (Vec::new(), Vec::new())
     }
-    fn insert_cargo(&mut self, cargo: GenericCargo) {}
-    fn remove_cargo(&mut self, cargo: GenericCargo) {}
+    fn insert_cargo(&mut self, root: &Root, cargo: GenericCargo) -> Option<GenericCargo> {
+        None
+    }
+    fn remove_cargo(&mut self, root: &Root, cargo: GenericCargo) -> Option<GenericCargo> {
+        None
+    }
 }
 
 //a unipotent resource stockpile can contain only one type of resource, and it cannot contain ship instances
@@ -758,11 +797,11 @@ pub struct UnipotentResourceStockpile {
 }
 
 impl Stockpileness for UnipotentResourceStockpile {
-    fn get_contents(&self) -> Vec<GenericCargo> {
-        vec![GenericCargo::Resource {
-            id: self.resourcetype,
-            value: self.contents,
-        }]
+    fn get_resource_contents(&self) -> HashMap<Key<Resource>, u64> {
+        iter::once((self.resourcetype, self.contents)).collect()
+    }
+    fn get_ship_contents(&self) -> HashSet<Key<ShipInstance>> {
+        HashSet::new()
     }
     fn collate_contents(&self) -> HashMap<CollatedCargo, u64> {
         iter::once((CollatedCargo::Resource(self.resourcetype), self.contents)).collect()
@@ -770,31 +809,48 @@ impl Stockpileness for UnipotentResourceStockpile {
     fn get_capacity(&self) -> u64 {
         self.capacity
     }
+    fn get_fullness(&self, root: &Root) -> u64 {
+        self.contents * root.resources.get(self.resourcetype).cargovol
+    }
     fn get_allowed(&self) -> (Vec<Key<Resource>>, Vec<Key<ShipClass>>) {
         (vec![self.resourcetype], Vec::new())
     }
-    fn insert_cargo(&mut self, cargo: GenericCargo) {
+    fn insert_cargo(&mut self, root: &Root, cargo: GenericCargo) -> Option<GenericCargo> {
         match cargo {
             GenericCargo::Resource { id, value } => {
+                let cargo_vol = root.resources.get(id).cargovol;
                 if id == self.resourcetype {
-                    self.contents += value;
+                    let count_capacity = self.capacity / cargo_vol;
+                    let remainder = value.saturating_sub(count_capacity - self.contents);
+                    self.contents += (value - remainder);
+                    Some(GenericCargo::Resource {
+                        id: id,
+                        value: remainder,
+                    })
                 } else {
-                    panic!("Attempted to insert invalid resource!");
+                    //this will just hand the cargo back to whoever was trying to put it in
+                    Some(cargo)
                 }
             }
-            _ => panic!("Non-resource objects cannot be inserted into a unipotent stockpile."),
+            _ => Some(cargo),
         }
     }
-    fn remove_cargo(&mut self, cargo: GenericCargo) {
+    fn remove_cargo(&mut self, root: &Root, cargo: GenericCargo) -> Option<GenericCargo> {
         match cargo {
             GenericCargo::Resource { id, value } => {
                 if id == self.resourcetype {
-                    self.contents -= value;
+                    let remainder = value.saturating_sub(self.contents);
+                    self.contents -= (value - remainder);
+                    Some(GenericCargo::Resource {
+                        id: id,
+                        value: (value - remainder),
+                    })
                 } else {
-                    panic!("Attempted to remove invalid resource!");
+                    //we can't get out something the stockpile can't hold
+                    None
                 }
             }
-            _ => panic!("Non-resource objects cannot be removed from a unipotent stockpile."),
+            _ => None,
         }
     }
 }
@@ -834,48 +890,210 @@ impl UnipotentResourceStockpile {
 //however, it has no constant rate of increase or decrease; things may only be added or removed manually
 #[derive(Debug, Clone)]
 pub struct PluripotentStockpile {
-    pub contents: Vec<GenericCargo>,
+    pub resource_contents: HashMap<Key<Resource>, u64>,
+    pub ship_contents: HashSet<Key<ShipInstance>>,
+    pub allowed: (Vec<Key<Resource>>, Vec<Key<ShipClass>>),
     pub target: u64,
     pub capacity: u64,
     pub propagate: bool,
 }
 
 impl Stockpileness for PluripotentStockpile {
-    fn get_contents(&self) -> Vec<GenericCargo> {
-        self.contents.clone()
+    fn get_resource_contents(&self) -> HashMap<Key<Resource>, u64> {
+        self.resource_contents.clone()
+    }
+    fn get_ship_contents(&self) -> HashSet<Key<ShipInstance>> {
+        HashSet::new()
     }
     fn collate_contents(&self) -> HashMap<CollatedCargo, u64> {
-        self.contents.iter().fold(HashMap::new(), |mut acc, cargo| {
-            //match cargo {
-            //    GenericCargo::Resource {r_id, r_v} => {
-            //        acc.insert(r_id, r_v)
-            //    }
-            //    GenericCargo::ShipInstance {s_id} => {
-            //        acc.entry(s_id.shipclass).or_insert()
-            //    }
-            //}
-            acc
-        })
+        self.resource_contents
+            .iter()
+            .fold(HashMap::new(), |mut acc, cargo| {
+                //match cargo {
+                //    GenericCargo::Resource {r_id, r_v} => {
+                //        acc.insert(r_id, r_v)
+                //    }
+                //    GenericCargo::ShipInstance {s_id} => {
+                //        acc.entry(s_id.shipclass).or_insert()
+                //    }
+                //}
+                acc
+            })
     }
     fn get_capacity(&self) -> u64 {
-        0_u64
+        self.capacity.clone()
+    }
+    fn get_fullness(&self, root: &Root) -> u64 {
+        self.resource_contents
+            .iter()
+            .map(|(id, value)| value * root.resources.get(*id).cargovol)
+            .sum::<u64>()
+            + self
+                .ship_contents
+                .iter()
+                .map(|key| {
+                    root.shipclasses
+                        .get(root.shipinstances.get(*key).shipclass)
+                        .cargovol
+                        .unwrap_or(0)
+                })
+                .sum::<u64>()
     }
     fn get_allowed(&self) -> (Vec<Key<Resource>>, Vec<Key<ShipClass>>) {
-        (Vec::new(), Vec::new())
+        self.allowed.clone()
     }
-    fn insert_cargo(&mut self, cargo: GenericCargo) {}
-    fn remove_cargo(&mut self, cargo: GenericCargo) {}
+    fn insert_cargo(&mut self, root: &Root, cargo: GenericCargo) -> Option<GenericCargo> {
+        match cargo {
+            GenericCargo::Resource { id, value } => {
+                if self.allowed.0.contains(&id) {
+                    let cargo_vol = root.resources.get(id).cargovol;
+                    let cargo_count: u64 = self
+                        .resource_contents
+                        .iter()
+                        .find(|(key, num)|**key == id)
+                        .map(|(key, num)|*num)
+                        .expect("Failed to find contents entry for resource that is supposed to be allowed!");
+                    let fullness = self.get_fullness(root);
+                    let how_many_fit = (self.capacity - fullness) / cargo_vol;
+                    let remainder = value.saturating_sub(how_many_fit);
+                    *self.resource_contents.get_mut(&id).unwrap() += (value - remainder);
+                    Some(GenericCargo::Resource {
+                        id: id,
+                        value: remainder,
+                    })
+                } else {
+                    Some(cargo)
+                }
+            }
+            GenericCargo::ShipInstance(id) => {
+                let classid = root.shipinstances.get(id).shipclass;
+                if self.allowed.1.contains(&classid) {
+                    let cargo_vol = root.shipclasses.get(classid).cargovol.unwrap();
+                    if cargo_vol <= (self.capacity - self.get_fullness(root)) {
+                        self.ship_contents.insert(id);
+                        None
+                    } else {
+                        Some(cargo)
+                    }
+                } else {
+                    Some(cargo)
+                }
+            }
+        }
+    }
+    fn remove_cargo(&mut self, root: &Root, cargo: GenericCargo) -> Option<GenericCargo> {
+        match cargo {
+            GenericCargo::Resource { id, value } => {
+                if self.allowed.0.contains(&id) {
+                    let cargo_count: u64 = self
+                        .resource_contents
+                        .iter()
+                        .find(|(key, num)|**key == id)
+                        .map(|(key, num)|*num)
+                        .expect("Failed to find contents entry for resource that is supposed to be allowed!");
+                    let remainder = value.saturating_sub(cargo_count);
+                    *self.resource_contents.get_mut(&id).unwrap() -= (value - remainder);
+                    Some(GenericCargo::Resource {
+                        id: id,
+                        value: (value - remainder),
+                    })
+                } else {
+                    None
+                }
+            }
+            GenericCargo::ShipInstance(id) => {
+                if self.ship_contents.remove(&id) {
+                    Some(cargo)
+                } else {
+                    None
+                }
+            }
+        }
+    }
 }
 
 //a given shared stockpile type has its contents shared between all instances of itself; it does not produce any salience propagation
-//as it stands, it's possible for the resource used to go negative; we will probably want to go fix this later
+//previously this was an atomic I64 and we don't remember why, but an atomic U64 seems better and hopefully it doesn't subtly break something
 //also we need to make methods
 #[derive(Debug, Clone)]
 pub struct SharedStockpile {
     pub resourcetype: Key<Resource>,
-    pub contents: Arc<AtomicI64>,
+    pub contents: Arc<AtomicU64>,
     pub rate: u64,
     pub capacity: u64,
+}
+
+impl Stockpileness for SharedStockpile {
+    fn get_resource_contents(&self) -> HashMap<Key<Resource>, u64> {
+        iter::once((
+            self.resourcetype,
+            self.contents.load(atomic::Ordering::SeqCst),
+        ))
+        .collect()
+    }
+    fn get_ship_contents(&self) -> HashSet<Key<ShipInstance>> {
+        HashSet::new()
+    }
+    fn collate_contents(&self) -> HashMap<CollatedCargo, u64> {
+        iter::once((
+            CollatedCargo::Resource(self.resourcetype),
+            self.contents.load(atomic::Ordering::SeqCst),
+        ))
+        .collect()
+    }
+    fn get_capacity(&self) -> u64 {
+        self.capacity
+    }
+    fn get_fullness(&self, root: &Root) -> u64 {
+        self.contents.load(atomic::Ordering::SeqCst)
+            * root.resources.get(self.resourcetype).cargovol
+    }
+    fn get_allowed(&self) -> (Vec<Key<Resource>>, Vec<Key<ShipClass>>) {
+        (vec![self.resourcetype], Vec::new())
+    }
+    fn insert_cargo(&mut self, root: &Root, cargo: GenericCargo) -> Option<GenericCargo> {
+        match cargo {
+            GenericCargo::Resource { id, value } => {
+                let cargo_vol = root.resources.get(id).cargovol;
+                if id == self.resourcetype {
+                    let count_capacity = self.capacity / cargo_vol;
+                    let remainder = value.saturating_sub(
+                        count_capacity - self.contents.load(atomic::Ordering::SeqCst),
+                    );
+                    self.contents
+                        .fetch_add(value - remainder, atomic::Ordering::SeqCst);
+                    Some(GenericCargo::Resource {
+                        id: id,
+                        value: remainder,
+                    })
+                } else {
+                    //this will just hand the cargo back to whoever was trying to put it in
+                    Some(cargo)
+                }
+            }
+            _ => Some(cargo),
+        }
+    }
+    fn remove_cargo(&mut self, root: &Root, cargo: GenericCargo) -> Option<GenericCargo> {
+        match cargo {
+            GenericCargo::Resource { id, value } => {
+                if id == self.resourcetype {
+                    let remainder =
+                        value.saturating_sub(self.contents.load(atomic::Ordering::SeqCst));
+                    self.contents
+                        .fetch_sub(value - remainder, atomic::Ordering::SeqCst);
+                    Some(GenericCargo::Resource {
+                        id: id,
+                        value: (value - remainder),
+                    })
+                } else {
+                    //we can't get out something the stockpile can't hold
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1186,8 +1404,8 @@ impl ShipInstance {
         fleetinstances: &Table<FleetInstance>,
         //NOTE: I have flipped around the order of the vecs here in the resource and shipclass salience maps
         //because that will make it easier to get the necessary map out of calculate_values
-        resource_salience_map: &Vec<Vec<[f32; 2]>>, //outer vec is resources, inner vec is nodes
-        shipclass_salience_map: &Vec<Vec<[f32; 2]>>, //outer vec is shipclasses, inner vec is nodes
+        resource_salience_map: &Vec<Vec<[f32; 2]>>, //outer vec is resources, inner vec is nodes, innermost array is supply and demand
+        shipclass_salience_map: &Vec<Vec<[f32; 2]>>, //outer vec is shipclasses, inner vec is nodes, innermost array is supply and demand
         shipclasses: &Table<ShipClass>,
         shipais: &Table<ShipAI>,
     ) -> Key<Node> {
@@ -1213,7 +1431,10 @@ impl ShipInstance {
                         //Possibly this will break something somehow.
                         //we index into the salience map by resource and then by node
                         //to determine how much supply there is in this node for each resource the subject ship wants
-                        let demand = resource_salience_map[resourceid.index][nodeid.index][0];
+                        //NOTE: Previously, we got demand by indexing by nodeid, not position.
+                        //I believe using the ship's current position to calculate demand
+                        //will eliminate a pathology and produce more correct gradient-following behavior.
+                        let demand = resource_salience_map[resourceid.index][position.index][0];
                         let supply = resource_salience_map[resourceid.index][nodeid.index][1];
                         demand * supply * scalar
                     })

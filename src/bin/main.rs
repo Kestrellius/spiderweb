@@ -1,11 +1,11 @@
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, to_writer_pretty};
+use spiderweb::{internal, json};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::prelude::*;
 use std::time::{Duration, Instant};
-use spiderweb::{internal,json};
 
 fn main() {
     let file = File::open("mod-specs.json").unwrap();
