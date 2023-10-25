@@ -1,6 +1,13 @@
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, to_writer_pretty};
+use spiderweb::internal::CollatedCargo;
+use spiderweb::internal::GenericCargo;
+use spiderweb::internal::PluripotentStockpile;
+use spiderweb::internal::SharedStockpile;
+use spiderweb::internal::ShipLocationFlavor;
+use spiderweb::internal::Stockpileness;
+use spiderweb::internal::UnipotentResourceStockpile;
 use spiderweb::{internal, json};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -20,23 +27,19 @@ fn main() {
     //    dbg!(root.nodes);
     //    dbg!(root.shipinstances);
     //    dbg!(root.shipinstancecounter);
-    let empire = root
-        .factions
-        .get(internal::Key::<internal::Faction>::new_from_index(0));
-    let rebels = root
-        .factions
-        .get(internal::Key::<internal::Faction>::new_from_index(1));
-    let pirates = root
-        .factions
-        .get(internal::Key::<internal::Faction>::new_from_index(2));
-    let steel = root
-        .resources
-        .get(internal::Key::<internal::Resource>::new_from_index(0));
-    let components = root
-        .resources
-        .get(internal::Key::<internal::Resource>::new_from_index(1));
+    let empire = (internal::Key::<internal::Faction>::new_from_index(0));
+    let rebels = (internal::Key::<internal::Faction>::new_from_index(1));
+    let pirates = (internal::Key::<internal::Faction>::new_from_index(2));
+    let steel = (internal::Key::<internal::Resource>::new_from_index(0));
+    let components = (internal::Key::<internal::Resource>::new_from_index(1));
+    let food = (internal::Key::<internal::Resource>::new_from_index(2));
+    let personnel = (internal::Key::<internal::Resource>::new_from_index(3));
+    let tieln = (internal::Key::<internal::ShipClass>::new_from_index(1));
+    let z95 = (internal::Key::<internal::ShipClass>::new_from_index(2));
+    let isd = (internal::Key::<internal::ShipClass>::new_from_index(3));
+    let nebulonb = (internal::Key::<internal::ShipClass>::new_from_index(4));
 
-    while root.turn < 5 {
+    while root.turn < 2 {
         root.process_turn();
     }
 
@@ -71,4 +74,144 @@ fn main() {
         .copied()
         .zip(root.nodes.iter())
         .for_each(|(value, (_, node))| println!("{:.3}\t{}", value, node.visiblename));
+
+    root.shipinstances.iter().for_each(|x| {
+        let class = &root.shipclasses.get(x.1.shipclass).visiblename;
+        let allegiance = &root.factions.get(x.1.allegiance).visiblename;
+        let location = &root
+            .nodes
+            .get({
+                match x.1.location {
+                    ShipLocationFlavor::Node(k) => k,
+                    _ => (internal::Key::<internal::Node>::new_from_index(0)),
+                }
+            })
+            .visiblename;
+        println!(
+            "Name: {:?}
+        Class: {:?}
+        Allegiance: {:?}
+        Location: {:?}",
+            x.1.visiblename, class, allegiance, location
+        )
+    });
+    let mut stockpile1 = PluripotentStockpile {
+        resource_contents: HashMap::from([(steel, 0), (components, 0)]),
+        ship_contents: HashSet::from([
+            root.create_ship(
+                tieln,
+                ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
+                empire,
+            ),
+            root.create_ship(
+                tieln,
+                ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
+                empire,
+            ),
+            root.create_ship(
+                tieln,
+                ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
+                empire,
+            ),
+            root.create_ship(
+                tieln,
+                ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
+                empire,
+            ),
+            root.create_ship(
+                tieln,
+                ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
+                empire,
+            ),
+        ]),
+        allowed: Some((Vec::new(), vec![tieln])),
+        target: 500,
+        capacity: 1000,
+        propagate: false,
+    };
+    let mut stockpile2 = PluripotentStockpile {
+        resource_contents: HashMap::from([
+            (steel, 150),
+            (components, 100),
+            (food, 200),
+            (personnel, 50),
+        ]),
+        ship_contents: HashSet::from([
+            root.create_ship(
+                tieln,
+                ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
+                empire,
+            ),
+            root.create_ship(
+                tieln,
+                ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
+                empire,
+            ),
+            root.create_ship(
+                tieln,
+                ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
+                empire,
+            ),
+            root.create_ship(
+                z95,
+                ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
+                empire,
+            ),
+            root.create_ship(
+                z95,
+                ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
+                empire,
+            ),
+            root.create_ship(
+                z95,
+                ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
+                empire,
+            ),
+            root.create_ship(
+                z95,
+                ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
+                empire,
+            ),
+            root.create_ship(
+                z95,
+                ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
+                empire,
+            ),
+            root.create_ship(
+                z95,
+                ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
+                empire,
+            ),
+            root.create_ship(
+                z95,
+                ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
+                empire,
+            ),
+        ]),
+        allowed: Some((
+            vec![steel, components, food, personnel],
+            vec![tieln, z95, isd, nebulonb],
+        )),
+        target: 500,
+        capacity: 1000000,
+        propagate: false,
+    };
+    println!("{:#?}", stockpile1.collate_contents(&root));
+    println!("{:#?}", stockpile2.collate_contents(&root));
+
+    let quantity = 5;
+
+    println!(
+        "Attempting to transfer {} Z95s from Stockpile2 to Stockpile1.",
+        quantity
+    );
+    stockpile2.transfer(
+        &mut stockpile1,
+        &root,
+        CollatedCargo::ShipClass(z95),
+        quantity,
+    );
+
+    println!("{:#?}", stockpile1.collate_contents(&root));
+    println!("{:#?}", stockpile2.collate_contents(&root));
 }

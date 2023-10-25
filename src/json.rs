@@ -12,6 +12,7 @@ pub struct Root {
     nodeflavors: Vec<NodeFlavor>,
     links: Vec<(String, String)>,
     factions: Vec<Faction>,
+    engineclasses: Vec<EngineClass>,
     factoryclasses: Vec<FactoryClass>,
     shipyardclasses: Vec<ShipyardClass>,
     resources: Vec<Resource>,
@@ -147,6 +148,20 @@ impl Root {
             })
             .unzip();
 
+        let (engineclassidmap, engineclasses): (
+            HashMap<String, internal::Key<internal::EngineClass>>,
+            Vec<internal::EngineClass>,
+        ) = self
+            .engineclasses
+            .drain(0..)
+            .enumerate()
+            .map(|(i, engineclass)| {
+                let (stringid, internal_engineclass) = engineclass.hydrate(&resourceidmap);
+                let kv_pair = (stringid, internal::Key::new_from_index(i));
+                (kv_pair, internal_engineclass)
+            })
+            .unzip();
+
         //pretty much exactly the same as resources
         let (factoryclassidmap, factoryclasses): (
             HashMap<String, internal::Key<internal::FactoryClass>>,
@@ -169,7 +184,7 @@ impl Root {
             description: "".to_string(),
             basehull: None,  //how many hull hitpoints this ship has by default
             basestrength: 0, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
-            aiclass: "yes".to_string(),
+            aiclass: "basicai".to_string(),
             defaultweapons: None, //a strikecraft's default weapons, which it always has with it
             hangarcap: None,      //this ship's capacity for carrying active strikecraft
             weaponcap: None,      //this ship's capacity for carrying strikecraft weapons
@@ -179,7 +194,7 @@ impl Root {
             factoryclasslist: Vec::new(),
             shipyardclasslist: Vec::new(),
             stockpiles: Vec::new(),
-            hyperdrive: None, //number of links this ship can traverse in one turn
+            engines: Vec::new(),
             compconfig: None, //ideal configuration for this ship's strikecraft complement
             defectchance: None,
         };
@@ -251,6 +266,7 @@ impl Root {
                 shipclass.hydrate(
                     &resourceidmap,
                     &shipclassidmap,
+                    &engineclassidmap,
                     &factoryclassidmap,
                     &shipyardclassidmap,
                     &shipaiidmap,
@@ -279,6 +295,7 @@ impl Root {
             edges: edges,
             neighbors,
             factions: internal::Table::from_vec(factions),
+            engineclasses: internal::Table::from_vec(engineclasses),
             factoryclasses: internal::Table::from_vec(factoryclasses),
             shipyardclasses: internal::Table::from_vec(shipyardclasses),
             resources: internal::Table::from_vec(resources),
@@ -289,6 +306,7 @@ impl Root {
             fleetclasses: internal::Table::from_vec(fleetclasses),
             fleetinstances: internal::Table::new(),
             turn: 0_u64,
+            globalsalience: (Vec::new(), Vec::new()),
         }
     }
 }
@@ -458,6 +476,34 @@ impl Stockpile {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct EngineClass {
+    id: String,
+    visiblename: String,
+    description: String,
+    inputs: Vec<Stockpile>,
+    speed: (u64, u64),
+}
+
+impl EngineClass {
+    fn hydrate(
+        mut self,
+        resourceidmap: &HashMap<String, internal::Key<internal::Resource>>,
+    ) -> (String, internal::EngineClass) {
+        let engineclass = internal::EngineClass {
+            visiblename: self.visiblename,
+            description: self.description,
+            inputs: self
+                .inputs
+                .drain(0..)
+                .map(|x| x.hydrate(resourceidmap))
+                .collect(),
+            speed: self.speed,
+        };
+        (self.id, engineclass)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct FactoryClass {
     id: String,
     visiblename: String,
@@ -564,7 +610,7 @@ struct ShipClass {
     factoryclasslist: Vec<String>,
     shipyardclasslist: Vec<String>,
     stockpiles: Vec<Stockpile>,
-    hyperdrive: Option<u64>, //number of links this ship can traverse in one turn
+    engines: Vec<String>,
     compconfig: Option<HashMap<String, u64>>, //ideal configuration for this ship's strikecraft complement
     defectchance: Option<HashMap<String, f64>>,
 }
@@ -574,6 +620,7 @@ impl ShipClass {
         self,
         resourceidmap: &HashMap<String, internal::Key<internal::Resource>>,
         shipclassidmap: &HashMap<String, internal::Key<internal::ShipClass>>,
+        engineclassidmap: &HashMap<String, internal::Key<internal::EngineClass>>,
         factoryclassidmap: &HashMap<String, internal::Key<internal::FactoryClass>>,
         shipyardclassidmap: &HashMap<String, internal::Key<internal::ShipyardClass>>,
         shipaiidmap: &HashMap<String, internal::Key<internal::ShipAI>>,
@@ -625,7 +672,15 @@ impl ShipClass {
                 .iter()
                 .map(|stockpile| stockpile.clone().hydrate(&resourceidmap))
                 .collect(),
-            hyperdrive: self.hyperdrive,
+            engines: self
+                .engines
+                .iter()
+                .map(|id| {
+                    *engineclassidmap
+                        .get(id)
+                        .unwrap_or_else(|| panic!("{} is not found", id))
+                })
+                .collect(),
             compconfig: self.compconfig.map(|map| {
                 map.iter()
                     .map(|(id, n)| (*shipclassidmap.get(id).unwrap(), *n))

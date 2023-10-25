@@ -1075,6 +1075,7 @@
             "visiblename": "TIE/LN space superiority fighter",
             "description": "Dirt-cheap mass-produced fighter of the Empire.",
             "basestrength": 11,
+            "aiclass": "basicai",
             "defaultweapons": {
                 "lightlaser": 1,
                 "prottorp": 4
@@ -1083,13 +1084,15 @@
             "cargovol": 10,
             "factoryclasslist": [],
             "shipyardclasslist": [],
-            "defectchance": {}
+            "defectchance": {},
+            "stockpiles": []
         },
         {
             "id": "z95",
             "visiblename": "Z-95 Headhunter",
             "description": "An aging, but still effective, light starfighter used by rebels, pirates, local governments, and civilian operators.",
             "basestrength": 16,
+            "aiclass": "basicai",
             "defaultweapons": {
                 "lightlaser": 1,
                 "prottorp": 4
@@ -1099,13 +1102,15 @@
             "factoryclasslist": [],
             "shipyardclasslist": [],
             "hyperdrive": 2,
-            "defectchance": {}
+            "defectchance": {},
+            "stockpiles": []
         },
         {
             "id": "isd",
             "visiblename": "Imperial II-class Star Destroyer",
             "description": "Powerful capital vessel, deployed in large numbers by the Empire.",
             "basestrength": 1000,
+            "aiclass": "basicai",
             "hangarcap": 2000,
             "weaponcap": 500,
             "factoryclasslist": [],
@@ -1114,17 +1119,29 @@
             "compconfig": {
                 "tieln": 72
             },
-            "defectchance": {}
+            "defectchance": {},
+            "stockpiles": []
         },
         {
             "id": "nebulonb",
             "visiblename": "EF76 Nebulon-B Escort Frigate",
             "description": "A light capital ship, quick but well-armed for its size.",
             "basestrength": 150,
+            "aiclass": "basicai",
             "factoryclasslist": [],
             "shipyardclasslist": [],
             "hyperdrive": 2,
-            "defectchance": {}
+            "defectchance": {},
+            "stockpiles": []
+        }
+    ],
+    "shipais": [
+        {
+            "id": "basicai",
+            "ship_attract_specific": 1.0,
+            "ship_attract_generic": 1.0,
+            "ship_cargo_attract": {},
+            "resource_attract": {}
         }
     ],
     "fleetclasses": [
