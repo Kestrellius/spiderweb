@@ -13,6 +13,7 @@ pub struct Root {
     links: Vec<(String, String)>,
     factions: Vec<Faction>,
     engineclasses: Vec<EngineClass>,
+    repairclasses: Vec<RepairClass>,
     factoryclasses: Vec<FactoryClass>,
     shipyardclasses: Vec<ShipyardClass>,
     resources: Vec<Resource>,
@@ -161,6 +162,20 @@ impl Root {
                 (kv_pair, internal_engineclass)
             })
             .unzip();
+        
+        let (repairclassidmap, repairclasses): (
+            HashMap<String, internal::Key<internal::RepairClass>>,
+            Vec<internal::RepairClass>,
+        ) = self
+            .repairclasses
+            .drain(0..)
+            .enumerate()
+            .map(|(i, repairclass)| {
+                let (stringid, internal_repairclass) = repairclass.hydrate(&resourceidmap);
+                let kv_pair = (stringid, internal::Key::new_from_index(i));
+                (kv_pair, internal_repairclass)
+            })
+            .unzip();
 
         //pretty much exactly the same as resources
         let (factoryclassidmap, factoryclasses): (
@@ -195,6 +210,7 @@ impl Root {
             shipyardclasslist: Vec::new(),
             stockpiles: Vec::new(),
             engines: Vec::new(),
+            repair: Vec::new(),
             compconfig: None, //ideal configuration for this ship's strikecraft complement
             defectchance: None,
         };
@@ -267,6 +283,7 @@ impl Root {
                     &resourceidmap,
                     &shipclassidmap,
                     &engineclassidmap,
+                    &repairclassidmap,
                     &factoryclassidmap,
                     &shipyardclassidmap,
                     &shipaiidmap,
@@ -296,6 +313,7 @@ impl Root {
             neighbors,
             factions: internal::Table::from_vec(factions),
             engineclasses: internal::Table::from_vec(engineclasses),
+            repairclasses: internal::Table::from_vec(repairclasses),
             factoryclasses: internal::Table::from_vec(factoryclasses),
             shipyardclasses: internal::Table::from_vec(shipyardclasses),
             resources: internal::Table::from_vec(resources),
@@ -306,7 +324,11 @@ impl Root {
             fleetclasses: internal::Table::from_vec(fleetclasses),
             fleetinstances: internal::Table::new(),
             turn: 0_u64,
-            globalsalience: (Vec::new(), Vec::new()),
+            globalsalience: internal::GlobalSalience {
+                resourcesalience: Vec::new(),
+                shipclasssalience: Vec::new(),
+                factionsalience: Vec::new(),
+            },
         }
     }
 }
@@ -447,7 +469,7 @@ impl Faction {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Stockpile {
+pub struct UnipotentResourceStockpile {
     resourcetype: String,
     contents: u64,
     rate: Option<u64>,
@@ -456,7 +478,7 @@ pub struct Stockpile {
     propagate: Option<bool>,
 }
 
-impl Stockpile {
+impl UnipotentResourceStockpile {
     fn hydrate(
         self,
         resourceidmap: &HashMap<String, internal::Key<internal::Resource>>,
@@ -476,11 +498,55 @@ impl Stockpile {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PluripotentStockpile {
+    resource_contents: HashMap<String, u64>,
+    ship_contents: HashSet<String>,
+    allowed: Option<(Vec<String>, Vec<String>)>,
+    target: u64,
+    capacity: u64,
+    propagate: Option<bool>,
+}
+
+impl PluripotentStockpile {
+    fn hydrate(
+        mut self,
+        resourceidmap: &HashMap<String, internal::Key<internal::Resource>>,
+        shipclassidmap: &HashMap<String, internal::Key<internal::ShipClass>>,
+    ) -> internal::PluripotentStockpile {
+        let stockpile = internal::PluripotentStockpile {
+            resource_contents: self
+                .resource_contents
+                .drain()
+                .map(|(id, num)| (*resourceidmap.get(&id).expect("Resource is invalid!"), num))
+                .collect(),
+            //NOTE: This just gives a pluripotent stockpile an empty ship_contents because IIRC there's not a way to actually create shipinstances in the json
+            ship_contents: HashSet::new(),
+            allowed: self.allowed.map(|(resources, shipclasses)| {
+                (
+                    resources
+                        .iter()
+                        .map(|id| *resourceidmap.get(id).expect("Resource is invalid!"))
+                        .collect(),
+                    shipclasses
+                        .iter()
+                        .map(|id| *shipclassidmap.get(id).expect("Shipclass is invalid!"))
+                        .collect(),
+                )
+            }),
+            target: self.target,
+            capacity: self.capacity,
+            propagate: self.propagate.unwrap_or(true),
+        };
+        stockpile
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct EngineClass {
     id: String,
     visiblename: String,
     description: String,
-    inputs: Vec<Stockpile>,
+    inputs: Vec<UnipotentResourceStockpile>,
     speed: (u64, u64),
 }
 
@@ -504,12 +570,42 @@ impl EngineClass {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct RepairClass {
+    id: String,
+    visiblename: String,
+    description: String,
+    inputs: Vec<UnipotentResourceStockpile>,
+    repair_points: u64,
+    repair_factor: f32,
+}
+
+impl RepairClass {
+    fn hydrate(
+        mut self,
+        resourceidmap: &HashMap<String, internal::Key<internal::Resource>>,
+    ) -> (String, internal::RepairClass) {
+        let repairclass = internal::RepairClass {
+            visiblename: self.visiblename,
+            description: self.description,
+            inputs: self
+                .inputs
+                .drain(0..)
+                .map(|x| x.hydrate(resourceidmap))
+                .collect(),
+            repair_points: self.repair_points,
+            repair_factor: self.repair_factor,
+        };
+        (self.id, repairclass)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct FactoryClass {
     id: String,
     visiblename: String,
     description: String,
-    inputs: Vec<Stockpile>,  //the data for the factory's asset consumption
-    outputs: Vec<Stockpile>, //the data for the factory's asset production
+    inputs: Vec<UnipotentResourceStockpile>, //the data for the factory's asset consumption
+    outputs: Vec<UnipotentResourceStockpile>, //the data for the factory's asset production
 }
 
 impl FactoryClass {
@@ -540,7 +636,7 @@ pub struct ShipyardClass {
     id: String,
     visiblename: Option<String>,
     description: Option<String>,
-    inputs: Vec<Stockpile>,
+    inputs: Vec<UnipotentResourceStockpile>,
     outputs: HashMap<String, u64>,
     constructrate: u64,
     efficiency: f64,
@@ -609,8 +705,9 @@ struct ShipClass {
     cargovol: Option<u64>, //how much cargo space this ship takes up when transported by a cargo ship
     factoryclasslist: Vec<String>,
     shipyardclasslist: Vec<String>,
-    stockpiles: Vec<Stockpile>,
+    stockpiles: Vec<PluripotentStockpile>,
     engines: Vec<String>,
+    repair: Vec<String>,
     compconfig: Option<HashMap<String, u64>>, //ideal configuration for this ship's strikecraft complement
     defectchance: Option<HashMap<String, f64>>,
 }
@@ -621,6 +718,7 @@ impl ShipClass {
         resourceidmap: &HashMap<String, internal::Key<internal::Resource>>,
         shipclassidmap: &HashMap<String, internal::Key<internal::ShipClass>>,
         engineclassidmap: &HashMap<String, internal::Key<internal::EngineClass>>,
+        repairclassidmap: &HashMap<String, internal::Key<internal::RepairClass>>,
         factoryclassidmap: &HashMap<String, internal::Key<internal::FactoryClass>>,
         shipyardclassidmap: &HashMap<String, internal::Key<internal::ShipyardClass>>,
         shipaiidmap: &HashMap<String, internal::Key<internal::ShipAI>>,
@@ -670,13 +768,22 @@ impl ShipClass {
             stockpiles: self
                 .stockpiles
                 .iter()
-                .map(|stockpile| stockpile.clone().hydrate(&resourceidmap))
+                .map(|stockpile| stockpile.clone().hydrate(&resourceidmap, &shipclassidmap))
                 .collect(),
             engines: self
                 .engines
                 .iter()
                 .map(|id| {
                     *engineclassidmap
+                        .get(id)
+                        .unwrap_or_else(|| panic!("{} is not found", id))
+                })
+                .collect(),
+            repair: self
+                .repair
+                .iter()
+                .map(|id| {
+                    *repairclassidmap
                         .get(id)
                         .unwrap_or_else(|| panic!("{} is not found", id))
                 })
