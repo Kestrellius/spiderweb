@@ -1,6 +1,8 @@
 use average::Mean;
 use no_panic::no_panic;
 use ordered_float::NotNan;
+use rand::prelude::*;
+use rand_distr::StandardNormal;
 use std::cmp::Ordering;
 use std::collections::{btree_map, hash_map, BTreeMap, HashMap, HashSet};
 use std::fmt;
@@ -109,7 +111,7 @@ impl<T> Table<T> {
     pub fn iter_mut(&mut self) -> btree_map::IterMut<Key<T>, T> {
         self.map.iter_mut()
     }
-    pub fn from_vec(mut vec: Vec<T>) -> Self {
+    pub fn from_vec(vec: Vec<T>) -> Self {
         let mut table: Table<T> = Table::new();
         vec.into_iter().for_each(|entity| {
             table.put(entity);
@@ -125,8 +127,9 @@ pub struct Root {
     pub edges: HashSet<(Key<Node>, Key<Node>)>,
     pub neighbors: HashMap<Key<Node>, Vec<Key<Node>>>,
     pub factions: Table<Faction>,
+    pub wars: HashSet<(Key<Faction>, Key<Faction>)>,
     pub engineclasses: Table<EngineClass>,
-    pub repairclasses: Table<RepairClass>,
+    pub repairerclasses: Table<RepairerClass>,
     pub factoryclasses: Table<FactoryClass>,
     pub shipyardclasses: Table<ShipyardClass>,
     pub resources: Table<Resource>,
@@ -260,11 +263,10 @@ impl Root {
         faction: Key<Faction>,
     ) -> Key<ShipInstance> {
         //we call the shipclass instantiate method, and feed it the parameters it wants
-        let new_ship = self.shipclasses.get(class_id).instantiate(
-            location,
-            faction,
-            &self
-        );
+        let new_ship = self
+            .shipclasses
+            .get(class_id)
+            .instantiate(location, faction, &self);
         self.shipinstancecounter += 1;
         //this will need to be changed when we switch ship instances to the table system
         //here we check to make sure the new ship's id doesn't already exist
@@ -699,7 +701,7 @@ pub struct System {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Node {
     pub visiblename: String, //location name as shown to player
-    pub system: SystemID, //system in which node is located; this is used to generate all-to-all in-system links
+    pub system: Key<System>, //system in which node is located; this is used to generate all-to-all in-system links
     pub distance: u64, //node's distance from system star; this is used for autogenerating skyboxes and determining reinforcement delay between nodes
     pub description: String,
     pub flavor: NodeFlavorID, //type of location this node is -- planet, asteroid field, hyperspace transit zone
@@ -735,7 +737,42 @@ impl Node {
                     .collect();
                 (*factionid, (fleets, ships))
             })
+            .filter(|(factionid, (fleets, ships))| ships.len() > 0)
             .collect()
+    }
+    pub fn get_node_faction_forces(
+        node: Key<Node>,
+        factionid: Key<Faction>,
+        root: &Root,
+    ) -> (Vec<Key<FleetInstance>>, Vec<Key<ShipInstance>>) {
+        let ships: Vec<Key<ShipInstance>> = root
+            .shipinstances
+            .iter()
+            .filter(|(shipid, ship)| ship.allegiance == factionid)
+            .filter(|(shipid, ship)| ship.get_node(root) == node)
+            .map(|(shipid, ship)| *shipid)
+            .collect();
+        let fleets: Vec<Key<FleetInstance>> = root
+            .fleetinstances
+            .iter()
+            .filter(|(fleetid, fleet)| fleet.allegiance == factionid)
+            .filter(|(fleetid, fleet)| fleet.location == node)
+            .map(|(fleetid, fleet)| *fleetid)
+            .collect();
+        (fleets, ships)
+    }
+    pub fn get_system(node: Key<Node>, root: &Root) -> Option<Key<System>> {
+        let system = root.systems.iter().find(|(id, s)| s.nodes.contains(&node));
+        match system {
+            Some((id, s)) => Some(*id),
+            None => None,
+        }
+    }
+    pub fn is_in_system(node: Key<Node>, system: Key<System>, root: &Root) -> bool {
+        root.systems.get(system).nodes.contains(&node)
+    }
+    pub fn get_distance(a: Key<Node>, b: Key<Node>, root: &Root) -> u64 {
+        (root.nodes.get(a).distance as i64 - root.nodes.get(b).distance as i64).abs() as u64
     }
 }
 
@@ -765,6 +802,12 @@ impl Edges {
             .or_insert_with(|| Vec::new())
             .push(a);
     }
+    /*fn insert_with_distance(&mut self, root: &mut Root, a: Key<Node>, b: Key<Node>, distance: u64) {
+        for i in 0..=distance {
+            let p = root.create_node(0, None, None, null, etc);
+            self.insert(a, p)
+        }
+    }*/
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -774,6 +817,7 @@ pub struct Faction {
     pub efficiencydefault: f64, //starting value for production facility efficiency
     pub efficiencytarget: f64, //end value for efficiency, toward which efficiency changes over time in a node held by this faction
     pub efficiencydelta: f64,  //rate at which efficiency changes
+    pub battlescalar: f32,
     pub relations: HashMap<Key<Faction>, f32>,
 }
 
@@ -846,7 +890,7 @@ pub trait Stockpileness {
         let available_space = (rhs.get_capacity() - rhs.get_fullness(root))
             .checked_div(class.get_volume(root))
             .unwrap_or(u64::MAX);
-        let constrained_quantity = (std::cmp::min(quantity, available_space));
+        let constrained_quantity = std::cmp::min(quantity, available_space);
         let cargo: Vec<GenericCargo> = match class {
             CollatedCargo::Resource(k) => vec![GenericCargo::Resource {
                 id: k,
@@ -995,7 +1039,7 @@ impl Stockpileness for UnipotentResourceStockpile {
                     let old_contents = self.contents;
                     let count_capacity = self.capacity / cargo_vol;
                     let remainder = value.saturating_sub(count_capacity - self.contents);
-                    self.contents += (value - remainder);
+                    self.contents += value - remainder;
                     println!("Inserting {}.", value - remainder);
                     assert!(self.contents <= count_capacity);
                     assert_eq!(self.contents + remainder, old_contents + value);
@@ -1020,7 +1064,7 @@ impl Stockpileness for UnipotentResourceStockpile {
             GenericCargo::Resource { id, value } => {
                 if id == self.resourcetype {
                     let remainder = value.saturating_sub(self.contents);
-                    self.contents -= (value - remainder);
+                    self.contents -= value - remainder;
                     println!("Removing {}.", value - remainder);
                     Some(GenericCargo::Resource {
                         id: id,
@@ -1110,8 +1154,8 @@ impl Stockpileness for PluripotentStockpile {
     fn get_shipclass_num(&self, root: &Root, cargo: Key<ShipClass>) -> u64 {
         self.ship_contents
             .iter()
-            .filter(|(key)| root.shipinstances.get(**key).shipclass == cargo)
-            .fold(0, |mut acc, (ship)| {
+            .filter(|key| root.shipinstances.get(**key).shipclass == cargo)
+            .fold(0, |mut acc, ship| {
                 acc += 1;
                 acc
             })
@@ -1181,7 +1225,7 @@ impl Stockpileness for PluripotentStockpile {
                     let fullness = self.get_fullness(root);
                     let how_many_fit = (self.capacity - fullness) / cargo_vol;
                     let remainder = value.saturating_sub(how_many_fit);
-                    *self.resource_contents.get_mut(&id).unwrap() += (value - remainder);
+                    *self.resource_contents.get_mut(&id).unwrap() += value - remainder;
                     Some(GenericCargo::Resource {
                         id: id,
                         value: remainder,
@@ -1227,7 +1271,7 @@ impl Stockpileness for PluripotentStockpile {
                         .map(|(key, num)|*num)
                         .expect("Failed to find contents entry for resource that is supposed to be allowed!");
                     let remainder = value.saturating_sub(cargo_count);
-                    *self.resource_contents.get_mut(&id).unwrap() -= (value - remainder);
+                    *self.resource_contents.get_mut(&id).unwrap() -= value - remainder;
                     Some(GenericCargo::Resource {
                         id: id,
                         value: (value - remainder),
@@ -1441,17 +1485,17 @@ impl EngineInstance {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct RepairClass {
+pub struct RepairerClass {
     pub visiblename: String,
     pub description: String,
     pub inputs: Vec<UnipotentResourceStockpile>,
-    pub repair_points: u64,
+    pub repair_points: i64,
     pub repair_factor: f32,
 }
 
-impl RepairClass {
-    pub fn instantiate(&self, is_visible: bool) -> RepairInstance {
-        RepairInstance {
+impl RepairerClass {
+    pub fn instantiate(&self, is_visible: bool) -> RepairerInstance {
+        RepairerInstance {
             visiblename: self.visiblename.clone(),
             description: self.description.clone(),
             visibility: is_visible,
@@ -1463,13 +1507,39 @@ impl RepairClass {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct RepairInstance {
+pub struct RepairerInstance {
     visiblename: String,
     description: String,
     visibility: bool,
     inputs: Vec<UnipotentResourceStockpile>,
-    repair_points: u64,
+    repair_points: i64,
     repair_factor: f32,
+}
+
+impl ResourceProcess for RepairerInstance {
+    fn get_state(&self) -> FactoryState {
+        let input_is_good: bool = self.inputs.iter().all(|x| x.input_is_sufficient()); //this uses the FactoryOutputInstance sufficiency method defined earlier
+        if input_is_good {
+            FactoryState::Active
+        } else {
+            FactoryState::Stalled
+        }
+    }
+    fn get_resource_demand_total(&self, root: &Root, resourceid: Key<Resource>) -> u64 {
+        self.inputs
+            .iter()
+            .map(|sp| sp.get_resource_demand(root, resourceid))
+            .sum()
+    }
+    fn get_target_total(&self) -> u64 {
+        self.inputs.iter().map(|sp| sp.target).sum()
+    }
+    fn collate_outputs(&self, root: &Root) -> HashMap<CollatedCargo, u64> {
+        HashMap::new()
+    }
+    fn get_output_resource_num(&self, root: &Root, cargo: Key<Resource>) -> u64 {
+        0
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1576,6 +1646,7 @@ impl FactoryInstance {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum FactoryState {
     Active,
     Dormant,
@@ -1721,7 +1792,7 @@ pub struct ShipClass {
     pub id: Key<ShipClass>,
     pub visiblename: String,
     pub description: String,
-    pub basehull: Option<u64>, //how many hull hitpoints this ship has by default
+    pub basehull: u64,     //how many hull hitpoints this ship has by default
     pub basestrength: u64, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
     pub aiclass: Key<ShipAI>,
     pub defaultweapons: Option<HashMap<Key<Resource>, u64>>, //a strikecraft's default weapons, which it always has with it
@@ -1734,9 +1805,10 @@ pub struct ShipClass {
     pub shipyardclasslist: Vec<Key<ShipyardClass>>,
     pub stockpiles: Vec<PluripotentStockpile>,
     pub engines: Vec<Key<EngineClass>>,
-    pub repair: Vec<Key<RepairClass>>,
+    pub repairers: Vec<Key<RepairerClass>>,
     pub compconfig: Option<HashMap<Key<ShipClass>, u64>>, //ideal configuration for this ship's strikecraft complement
     pub defectchance: HashMap<Key<Faction>, f64>,         //
+    pub escapescalar: f32,
 }
 
 impl ShipClass {
@@ -1782,15 +1854,16 @@ impl ShipClass {
                 .iter()
                 .map(|classid| root.engineclasses.get(*classid).instantiate(true))
                 .collect(),
-            repair: self
-                .repair
+            repairers: self
+                .repairers
                 .iter()
-                .map(|classid| root.repairclasses.get(*classid).instantiate(true))
+                .map(|classid| root.repairerclasses.get(*classid).instantiate(true))
                 .collect(),
             location,
             allegiance: faction,
             experience: 0,
             efficiency: 1.0,
+            objectives: Vec::new(),
         }
     }
 }
@@ -1799,20 +1872,34 @@ impl ShipClass {
 pub struct ShipInstance {
     pub visiblename: String,
     pub shipclass: Key<ShipClass>, //which class of ship this is
-    pub hull: Option<u64>, //how many hitpoints the ship has; strikecraft don't have hitpoints
+    pub hull: u64, //how many hitpoints the ship has; strikecraft don't have hitpoints
     pub strength: u64, //ship's strength score, based on its class strength score but affected by its current hull percentage and experience score
     pub factoryinstancelist: Vec<FactoryInstance>,
     pub shipyardinstancelist: Vec<ShipyardInstance>,
     pub stockpiles: Vec<PluripotentStockpile>,
     pub engines: Vec<EngineInstance>,
-    pub repair: Vec<RepairInstance>,
+    pub repairers: Vec<RepairerInstance>,
     pub location: ShipLocationFlavor, //where the ship is -- a node if it's unaffiliated, a fleet if it's in one
     pub allegiance: Key<Faction>,     //which faction this ship belongs to
     pub experience: u64, //XP gained by this ship, which affects strength score and in-mission AI class
     pub efficiency: f64,
+    pub objectives: Vec<ObjectiveFlavor>,
 }
 
 impl ShipInstance {
+    pub fn repair(&mut self, shipclasses: Table<ShipClass>) {
+        self.repairers
+            .iter()
+            .filter(|rp| rp.get_state() == FactoryState::Active)
+            .for_each(|rp| {
+                self.hull = (self.hull as i64
+                    + rp.repair_points
+                    + (self.hull as f32 * rp.repair_factor) as i64)
+                    .clamp(0, shipclasses.get(self.shipclass).basehull as i64)
+                    as u64;
+            })
+    }
+
     pub fn get_resource_num(&self, root: &Root, cargo: Key<Resource>) -> u64 {
         self.stockpiles
             .iter()
@@ -1849,6 +1936,28 @@ impl ShipInstance {
         let target_total = self.stockpiles.iter().map(|sp| sp.target).sum::<u64>() as f32;
         assert!(demand_total < target_total);
         demand_total / target_total
+    }
+    pub fn is_in_fleet(&self, root: &Root) -> bool {
+        match self.location {
+            ShipLocationFlavor::Node(k) => false,
+            ShipLocationFlavor::Fleet(k) => true,
+            ShipLocationFlavor::Host(hf) => match hf {
+                HostFlavor::Garrison(k) => false,
+                HostFlavor::Carrier(k) => root.shipinstances.get(k).is_in_fleet(root),
+            },
+            ShipLocationFlavor::Detachment(n, f) => true,
+        }
+    }
+    pub fn get_fleet(&self, root: &Root) -> Option<Key<FleetInstance>> {
+        match self.location {
+            ShipLocationFlavor::Node(k) => None,
+            ShipLocationFlavor::Fleet(k) => Some(k),
+            ShipLocationFlavor::Host(hf) => match hf {
+                HostFlavor::Garrison(k) => None,
+                HostFlavor::Carrier(k) => root.shipinstances.get(k).get_fleet(root),
+            },
+            ShipLocationFlavor::Detachment(n, f) => Some(f),
+        }
     }
     //determines which node the ship is in
     //a ship can be in a number of places which aren't directly in a node, but all of them cash out to a node eventually
@@ -2065,18 +2174,22 @@ impl CargoFlavor {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FleetClass {
     pub visiblename: String,
     pub description: String,
+    pub strengthmod: (f32, u64),
     pub fleetconfig: HashMap<Key<ShipClass>, u64>,
+    pub disbandthreshold: f32,
 }
 
 #[derive(Debug)]
 pub struct FleetInstance {
     fleetclass: Key<FleetClass>,
+    strength: u64,
     location: Key<Node>,
     allegiance: Key<Faction>,
+    objectives: Vec<ObjectiveFlavor>,
 }
 
 #[derive(Debug)]
@@ -2089,42 +2202,61 @@ pub struct Detachment {
 
 #[derive(Debug)]
 pub struct Objective {
-    id: ObjectiveID,
     condition: ObjectiveFlavor,
     cost: u64,
 }
 
-#[derive(Debug)]
-enum ObjectiveFlavor {
+#[derive(Debug, Copy, Clone)]
+pub struct ObjectiveScalars {
+    difficulty: f32,
+    cost: u64,
+    strengthscalar: f32,
+    escapescalar: f32,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum ObjectiveFlavor {
+    ReachNode {
+        scalars: ObjectiveScalars,
+        node: Key<Node>,
+    },
     ShipDeath {
+        scalars: ObjectiveScalars,
         ship: Key<ShipInstance>,
     },
     ShipSafe {
+        scalars: ObjectiveScalars,
         ship: Key<ShipInstance>,
         nturns: u64,
     },
     FleetDeath {
+        scalars: ObjectiveScalars,
         fleet: Key<FleetInstance>,
     },
     FleetSafe {
+        scalars: ObjectiveScalars,
         fleet: Key<FleetInstance>,
         nturns: u64,
-        strengthpercentage: f64,
+        strengthfraction: f32,
     },
     NodeCapture {
+        scalars: ObjectiveScalars,
         node: Key<Node>,
     },
     NodeSafe {
+        scalars: ObjectiveScalars,
         node: Key<Node>,
         nturns: u64,
     },
     SystemCapture {
+        scalars: ObjectiveScalars,
         system: SystemID,
     },
     SystemSafe {
+        scalars: ObjectiveScalars,
         system: SystemID,
         nturns: u64,
-        nodespercentage: f64,
+        nodesfraction: f32,
     },
 }
 
@@ -2159,12 +2291,275 @@ pub struct Engagement {
 }
 
 impl Engagement {
-    pub fn battle(location: Key<Node>, root: &Root) -> Self {
-        let forces = Node::get_node_forces(location, root);
+    pub fn internal_battle(root: &Root, location: Key<Node>, aggressor: Key<Faction>) -> Self {
+        let system = Node::get_system(location, root);
+
+        let belligerents = Node::get_node_forces(location, root);
+
+        let attackers: HashMap<&Key<Faction>, (&Vec<Key<FleetInstance>>, Vec<&Key<ShipInstance>>)> =
+            belligerents
+                .iter()
+                .filter(|(fid, (fs, ss))| **fid == aggressor)
+                .map(|(fid, (fs, ss))| {
+                    (
+                        fid,
+                        (
+                            fs,
+                            ss.iter()
+                                .filter(|x| !root.shipinstances.get(**x).is_in_fleet(root))
+                                .collect::<Vec<&Key<ShipInstance>>>(),
+                        ),
+                    )
+                })
+                .collect();
+
+        let attacker_reinforcements: HashMap<
+            Key<Faction>,
+            Vec<(u64, (Vec<Key<FleetInstance>>, Vec<Key<ShipInstance>>))>,
+        > = attackers
+            .iter()
+            .map(|(fid, (fs, ss))| {
+                (
+                    **fid,
+                    root.neighbors
+                        .get(&location)
+                        .unwrap()
+                        .iter()
+                        .map(|n| match system {
+                            Some(s) => {
+                                if Node::is_in_system(*n, s, root) {
+                                    (
+                                        Node::get_distance(*n, location, root),
+                                        Node::get_node_faction_forces(*n, **fid, root),
+                                    )
+                                } else {
+                                    (1000, Node::get_node_faction_forces(*n, **fid, root))
+                                }
+                            }
+                            None => (1000, Node::get_node_faction_forces(*n, **fid, root)),
+                        })
+                        .collect(),
+                )
+            })
+            .collect();
+
+        let defenders: HashMap<&Key<Faction>, (&Vec<Key<FleetInstance>>, Vec<&Key<ShipInstance>>)> =
+            belligerents
+                .iter()
+                .filter(|(fid, (fs, ss))| **fid != aggressor)
+                .filter(|(fid, (fs, ss))| {
+                    root.wars
+                        .get(&(**fid.min(&&aggressor), aggressor.max(**fid)))
+                        .is_some()
+                })
+                .map(|(fid, (fs, ss))| {
+                    (
+                        fid,
+                        (
+                            fs,
+                            ss.iter()
+                                .filter(|x| !root.shipinstances.get(**x).is_in_fleet(root))
+                                .collect::<Vec<&Key<ShipInstance>>>(),
+                        ),
+                    )
+                })
+                .collect();
+
+        let defender_reinforcements: HashMap<
+            Key<Faction>,
+            Vec<(u64, (Vec<Key<FleetInstance>>, Vec<Key<ShipInstance>>))>,
+        > = defenders
+            .iter()
+            .map(|(fid, (fs, ss))| {
+                (
+                    **fid,
+                    root.neighbors
+                        .get(&location)
+                        .unwrap()
+                        .iter()
+                        .map(|n| match system {
+                            Some(s) => {
+                                if Node::is_in_system(*n, s, root) {
+                                    (
+                                        Node::get_distance(*n, location, root),
+                                        Node::get_node_faction_forces(*n, **fid, root),
+                                    )
+                                } else {
+                                    (1000, Node::get_node_faction_forces(*n, **fid, root))
+                                }
+                            }
+                            None => (1000, Node::get_node_faction_forces(*n, **fid, root)),
+                        })
+                        .collect(),
+                )
+            })
+            .collect();
+
+        let attacker_strength: u64 = attackers
+            .iter()
+            .map(|(fid, (fs, ss))| {
+                ss.iter()
+                    .map(|shipid| root.shipinstances.get(**shipid).strength)
+                    .sum::<u64>()
+                    + fs.iter()
+                        .map(|fleetid| root.fleetinstances.get(*fleetid).strength)
+                        .sum::<u64>()
+            })
+            .sum::<u64>()
+            + attacker_reinforcements
+                .iter()
+                .map(|(fid, v)| {
+                    v.iter()
+                        .map(|(d, (fs, ss))| {
+                            ss.iter()
+                                .filter(|s| !root.shipinstances.get(**s).is_in_fleet(root))
+                                .map(|s| root.shipinstances.get(*s).strength)
+                                .sum::<u64>()
+                                + fs.iter()
+                                    .map(|f| root.fleetinstances.get(*f).strength)
+                                    .sum::<u64>()
+                        })
+                        .sum::<u64>()
+                })
+                .sum::<u64>();
+
+        let attacker_strength: u64 = defenders
+            .iter()
+            .map(|(fid, (fs, ss))| {
+                ss.iter()
+                    .map(|shipid| root.shipinstances.get(**shipid).strength)
+                    .sum::<u64>()
+                    + fs.iter()
+                        .map(|fleetid| root.fleetinstances.get(*fleetid).strength)
+                        .sum::<u64>()
+            })
+            .sum::<u64>()
+            + defender_reinforcements
+                .iter()
+                .map(|(fid, v)| {
+                    v.iter()
+                        .map(|(d, (fs, ss))| {
+                            ss.iter()
+                                .filter(|s| !root.shipinstances.get(**s).is_in_fleet(root))
+                                .map(|s| root.shipinstances.get(*s).strength)
+                                .sum::<u64>()
+                                + fs.iter()
+                                    .map(|f| root.fleetinstances.get(*f).strength)
+                                    .sum::<u64>()
+                        })
+                        .sum::<u64>()
+                })
+                .sum::<u64>();
+
+        //we don't take the objectives of reinforcement units into account
+        let attacker_objective_difficulty: f32 = attackers
+            .iter()
+            .map(|(fid, (fs, ss))| {
+                let mut d = fs
+                    .iter()
+                    .map(|id| root.fleetinstances.get(*id).objectives.clone())
+                    .flatten()
+                    .collect::<Vec<ObjectiveFlavor>>();
+                d.append(
+                    &mut ss
+                        .iter()
+                        .map(|id| root.shipinstances.get(**id).objectives.clone())
+                        .flatten()
+                        .collect::<Vec<ObjectiveFlavor>>(),
+                );
+                d
+            })
+            .flatten()
+            .map(|of| match of {
+                ObjectiveFlavor::ReachNode { scalars, .. } => scalars.difficulty,
+                ObjectiveFlavor::ShipDeath { scalars, .. } => scalars.difficulty,
+                ObjectiveFlavor::ShipSafe { scalars, .. } => scalars.difficulty,
+                ObjectiveFlavor::FleetDeath { scalars, .. } => scalars.difficulty,
+                ObjectiveFlavor::FleetSafe { scalars, .. } => scalars.difficulty,
+                ObjectiveFlavor::NodeCapture { scalars, .. } => scalars.difficulty,
+                ObjectiveFlavor::NodeSafe { scalars, .. } => scalars.difficulty,
+                ObjectiveFlavor::SystemCapture { scalars, .. } => scalars.difficulty,
+                ObjectiveFlavor::SystemSafe { scalars, .. } => scalars.difficulty,
+            })
+            .product();
+
+        let defender_objective_difficulty: f32 = attackers
+            .iter()
+            .map(|(fid, (fs, ss))| {
+                let mut d = fs
+                    .iter()
+                    .map(|id| root.fleetinstances.get(*id).objectives.clone())
+                    .flatten()
+                    .collect::<Vec<ObjectiveFlavor>>();
+                d.append(
+                    &mut ss
+                        .iter()
+                        .map(|id| root.shipinstances.get(**id).objectives.clone())
+                        .flatten()
+                        .collect::<Vec<ObjectiveFlavor>>(),
+                );
+                d
+            })
+            .flatten()
+            .map(|of| match of {
+                ObjectiveFlavor::ReachNode { scalars, .. } => scalars.difficulty,
+                ObjectiveFlavor::ShipDeath { scalars, .. } => scalars.difficulty,
+                ObjectiveFlavor::ShipSafe { scalars, .. } => scalars.difficulty,
+                ObjectiveFlavor::FleetDeath { scalars, .. } => scalars.difficulty,
+                ObjectiveFlavor::FleetSafe { scalars, .. } => scalars.difficulty,
+                ObjectiveFlavor::NodeCapture { scalars, .. } => scalars.difficulty,
+                ObjectiveFlavor::NodeSafe { scalars, .. } => scalars.difficulty,
+                ObjectiveFlavor::SystemCapture { scalars, .. } => scalars.difficulty,
+                ObjectiveFlavor::SystemSafe { scalars, .. } => scalars.difficulty,
+            })
+            .product();
+
+        let attacker_chance: f32 = attacker_strength as f32
+            * attacker_objective_difficulty
+            * attackers
+                .iter()
+                .map(|(id, _)| root.factions.get(**id).battlescalar)
+                .product::<f32>()
+            * (thread_rng().sample::<f32, StandardNormal>(StandardNormal) + 1.0);
+
+        /*let defender_chance: f32 = defender_strength
+         * defender_objective_difficulty
+         * defender_faction_scalar
+         * rand_normal;*/
+
+        /*let coalitions: Vec<
+            HashMap<&Key<Faction>, &(Vec<Key<FleetInstance>>, Vec<Key<ShipInstance>>)>,
+        > = forces
+            .iter()
+            .map(|(factionid, (fleets, ships))| {
+                forces
+                    .iter()
+                    .filter(|(s_factionid, _)| {
+                        root.factions.get(*factionid).relations.get(*s_factionid).unwrap() > &-1.0
+                    })
+                    .collect()
+            })
+            .fold(HashMap::new(), |mut acc, (factionid, (fleets, ships))|{
+                acc.entry(*factionid).or_insert((Vec::new(), Vec::new()));
+                iter::once(acc).map(|(fid, (fs, ss))|{
+
+                })
+            })
+            .collect();*/
+
+        /*let victory_chances: HashMap<Key<Faction>, f32> =
+        belligerents.iter().map(|(factionid, (fleets, ships))| {
+            let strength = ships
+                .iter()
+                .map(|shipid| root.shipinstances.get(*shipid).strength)
+                .sum();
+            let faction_modifier = 1;
+            let objective_difficulty = 1;
+        });*/
 
         Engagement {
             visiblename: format!("Battle of {}", root.nodes.get(location).visiblename),
-            forces: forces,
+            forces: belligerents,
             location: location,
             fallback_locations: HashMap::new(),
             objectives: HashMap::new(),

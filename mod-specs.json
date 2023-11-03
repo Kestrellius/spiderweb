@@ -58,8 +58,13 @@
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
-                    "factorylist": ["componentfactory"],
-                    "shipyardlist": ["isdshipyard", "tieshipyard"],
+                    "factorylist": [
+                        "componentfactory"
+                    ],
+                    "shipyardlist": [
+                        "isdshipyard",
+                        "tieshipyard"
+                    ],
                     "environment": "blankenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
@@ -89,8 +94,13 @@
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
-                    "factorylist": ["farm", "population"],
-                    "shipyardlist": ["tieshipyard"],
+                    "factorylist": [
+                        "farm",
+                        "population"
+                    ],
+                    "shipyardlist": [
+                        "tieshipyard"
+                    ],
                     "environment": "blankenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
@@ -120,7 +130,10 @@
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
-                    "factorylist": ["farm", "population"],
+                    "factorylist": [
+                        "farm",
+                        "population"
+                    ],
                     "shipyardlist": [],
                     "environment": "blankenv",
                     "allegiance": "empire",
@@ -151,7 +164,10 @@
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
-                    "factorylist": ["steelmine", "farm"],
+                    "factorylist": [
+                        "steelmine",
+                        "farm"
+                    ],
                     "shipyardlist": [],
                     "environment": "blankenv",
                     "allegiance": "empire",
@@ -183,7 +199,9 @@
                     "description": "I can't be bothered",
                     "flavor": "planet",
                     "factorylist": [],
-                    "shipyardlist": ["isdshipyard"],
+                    "shipyardlist": [
+                        "isdshipyard"
+                    ],
                     "environment": "blankenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
@@ -213,8 +231,13 @@
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
-                    "factorylist": ["componentfactory"],
-                    "shipyardlist": ["nebulonbshipyard","z95shipyard"],
+                    "factorylist": [
+                        "componentfactory"
+                    ],
+                    "shipyardlist": [
+                        "nebulonbshipyard",
+                        "z95shipyard"
+                    ],
                     "environment": "blankenv",
                     "allegiance": "rebels",
                     "efficiency": 2.5
@@ -244,8 +267,13 @@
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
-                    "factorylist": ["steelmine", "farm"],
-                    "shipyardlist": ["z95shipyard"],
+                    "factorylist": [
+                        "steelmine",
+                        "farm"
+                    ],
+                    "shipyardlist": [
+                        "z95shipyard"
+                    ],
                     "environment": "blankenv",
                     "allegiance": "rebels",
                     "efficiency": 2.5
@@ -309,7 +337,10 @@
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
-                    "factorylist": ["farm", "population"],
+                    "factorylist": [
+                        "farm",
+                        "population"
+                    ],
                     "shipyardlist": [],
                     "environment": "blankenv",
                     "allegiance": "empire",
@@ -384,7 +415,9 @@
                     "description": "I can't be bothered",
                     "flavor": "planet",
                     "factorylist": [],
-                    "shipyardlist": ["z95shipyard"],
+                    "shipyardlist": [
+                        "z95shipyard"
+                    ],
                     "environment": "blankenv",
                     "allegiance": "rebels",
                     "efficiency": 2.5
@@ -457,7 +490,10 @@
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
-                    "factorylist": ["componentfactory", "farm"],
+                    "factorylist": [
+                        "componentfactory",
+                        "farm"
+                    ],
                     "shipyardlist": [],
                     "environment": "blankenv",
                     "allegiance": "empire",
@@ -488,7 +524,10 @@
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
-                    "factorylist": ["steelmine", "population"],
+                    "factorylist": [
+                        "steelmine",
+                        "population"
+                    ],
                     "shipyardlist": [],
                     "environment": "blankenv",
                     "allegiance": "rebels",
@@ -550,8 +589,14 @@
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
-                    "factorylist": ["steelmine", "farm"],
-                    "shipyardlist": ["nebulonbshipyard", "z95shipyard"],
+                    "factorylist": [
+                        "steelmine",
+                        "farm"
+                    ],
+                    "shipyardlist": [
+                        "nebulonbshipyard",
+                        "z95shipyard"
+                    ],
                     "environment": "blankenv",
                     "allegiance": "rebels",
                     "efficiency": 2.5
@@ -581,8 +626,14 @@
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
-                    "factorylist": ["steelmine", "componentfactory"],
-                    "shipyardlist": ["isdshipyard", "tieshipyard"],
+                    "factorylist": [
+                        "steelmine",
+                        "componentfactory"
+                    ],
+                    "shipyardlist": [
+                        "isdshipyard",
+                        "tieshipyard"
+                    ],
                     "environment": "blankenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
@@ -612,8 +663,13 @@
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
-                    "factorylist": ["farm", "population"],
-                    "shipyardlist": ["nebulonbshipyard"],
+                    "factorylist": [
+                        "farm",
+                        "population"
+                    ],
+                    "shipyardlist": [
+                        "nebulonbshipyard"
+                    ],
                     "environment": "blankenv",
                     "allegiance": "rebels",
                     "efficiency": 2.5
@@ -643,8 +699,12 @@
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
-                    "factorylist": ["population"],
-                    "shipyardlist": ["z95shipyard"],
+                    "factorylist": [
+                        "population"
+                    ],
+                    "shipyardlist": [
+                        "z95shipyard"
+                    ],
                     "environment": "blankenv",
                     "allegiance": "rebels",
                     "efficiency": 2.5
@@ -674,7 +734,9 @@
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "planet",
-                    "factorylist": ["farm"],
+                    "factorylist": [
+                        "farm"
+                    ],
                     "shipyardlist": [],
                     "environment": "blankenv",
                     "allegiance": "rebels",
@@ -877,7 +939,7 @@
             "outputs": [
                 {
                     "resourcetype": "steel",
-                    "contents": 1000,
+                    "contents": 100,
                     "rate": 100,
                     "target": 2000,
                     "capacity": 3000
@@ -911,8 +973,7 @@
             "id": "farm",
             "visiblename": "Farm",
             "description": "foo fie foe fum",
-            "inputs": [
-            ],
+            "inputs": [],
             "outputs": [
                 {
                     "resourcetype": "food",
@@ -1072,7 +1133,7 @@
     "shipclasses": [
         {
             "id": "tieln",
-            "visiblename": "TIE/LN space superiority fighter",
+            "visiblename": "TIE/ln space superiority fighter",
             "description": "Dirt-cheap mass-produced fighter of the Empire.",
             "basestrength": 11,
             "aiclass": "basicai",

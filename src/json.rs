@@ -12,8 +12,9 @@ pub struct Root {
     nodeflavors: Vec<NodeFlavor>,
     links: Vec<(String, String)>,
     factions: Vec<Faction>,
+    wars: Vec<(String, String)>,
     engineclasses: Vec<EngineClass>,
-    repairclasses: Vec<RepairClass>,
+    repairerclasses: Vec<RepairerClass>,
     factoryclasses: Vec<FactoryClass>,
     shipyardclasses: Vec<ShipyardClass>,
     resources: Vec<Resource>,
@@ -54,35 +55,41 @@ impl Root {
         let mut jsonnodes: Vec<Node> = Vec::new();
 
         //here we convert json systems into internal systems, and create a map between json string-id and internal id
-        let (systems, systemidmap): (Vec<internal::System>, HashMap<String, internal::SystemID>) =
-            self.systems
-                .drain(0..)
-                .enumerate()
-                .map(|(i, system)| {
-                    //we hydrate the system, getting the system's stringid, the internal system struct, and a vec of the nodes that are in this system
-                    let (stringid, internalsystem, mut nodes) = system.hydrate(&nodeidmap);
-                    let mut nodeids: Vec<internal::Key<internal::Node>> = Vec::new();
-                    //here we build all-to-all edges between the nodes in the system
-                    nodes.iter().for_each(|node| {
-                        //we get the node's id from the id map
-                        let nodeid = *nodeidmap.get(&node.id).unwrap();
-                        //we iterate over the nodeids, ensure that there aren't any duplicates, and push each pair of nodeids into edges
-                        nodeids.iter().for_each(|&rhs| {
-                            assert_ne!(nodeid, rhs, "Same node ID appears twice.");
-                            edges.insert((nodeid.min(rhs), nodeid.max(rhs)));
-                        });
-                        nodeids.push(nodeid);
+        let (systems, systemidmap): (
+            Vec<internal::System>,
+            HashMap<String, internal::Key<internal::System>>,
+        ) = self
+            .systems
+            .drain(0..)
+            .enumerate()
+            .map(|(i, system)| {
+                //we hydrate the system, getting the system's stringid, the internal system struct, and a vec of the nodes that are in this system
+                let (stringid, internalsystem, mut nodes) = system.hydrate(&nodeidmap);
+                let mut nodeids: Vec<internal::Key<internal::Node>> = Vec::new();
+                //here we build all-to-all edges between the nodes in the system
+                nodes.iter().for_each(|node| {
+                    //we get the node's id from the id map
+                    let nodeid = *nodeidmap.get(&node.id).unwrap();
+                    //we iterate over the nodeids, ensure that there aren't any duplicates, and push each pair of nodeids into edges
+                    nodeids.iter().for_each(|&rhs| {
+                        assert_ne!(nodeid, rhs, "Same node ID appears twice.");
+                        edges.insert((nodeid.min(rhs), nodeid.max(rhs)));
                     });
+                    nodeids.push(nodeid);
+                });
 
-                    //NOTE: we turn the nodes vec into jsonnodes, for ?some reason?
-                    nodes.drain(0..).for_each(|node| {
-                        jsonnodes.push(node);
-                    });
-                    //we create a system id from the enumeration index, then pair it with the system's stringid
-                    let kv = (stringid, internal::SystemID(i));
-                    (internalsystem, kv)
-                })
-                .unzip();
+                //NOTE: we turn the nodes vec into jsonnodes, for ?some reason?
+                nodes.drain(0..).for_each(|node| {
+                    jsonnodes.push(node);
+                });
+                //we create a system id from the enumeration index, then pair it with the system's stringid
+                let kv = (
+                    stringid,
+                    internal::Key::<internal::System>::new_from_index(i),
+                );
+                (internalsystem, kv)
+            })
+            .unzip();
 
         let neighbors: HashMap<internal::Key<internal::Node>, Vec<internal::Key<internal::Node>>> =
             edges.iter().fold(HashMap::new(), |mut acc, &(a, b)| {
@@ -134,6 +141,20 @@ impl Root {
             })
             .collect();
 
+        let wars: HashSet<(
+            internal::Key<internal::Faction>,
+            internal::Key<internal::Faction>,
+        )> = self
+            .links
+            .iter()
+            .map(|(a, b)| {
+                let aid = *factionidmap.get(a).unwrap();
+                let bid = *factionidmap.get(b).unwrap();
+                assert_ne!(aid, bid);
+                (aid.min(bid), aid.max(bid))
+            })
+            .collect();
+
         //same sort of deal here
         let (resourceidmap, resources): (
             HashMap<String, internal::Key<internal::Resource>>,
@@ -162,18 +183,18 @@ impl Root {
                 (kv_pair, internal_engineclass)
             })
             .unzip();
-        
-        let (repairclassidmap, repairclasses): (
-            HashMap<String, internal::Key<internal::RepairClass>>,
-            Vec<internal::RepairClass>,
+
+        let (repairerclassidmap, repairerclasses): (
+            HashMap<String, internal::Key<internal::RepairerClass>>,
+            Vec<internal::RepairerClass>,
         ) = self
-            .repairclasses
+            .repairerclasses
             .drain(0..)
             .enumerate()
-            .map(|(i, repairclass)| {
-                let (stringid, internal_repairclass) = repairclass.hydrate(&resourceidmap);
+            .map(|(i, repairerclass)| {
+                let (stringid, internal_repairerclass) = repairerclass.hydrate(&resourceidmap);
                 let kv_pair = (stringid, internal::Key::new_from_index(i));
-                (kv_pair, internal_repairclass)
+                (kv_pair, internal_repairerclass)
             })
             .unzip();
 
@@ -197,7 +218,7 @@ impl Root {
             id: "generic_demand_ship".to_string(),
             visiblename: "Generic Demand Ship".to_string(),
             description: "".to_string(),
-            basehull: None,  //how many hull hitpoints this ship has by default
+            basehull: 1,     //how many hull hitpoints this ship has by default
             basestrength: 0, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
             aiclass: "basicai".to_string(),
             defaultweapons: None, //a strikecraft's default weapons, which it always has with it
@@ -210,9 +231,10 @@ impl Root {
             shipyardclasslist: Vec::new(),
             stockpiles: Vec::new(),
             engines: Vec::new(),
-            repair: Vec::new(),
+            repairers: Vec::new(),
             compconfig: None, //ideal configuration for this ship's strikecraft complement
             defectchance: None,
+            escapescalar: None,
         };
 
         //here we create the shipclassidmap, put the dummy ship class inside it, and then insert all the actual ship classes
@@ -283,10 +305,11 @@ impl Root {
                     &resourceidmap,
                     &shipclassidmap,
                     &engineclassidmap,
-                    &repairclassidmap,
+                    &repairerclassidmap,
                     &factoryclassidmap,
                     &shipyardclassidmap,
                     &shipaiidmap,
+                    &factionidmap,
                 )
             })
             .collect();
@@ -312,8 +335,9 @@ impl Root {
             edges: edges,
             neighbors,
             factions: internal::Table::from_vec(factions),
+            wars: wars,
             engineclasses: internal::Table::from_vec(engineclasses),
-            repairclasses: internal::Table::from_vec(repairclasses),
+            repairerclasses: internal::Table::from_vec(repairerclasses),
             factoryclasses: internal::Table::from_vec(factoryclasses),
             shipyardclasses: internal::Table::from_vec(shipyardclasses),
             resources: internal::Table::from_vec(resources),
@@ -385,7 +409,7 @@ impl Node {
     ) -> (String, internal::Node) {
         let node = internal::Node {
             visiblename: self.visiblename,
-            system: internal::SystemID(0),
+            system: internal::Key::<internal::System>::new_from_index(0),
             distance: self.distance,
             description: self.description,
             flavor: *nodeflavoridmap
@@ -445,6 +469,7 @@ struct Faction {
     efficiencydefault: f64, //starting value for production facility efficiency
     efficiencytarget: f64, //end value for efficiency, toward which efficiency changes over time in a node held by this faction
     efficiencydelta: f64,  //rate at which efficiency changes
+    battlescalar: f32,
     relations: HashMap<String, f32>,
 }
 
@@ -459,6 +484,7 @@ impl Faction {
             efficiencydefault: self.efficiencydefault,
             efficiencytarget: self.efficiencytarget,
             efficiencydelta: self.efficiencydelta,
+            battlescalar: self.battlescalar,
             relations: factionidmap
                 .iter()
                 .map(|(name, id)| (*id, self.relations.get(name).map(|&x| x).unwrap_or(0_f32)))
@@ -570,21 +596,21 @@ impl EngineClass {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct RepairClass {
+struct RepairerClass {
     id: String,
     visiblename: String,
     description: String,
     inputs: Vec<UnipotentResourceStockpile>,
-    repair_points: u64,
+    repair_points: i64,
     repair_factor: f32,
 }
 
-impl RepairClass {
+impl RepairerClass {
     fn hydrate(
         mut self,
         resourceidmap: &HashMap<String, internal::Key<internal::Resource>>,
-    ) -> (String, internal::RepairClass) {
-        let repairclass = internal::RepairClass {
+    ) -> (String, internal::RepairerClass) {
+        let repairerclass = internal::RepairerClass {
             visiblename: self.visiblename,
             description: self.description,
             inputs: self
@@ -595,7 +621,7 @@ impl RepairClass {
             repair_points: self.repair_points,
             repair_factor: self.repair_factor,
         };
-        (self.id, repairclass)
+        (self.id, repairerclass)
     }
 }
 
@@ -694,7 +720,7 @@ struct ShipClass {
     id: String,
     visiblename: String,
     description: String,
-    basehull: Option<u64>, //how many hull hitpoints this ship has by default
+    basehull: u64,     //how many hull hitpoints this ship has by default
     basestrength: u64, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
     aiclass: String,
     defaultweapons: Option<HashMap<String, u64>>, //a strikecraft's default weapons, which it always has with it
@@ -707,9 +733,10 @@ struct ShipClass {
     shipyardclasslist: Vec<String>,
     stockpiles: Vec<PluripotentStockpile>,
     engines: Vec<String>,
-    repair: Vec<String>,
+    repairers: Vec<String>,
     compconfig: Option<HashMap<String, u64>>, //ideal configuration for this ship's strikecraft complement
     defectchance: Option<HashMap<String, f64>>,
+    escapescalar: Option<f32>,
 }
 
 impl ShipClass {
@@ -718,10 +745,11 @@ impl ShipClass {
         resourceidmap: &HashMap<String, internal::Key<internal::Resource>>,
         shipclassidmap: &HashMap<String, internal::Key<internal::ShipClass>>,
         engineclassidmap: &HashMap<String, internal::Key<internal::EngineClass>>,
-        repairclassidmap: &HashMap<String, internal::Key<internal::RepairClass>>,
+        repairerclassidmap: &HashMap<String, internal::Key<internal::RepairerClass>>,
         factoryclassidmap: &HashMap<String, internal::Key<internal::FactoryClass>>,
         shipyardclassidmap: &HashMap<String, internal::Key<internal::ShipyardClass>>,
         shipaiidmap: &HashMap<String, internal::Key<internal::ShipAI>>,
+        factionidmap: &HashMap<String, internal::Key<internal::Faction>>,
     ) -> internal::ShipClass {
         let shipclass = internal::ShipClass {
             id: *shipclassidmap.get(&self.id).unwrap(),
@@ -779,11 +807,11 @@ impl ShipClass {
                         .unwrap_or_else(|| panic!("{} is not found", id))
                 })
                 .collect(),
-            repair: self
-                .repair
+            repairers: self
+                .repairers
                 .iter()
                 .map(|id| {
-                    *repairclassidmap
+                    *repairerclassidmap
                         .get(id)
                         .unwrap_or_else(|| panic!("{} is not found", id))
                 })
@@ -793,7 +821,13 @@ impl ShipClass {
                     .map(|(id, n)| (*shipclassidmap.get(id).unwrap(), *n))
                     .collect()
             }),
-            defectchance: HashMap::new(),
+            defectchance: self
+                .defectchance
+                .unwrap_or(HashMap::new())
+                .iter()
+                .map(|(k, v)| (*factionidmap.get(k).unwrap(), *v))
+                .collect(),
+            escapescalar: self.escapescalar.unwrap_or(0.0),
         };
         shipclass
     }
@@ -837,7 +871,9 @@ struct FleetClass {
     id: String,
     visiblename: String,
     description: String,
+    strengthmod: (f32, u64),
     fleetconfig: HashMap<String, u64>,
+    disbandthreshold: f32,
 }
 
 impl FleetClass {
@@ -848,11 +884,13 @@ impl FleetClass {
         let fleetclass = internal::FleetClass {
             visiblename: self.visiblename,
             description: self.description,
+            strengthmod: self.strengthmod,
             fleetconfig: self
                 .fleetconfig
                 .iter()
                 .map(|(stringid, n)| (*shipclassidmap.get(stringid).unwrap(), *n))
                 .collect(),
+            disbandthreshold: self.disbandthreshold,
         };
         (self.id, fleetclass)
     }
