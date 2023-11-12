@@ -1,0 +1,19 @@
+Code review notes
+
+[x] Switch “distance” field on nodes to a “position” vector; this will
+let us calculate distance in 3d space and stop worrying about system
+membership for battles
+[ ] Use volume-units for all resource calculations, then divide by
+cargovol right before showing the numbers to the player (shipinstances
+make this problematic; discuss)
+[x] Keep json file up-to-date
+[x] Run program as part of regular testing
+[ ] Have minimal and maximial test cases for various entities in json
+[x] Remove obsolete features promptly to prevent confusion
+
+
+[x] Have a "bitmap" field on Nodes, which sets the bitmap to be used in other nodes' backgrounds to depict this node
+[ ] We can have suns as orphaned, linkless nodes for environment-bitmap purposes; this should be cheap -- have an "exclude from system" field on json nodes, so that a sun can be in a system but not linked to the other nodes. Also probably useful for other purposes.
+[ ] Figure out the whole issue of whether and how we check for supply from input stockpiles (and demand from output stockpiles?).
+[ ] Test whether stockpiles set to not propagate work the way they're supposed to.
+[ ] Replace the threat field on Node with the factions field on Global Salience.

@@ -1,4 +1,46 @@
 {
+    "nodeflavors": [
+        {
+            "id": "htz",
+            "visiblename": "Hyperspace Transit Zone",
+            "description": "A hyperspace transit zone is a small region of space connecting hyperspace lanes between star systems. A system's HTZ is usually located near its most populous planet."
+        },
+        {
+            "id": "planet",
+            "visiblename": "Planet",
+            "description": "Planetary bodies are the source of most life in the galaxy, and also the main centers of civilization and industry."
+        },
+        {
+            "id": "ring",
+            "visiblename": "Planetary Ring",
+            "description": "A ring of dust and ice, ranging from fine gravel to airspeeder-sized chunks."
+        },
+        {
+            "id": "asteroids",
+            "visiblename": "Asteroid Field",
+            "description": "A field of rocky detritus, perhaps debris from a planetary collision."
+        },
+        {
+            "id": "nebula",
+            "visiblename": "Nebula",
+            "description": "A small in-system gas cloud."
+        },
+        {
+            "id": "station",
+            "visiblename": "Space Station",
+            "description": "A stationary space installation."
+        },
+        {
+            "id": "shipyard",
+            "visiblename": "Shipyard",
+            "description": "A space-based construction facility for producing spacecraft."
+        },
+        {
+            "id": "debris",
+            "visiblename": "Debris Field",
+            "description": "A field of non-natural debris, resulting from the destruction of a vessel or space station."
+        }
+    ],
     "systems": [
         {
             "id": "coruscant",
@@ -745,48 +787,6 @@
             ]
         }
     ],
-    "nodeflavors": [
-        {
-            "id": "htz",
-            "visiblename": "Hyperspace Transit Zone",
-            "description": "A hyperspace transit zone is a small region of space connecting hyperspace lanes between star systems. A system's HTZ is usually located near its most populous planet."
-        },
-        {
-            "id": "planet",
-            "visiblename": "Planet",
-            "description": "Planetary bodies are the source of most life in the galaxy, and also the main centers of civilization and industry."
-        },
-        {
-            "id": "ring",
-            "visiblename": "Planetary Ring",
-            "description": "A ring of dust and ice, ranging from fine gravel to airspeeder-sized chunks."
-        },
-        {
-            "id": "asteroids",
-            "visiblename": "Asteroid Field",
-            "description": "A field of rocky detritus, perhaps debris from a planetary collision."
-        },
-        {
-            "id": "nebula",
-            "visiblename": "Nebula",
-            "description": "A small in-system gas cloud."
-        },
-        {
-            "id": "station",
-            "visiblename": "Space Station",
-            "description": "A stationary space installation."
-        },
-        {
-            "id": "shipyard",
-            "visiblename": "Shipyard",
-            "description": "A space-based construction facility for producing spacecraft."
-        },
-        {
-            "id": "debris",
-            "visiblename": "Debris Field",
-            "description": "A field of non-natural debris, resulting from the destruction of a vessel or space station."
-        }
-    ],
     "links": [
         [
             "coruscanthtz",
@@ -901,7 +901,8 @@
                 "empire": 1,
                 "rebels": -1,
                 "pirates": -1
-            }
+            },
+            "battlescalar": 1.0
         },
         {
             "id": "rebels",
@@ -914,7 +915,8 @@
                 "empire": -1,
                 "rebels": 1,
                 "pirates": -1
-            }
+            },
+            "battlescalar": 1.0
         },
         {
             "id": "pirates",
@@ -927,7 +929,104 @@
                 "empire": -1,
                 "rebels": -1,
                 "pirates": 1
-            }
+            },
+            "battlescalar": 1.0
+        }
+    ],
+    "wars": [
+        [
+            "empire",
+            "rebels"
+        ],
+        [
+            "empire",
+            "pirates"
+        ],
+        [
+            "rebels",
+            "pirates"
+        ]
+    ],
+    "resources": [
+        {
+            "id": "steel",
+            "visiblename": "Durasteel",
+            "description": "A tough alloy of various metals, ubiquitous in construction all across the galaxy.",
+            "cargovol": 10,
+            "valuemult": 1
+        },
+        {
+            "id": "components",
+            "visiblename": "Industrial Components",
+            "description": "An assortment of standard parts useful in all sorts of construction projects.",
+            "cargovol": 20,
+            "valuemult": 5
+        },
+        {
+            "id": "food",
+            "visiblename": "Food Supplies",
+            "description": "Foodstuffs consumed by sentient populations of all sorts.",
+            "cargovol": 5,
+            "valuemult": 1
+        },
+        {
+            "id": "personnel",
+            "visiblename": "Personnel",
+            "description": "Some guys. They're kind of annoying to transport.",
+            "cargovol": 1,
+            "valuemult": 5
+        },
+        {
+            "id": "lightlaser",
+            "visiblename": "Light Laser Cannon",
+            "description": "A basic laser weapon used by fighters.",
+            "cargovol": 10,
+            "valuemult": 1
+        },
+        {
+            "id": "prottorp",
+            "visiblename": "Proton Torpedo",
+            "description": "A common but powerful torpedo weapon. Consumable.",
+            "cargovol": 2,
+            "valuemult": 2
+        }
+    ],
+    "hangarclasses": [
+        {
+            "id": "isdhangar",
+            "visiblename": "ISD Hangar",
+            "description": "The hangar of an Imperial Star Destroyer.",
+            "capacity": 720,
+            "target": 720,
+            "allowed": [
+                "tieln"
+            ],
+            "ideal": {
+                "tieln": 72
+            },
+            "launch_volume": 120,
+            "launch_interval": 4,
+            "propagate": true
+        }
+    ],
+    "engineclasses": [
+        {
+            "id": "basicengine",
+            "visiblename": "Basic Engine",
+            "description": "A basic engine.",
+            "inputs": [],
+            "speed": 1,
+            "cooldown": 1
+        }
+    ],
+    "repairerclasses": [
+        {
+            "id": "basicrepairer",
+            "visiblename": "Basic Repairer",
+            "description": "A basic repairer.",
+            "inputs": [],
+            "repair_points": 10,
+            "repair_factor": 0.0
         }
     ],
     "factoryclasses": [
@@ -1086,55 +1185,12 @@
             "efficiency": 1.0
         }
     ],
-    "resources": [
-        {
-            "id": "steel",
-            "visiblename": "Durasteel",
-            "description": "A tough alloy of various metals, ubiquitous in construction all across the galaxy.",
-            "cargovol": 10,
-            "valuemult": 1
-        },
-        {
-            "id": "components",
-            "visiblename": "Industrial Components",
-            "description": "An assortment of standard parts useful in all sorts of construction projects.",
-            "cargovol": 20,
-            "valuemult": 5
-        },
-        {
-            "id": "food",
-            "visiblename": "Food Supplies",
-            "description": "Foodstuffs consumed by sentient populations of all sorts.",
-            "cargovol": 5,
-            "valuemult": 1
-        },
-        {
-            "id": "personnel",
-            "visiblename": "Personnel",
-            "description": "Some guys. They're kind of annoying to transport.",
-            "cargovol": 1,
-            "valuemult": 5
-        },
-        {
-            "id": "lightlaser",
-            "visiblename": "Light Laser Cannon",
-            "description": "A basic laser weapon used by fighters.",
-            "cargovol": 10,
-            "valuemult": 1
-        },
-        {
-            "id": "prottorp",
-            "visiblename": "Proton Torpedo",
-            "description": "A common but powerful torpedo weapon. Consumable.",
-            "cargovol": 2,
-            "valuemult": 2
-        }
-    ],
     "shipclasses": [
         {
             "id": "tieln",
             "visiblename": "TIE/ln space superiority fighter",
             "description": "Dirt-cheap mass-produced fighter of the Empire.",
+            "basehull": 1,
             "basestrength": 11,
             "aiclass": "basicai",
             "defaultweapons": {
@@ -1143,15 +1199,18 @@
             },
             "hangarvol": 20,
             "cargovol": 10,
-            "factoryclasslist": [],
-            "shipyardclasslist": [],
-            "defectchance": {},
-            "stockpiles": []
+            "engines": [
+                "basicengine"
+            ],
+            "repairers": [
+                "basicrepairer"
+            ]
         },
         {
             "id": "z95",
             "visiblename": "Z-95 Headhunter",
             "description": "An aging, but still effective, light starfighter used by rebels, pirates, local governments, and civilian operators.",
+            "basehull": 1,
             "basestrength": 16,
             "aiclass": "basicai",
             "defaultweapons": {
@@ -1160,40 +1219,43 @@
             },
             "hangarvol": 30,
             "cargovol": 15,
-            "factoryclasslist": [],
-            "shipyardclasslist": [],
-            "hyperdrive": 2,
-            "defectchance": {},
-            "stockpiles": []
+            "engines": [
+                "basicengine"
+            ],
+            "repairers": [
+                "basicrepairer"
+            ]
         },
         {
             "id": "isd",
             "visiblename": "Imperial II-class Star Destroyer",
             "description": "Powerful capital vessel, deployed in large numbers by the Empire.",
+            "basehull": 1000,
             "basestrength": 1000,
             "aiclass": "basicai",
-            "hangarcap": 2000,
-            "weaponcap": 500,
-            "factoryclasslist": [],
-            "shipyardclasslist": [],
-            "hyperdrive": 2,
-            "compconfig": {
-                "tieln": 72
-            },
-            "defectchance": {},
-            "stockpiles": []
+            "hangars": [
+                "isdhangar"
+            ],
+            "engines": [
+                "basicengine"
+            ],
+            "repairers": [
+                "basicrepairer"
+            ]
         },
         {
             "id": "nebulonb",
             "visiblename": "EF76 Nebulon-B Escort Frigate",
             "description": "A light capital ship, quick but well-armed for its size.",
+            "basehull": 100,
             "basestrength": 150,
             "aiclass": "basicai",
-            "factoryclasslist": [],
-            "shipyardclasslist": [],
-            "hyperdrive": 2,
-            "defectchance": {},
-            "stockpiles": []
+            "engines": [
+                "basicengine"
+            ],
+            "repairers": [
+                "basicrepairer"
+            ]
         }
     ],
     "shipais": [
@@ -1210,10 +1272,12 @@
             "id": "impmedfleet",
             "visiblename": "Medium Imperial Fleet",
             "description": "A mid-sized Imperial fleet.",
+            "strengthmod": [1.0, 100],
             "fleetconfig": {
                 "isd": 4
             },
-            "defectchance": {}
+            "defectchance": {},
+            "disbandthreshold": 20.0
         }
     ]
 }

@@ -27,23 +27,21 @@ fn main() {
     //    dbg!(root.nodes);
     //    dbg!(root.shipinstances);
     //    dbg!(root.shipinstancecounter);
-    let empire = (internal::Key::<internal::Faction>::new_from_index(0));
-    let rebels = (internal::Key::<internal::Faction>::new_from_index(1));
-    let pirates = (internal::Key::<internal::Faction>::new_from_index(2));
-    let steel = (internal::Key::<internal::Resource>::new_from_index(0));
-    let components = (internal::Key::<internal::Resource>::new_from_index(1));
-    let food = (internal::Key::<internal::Resource>::new_from_index(2));
-    let personnel = (internal::Key::<internal::Resource>::new_from_index(3));
-    let tieln = (internal::Key::<internal::ShipClass>::new_from_index(1));
-    let z95 = (internal::Key::<internal::ShipClass>::new_from_index(2));
-    let isd = (internal::Key::<internal::ShipClass>::new_from_index(3));
-    let nebulonb = (internal::Key::<internal::ShipClass>::new_from_index(4));
+    let empire = internal::Key::<internal::Faction>::new_from_index(0);
+    let steel = internal::Key::<internal::Resource>::new_from_index(0);
+    let components = internal::Key::<internal::Resource>::new_from_index(1);
+    let food = internal::Key::<internal::Resource>::new_from_index(2);
+    let personnel = internal::Key::<internal::Resource>::new_from_index(3);
+    let tieln = internal::Key::<internal::ShipClass>::new_from_index(1);
+    let z95 = internal::Key::<internal::ShipClass>::new_from_index(2);
+    let isd = internal::Key::<internal::ShipClass>::new_from_index(3);
+    let nebulonb = internal::Key::<internal::ShipClass>::new_from_index(4);
 
     while root.turn < 2 {
         root.process_turn();
     }
 
-    for i in 0..10 {
+    for _ in 0..10 {
         root.update_node_threats(10);
         //dbg!();
     }
@@ -83,7 +81,7 @@ fn main() {
             .get({
                 match x.1.location {
                     ShipLocationFlavor::Node(k) => k,
-                    _ => (internal::Key::<internal::Node>::new_from_index(0)),
+                    _ => internal::Key::<internal::Node>::new_from_index(0),
                 }
             })
             .visiblename;
