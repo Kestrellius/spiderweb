@@ -901,14 +901,24 @@ pub struct HangarInstance {
 
 impl HangarInstance {
     pub fn get_strength(&self, root: &Root) -> u64 {
-        let contents_strength = self.contents.iter().map(|s| root.shipinstances.get(*s).get_strength(root)).sum::<u64>() as f32;
+        let contents_strength = self
+            .contents
+            .iter()
+            .map(|s| root.shipinstances.get(*s).get_strength(root))
+            .sum::<u64>() as f32;
         let contents_vol = self
             .contents
             .iter()
-            .map(|s| root.shipclasses.get(root.shipinstances.get(*s).shipclass).cargovol.unwrap())
+            .map(|s| {
+                root.shipclasses
+                    .get(root.shipinstances.get(*s).shipclass)
+                    .cargovol
+                    .unwrap()
+            })
             .sum::<u64>() as f32;
         //we calculate how much of its complement the hangar can launch during a ten-minute battle
-        let launch_mod = (contents_vol / self.launch_volume as f32) * (600.0 / self.launch_interval as f32);
+        let launch_mod =
+            (contents_vol / self.launch_volume as f32) * (600.0 / self.launch_interval as f32);
         (contents_strength * launch_mod) as u64
     }
     pub fn get_shipclass_num(&self, root: &Root, shipclass: Key<ShipClass>) -> u64 {
@@ -1452,15 +1462,39 @@ pub struct ShipInstance {
 }
 
 impl ShipInstance {
-    pub fn kill(s: Key<ShipInstance>, root: &mut Root) {
-        self.hangars.iter().map(|h| h.contents.iter().map(|s| s.kill(root)));
-        root.shipinstances.del(s);
+    pub fn get_daughters(&self, root: &Root) -> Vec<Key<ShipInstance>> {
+        self.hangars
+            .iter()
+            .map(|h| {
+                h.contents
+                    .iter()
+                    .map(|s| {
+                        let mut vec = root.shipinstances.get(*s).get_daughters(root);
+                        vec.insert(0, *s);
+                        vec
+                    })
+                    .collect::<Vec<Vec<Key<ShipInstance>>>>()
+            })
+            .flatten()
+            .flatten()
+            .collect()
+    }
+
+    pub fn kill(shipid: Key<ShipInstance>, root: &mut Root) {
+        let mut vec = root.shipinstances.get(shipid).get_daughters(root);
+        vec.insert(0, shipid);
+        vec.iter().for_each(|s| root.shipinstances.del(*s));
     }
     pub fn get_strength(&self, root: &Root) -> u64 {
         let base_hull = root.shipclasses.get(self.shipclass).basehull as f32;
         let base_strength = root.shipclasses.get(self.shipclass).basestrength as f32;
-        let daughter_strength = self.hangars.iter().map(|h| h.get_strength(root)).sum::<u64>();
-        (base_strength * (self.hull as f32 / base_hull) * self.experience) as u64 + daughter_strength
+        let daughter_strength = self
+            .hangars
+            .iter()
+            .map(|h| h.get_strength(root))
+            .sum::<u64>();
+        (base_strength * (self.hull as f32 / base_hull) * self.experience) as u64
+            + daughter_strength
     }
     pub fn repair(&mut self, shipclasses: Table<ShipClass>) {
         self.repairers
@@ -1745,7 +1779,9 @@ impl ShipInstance {
             let destination = self.navigate(root);
             self.location = ShipLocationFlavor::Node(destination);
             true
-        } else {false}
+        } else {
+            false
+        }
     }
 }
 

@@ -1,1 +1,3 @@
 target/*
+src/bin/randtest.rs
+src/spiderweb2.code-workspace
