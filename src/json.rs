@@ -59,7 +59,7 @@ impl Node {
                 .iter()
                 .map(|stringid| {
                     let classid = factoryclassidmap.get(stringid).unwrap();
-                    factoryclasses.get(*classid).instantiate(true)
+                    factoryclasses.get(*classid).unwrap().instantiate(true)
                 })
                 .collect(),
             shipyardinstancelist: self
@@ -69,7 +69,7 @@ impl Node {
                     let classid = shipyardclassidmap
                         .get(stringid)
                         .expect(&format!("Shipyard '{}' does not exist.", stringid));
-                    shipyardclasses.get(*classid).instantiate(true)
+                    shipyardclasses.get(*classid).unwrap().instantiate(true)
                 })
                 .collect(),
             environment: self.environment,

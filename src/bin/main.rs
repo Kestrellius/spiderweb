@@ -74,8 +74,8 @@ fn main() {
         .for_each(|(value, (_, node))| println!("{:.3}\t{}", value, node.visiblename));
 
     root.shipinstances.iter().for_each(|x| {
-        let class = &root.shipclasses.get(x.1.shipclass).visiblename;
-        let allegiance = &root.factions.get(x.1.allegiance).visiblename;
+        let class = &root.shipclasses.get(x.1.shipclass).unwrap().visiblename;
+        let allegiance = &root.factions.get(x.1.allegiance).unwrap().visiblename;
         let location = &root
             .nodes
             .get({
@@ -84,6 +84,7 @@ fn main() {
                     _ => internal::Key::<internal::Node>::new_from_index(0),
                 }
             })
+            .unwrap()
             .visiblename;
         println!(
             "Name: {:?}

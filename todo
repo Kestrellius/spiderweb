@@ -17,3 +17,5 @@ make this problematic; discuss)
 [ ] Figure out the whole issue of whether and how we check for supply from input stockpiles (and demand from output stockpiles?).
 [ ] Test whether stockpiles set to not propagate work the way they're supposed to.
 [ ] Replace the threat field on Node with the factions field on Global Salience.
+[ ] Figure out issues surrounding engine mechanics -- the relationship between once-per-turn events and once-per-move events
+[ ] A list of ship keys is stored in hangar.contents, but ships in a hangar have their location data set to the carrier holding them. This is redundant. We should probably abandon the notion of the contents field and stick to ship.location, but given that ships can have multiple hangars, we'll need a way to specify, which probably means unique hangar keys and hangars being stored in a table in root...
