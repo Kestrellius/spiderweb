@@ -11,6 +11,11 @@
             "description": "Planetary bodies are the source of most life in the galaxy, and also the main centers of civilization and industry."
         },
         {
+            "id": "sun",
+            "visiblename": "Sun",
+            "description": "A star around which other celestial bodies are orbiting."
+        },
+        {
             "id": "ring",
             "visiblename": "Planetary Ring",
             "description": "A ring of dust and ice, ranging from fine gravel to airspeeder-sized chunks."
@@ -74,6 +79,84 @@
                     "environment": "blankenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
+                },
+                {
+                    "id": "coruscantsun",
+                    "visiblename": "Coruscant (Star)",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "sun",
+                    "factorylist": [],
+                    "shipyardlist": [],
+                    "environment": "blankenv",
+                    "orphan": true,
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "coruscant2",
+                    "visiblename": "Coruscant2",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": [
+                        "population"
+                    ],
+                    "shipyardlist": [
+                        "tieshipyard"
+                    ],
+                    "environment": "blankenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "coruscant3",
+                    "visiblename": "Coruscant3",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": [
+                        "population"
+                    ],
+                    "shipyardlist": [
+                        "tieshipyard"
+                    ],
+                    "environment": "blankenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "coruscant4",
+                    "visiblename": "Coruscant4",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": [
+                        "population"
+                    ],
+                    "shipyardlist": [
+                        "tieshipyard"
+                    ],
+                    "environment": "blankenv",
+                    "orphan": true,
+                    "allegiance": "empire",
+                    "efficiency": 2.5
+                },
+                {
+                    "id": "coruscant5",
+                    "visiblename": "Coruscant5",
+                    "distance": 3,
+                    "description": "I can't be bothered",
+                    "flavor": "planet",
+                    "factorylist": [
+                        "population"
+                    ],
+                    "shipyardlist": [
+                        "tieshipyard"
+                    ],
+                    "environment": "blankenv",
+                    "allegiance": "empire",
+                    "efficiency": 2.5
                 }
             ]
         },
@@ -108,6 +191,7 @@
                         "tieshipyard"
                     ],
                     "environment": "blankenv",
+                    "orphan": true,
                     "allegiance": "empire",
                     "efficiency": 2.5
                 }
@@ -212,6 +296,7 @@
                     ],
                     "shipyardlist": [],
                     "environment": "blankenv",
+                    "orphan": true,
                     "allegiance": "empire",
                     "efficiency": 2.5
                 }
@@ -516,7 +601,7 @@
             "nodes": [
                 {
                     "id": "bilbringihtz",
-                    "visiblename": "bilbringi Hyperspace Transit Zone",
+                    "visiblename": "Bilbringi Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
                     "flavor": "htz",
@@ -557,6 +642,7 @@
                     "factorylist": [],
                     "shipyardlist": [],
                     "environment": "blankenv",
+                    "orphan": true,
                     "allegiance": "rebels",
                     "efficiency": 2.5
                 },
@@ -1014,6 +1100,8 @@
             "id": "basicengine",
             "visiblename": "Basic Engine",
             "description": "A basic engine.",
+            "basehealth": 10,
+            "toughnessscalar": 1.0,
             "inputs": [],
             "speed": 1,
             "cooldown": 1
@@ -1026,7 +1114,9 @@
             "description": "A basic repairer.",
             "inputs": [],
             "repair_points": 10,
-            "repair_factor": 0.0
+            "repair_factor": 0.0,
+            "engine_repair_points": 10,
+            "engine_repair_factor": 0.0
         }
     ],
     "factoryclasses": [
@@ -1276,8 +1366,11 @@
             "fleetconfig": {
                 "isd": 4
             },
+            "idealstrength": 6980,
             "defectchance": {},
             "disbandthreshold": 20.0
         }
-    ]
+    ],
+    "battlescalars": {
+    }
 }

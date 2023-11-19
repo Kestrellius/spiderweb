@@ -213,4 +213,11 @@ fn main() {
 
     println!("{:#?}", stockpile1.collate_contents(&root));
     println!("{:#?}", stockpile2.collate_contents(&root));
+    root.edges.iter().for_each(|(a, b)| {
+        println!(
+            "{}, {}",
+            root.nodes.get(*a).unwrap().visiblename,
+            root.nodes.get(*b).unwrap().visiblename
+        )
+    });
 }

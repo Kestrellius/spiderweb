@@ -6,14 +6,6 @@ use serde_json::{from_reader, to_writer_pretty};
 use std::collections::{HashMap, HashSet};
 use std::iter;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct System {
-    id: String,
-    visiblename: String,
-    description: String,
-    nodes: Vec<Node>,
-}
-
 #[derive(Debug, Hash, Clone, Eq, PartialEq, Serialize, Deserialize)]
 struct NodeFlavor {
     id: String,
@@ -32,7 +24,8 @@ struct Node {
     shipyardlist: Vec<String>,
     environment: String, //name of the FRED environment to use for missions set in this node
     bitmap: Option<(String, f32)>,
-    allegiance: String,      //faction that currently holds the node
+    orphan: Option<bool>, //an orphaned node does not get all-to-all links automatically built with the other nodes in its system
+    allegiance: String,   //faction that currently holds the node
     efficiency: Option<f64>, //efficiency of any production facilities in this node; changes over time based on faction ownership
 }
 
@@ -82,6 +75,14 @@ impl Node {
         };
         (self.id, node)
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct System {
+    id: String,
+    visiblename: String,
+    description: String,
+    nodes: Vec<Node>,
 }
 
 impl System {
@@ -286,6 +287,8 @@ struct EngineClass {
     id: String,
     visiblename: String,
     description: String,
+    basehealth: Option<u64>,
+    toughnessscalar: f32,
     inputs: Vec<UnipotentResourceStockpile>,
     speed: u64,    //number of edges the engine allows a ship to traverse when used
     cooldown: u64, //number of turns engine must wait before being used again
@@ -295,10 +298,14 @@ impl EngineClass {
     fn hydrate(
         mut self,
         resourceidmap: &HashMap<String, internal::Key<internal::Resource>>,
-    ) -> (String, internal::EngineClass) {
-        let engineclass = internal::EngineClass {
+        engineclassidmap: &HashMap<String, internal::Key<internal::EngineClass>>,
+    ) -> internal::EngineClass {
+        internal::EngineClass {
+            id: *engineclassidmap.get(&self.id).unwrap(),
             visiblename: self.visiblename,
             description: self.description,
+            basehealth: self.basehealth,
+            toughnessscalar: self.toughnessscalar,
             inputs: self
                 .inputs
                 .drain(0..)
@@ -306,8 +313,7 @@ impl EngineClass {
                 .collect(),
             speed: self.speed,
             cooldown: self.cooldown,
-        };
-        (self.id, engineclass)
+        }
     }
 }
 
@@ -319,6 +325,8 @@ struct RepairerClass {
     inputs: Vec<UnipotentResourceStockpile>,
     repair_points: i64,
     repair_factor: f32,
+    engine_repair_points: i64,
+    engine_repair_factor: f32,
 }
 
 impl RepairerClass {
@@ -336,6 +344,8 @@ impl RepairerClass {
                 .collect(),
             repair_points: self.repair_points,
             repair_factor: self.repair_factor,
+            engine_repair_points: self.engine_repair_points,
+            engine_repair_factor: self.engine_repair_factor,
         };
         (self.id, repairerclass)
     }
@@ -461,6 +471,7 @@ struct ShipClass {
     shipyardclasslist: Option<Vec<String>>,
     aiclass: String,
     defectchance: Option<HashMap<String, f64>>,
+    toughnessscalar: Option<f32>,
     escapescalar: Option<f32>,
 }
 
@@ -560,7 +571,8 @@ impl ShipClass {
                 .iter()
                 .map(|(k, v)| (*factionidmap.get(k).unwrap(), *v))
                 .collect(),
-            escapescalar: self.escapescalar.unwrap_or(0.0),
+            toughnessscalar: self.toughnessscalar.unwrap_or(1.0),
+            escapescalar: self.escapescalar.unwrap_or(1.0),
         };
         shipclass
     }
@@ -573,6 +585,7 @@ struct FleetClass {
     description: String,
     strengthmod: (f32, u64),
     fleetconfig: HashMap<String, u64>,
+    idealstrength: u64,
     defectchance: HashMap<String, f64>,
     disbandthreshold: f32,
 }
@@ -581,9 +594,11 @@ impl FleetClass {
     fn hydrate(
         self,
         shipclassidmap: &HashMap<String, internal::Key<internal::ShipClass>>,
+        fleetclassidmap: &HashMap<String, internal::Key<internal::FleetClass>>,
         factionidmap: &HashMap<String, internal::Key<internal::Faction>>,
-    ) -> (String, internal::FleetClass) {
+    ) -> internal::FleetClass {
         let fleetclass = internal::FleetClass {
+            id: *fleetclassidmap.get(&self.id).unwrap(),
             visiblename: self.visiblename,
             description: self.description,
             strengthmod: self.strengthmod,
@@ -592,6 +607,7 @@ impl FleetClass {
                 .iter()
                 .map(|(stringid, n)| (*shipclassidmap.get(stringid).unwrap(), *n))
                 .collect(),
+            idealstrength: self.idealstrength,
             defectchance: self
                 .defectchance
                 .iter()
@@ -599,7 +615,40 @@ impl FleetClass {
                 .collect(),
             disbandthreshold: self.disbandthreshold,
         };
-        (self.id, fleetclass)
+        fleetclass
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BattleScalars {
+    avg_duration: Option<u64>, //average battle duration, used for strength calculations; defaults to 600
+    duration_log_exp: Option<f32>, //logarithmic exponent for scaling of battle duration over battle size; defaults to 1.0025
+    duration_dev: Option<f32>, //standard deviation for the randomly-generated scaling factor for battle duration; defaults to 0.25
+    attacker_chance_dev: Option<f32>, //standard deviation for the randomly-generated scaling factor for the attackers' chance of winning a battle; defaults to 0.25
+    defender_chance_dev: Option<f32>, //standard deviation for the randomly-generated scaling factor for the defenders' chance of winning a battle; defaults to 0.25
+    vae_victor: Option<f32>, //multiplier for damage done to ships winning a battle; defaults to 0.5
+    vae_victis: Option<f32>, //multiplier for damage done to ships losing a battle; defaults to 1.0
+    damage_dev: Option<f32>, //standard deviation for the randomly-generated scaling factor for damage done to ships; defaults to 1.005
+    base_damage: Option<f32>, //base value for the additive damage done to ships in addition to the percentage-based damage; defaults to 50.0
+    engine_damage_scalar: Option<f32>, //multiplier for damage done to ships' engines
+    duration_damage_scalar: Option<f32>, //multiplier for damage increase as battle duration rises; defaults to 1.0
+}
+
+impl BattleScalars {
+    fn hydrate(self) -> internal::BattleScalars {
+        internal::BattleScalars {
+            avg_duration: self.avg_duration.unwrap_or(600),
+            duration_log_exp: self.duration_log_exp.unwrap_or(1.0025),
+            duration_dev: self.duration_dev.unwrap_or(0.25),
+            attacker_chance_dev: self.attacker_chance_dev.unwrap_or(0.25),
+            defender_chance_dev: self.defender_chance_dev.unwrap_or(0.25),
+            vae_victor: self.vae_victor.unwrap_or(0.5),
+            vae_victis: self.vae_victis.unwrap_or(1.0),
+            damage_dev: self.damage_dev.unwrap_or(1.005),
+            base_damage: self.base_damage.unwrap_or(50.0),
+            engine_damage_scalar: self.engine_damage_scalar.unwrap_or(0.1),
+            duration_damage_scalar: self.duration_damage_scalar.unwrap_or(1.0),
+        }
     }
 }
 
@@ -619,6 +668,7 @@ pub struct Root {
     shipais: Vec<ShipAI>,
     shipclasses: Vec<ShipClass>,
     fleetclasses: Vec<FleetClass>,
+    battlescalars: BattleScalars,
 }
 
 impl Root {
@@ -666,13 +716,19 @@ impl Root {
                 let mut nodeids: Vec<internal::Key<internal::Node>> = Vec::new();
                 //here we build all-to-all edges between the nodes in the system
                 nodes.iter().for_each(|node| {
-                    //we get the node's id from the id map
                     let nodeid = *nodeidmap.get(&node.id).unwrap();
-                    //we iterate over the nodeids, ensure that there aren't any duplicates, and push each pair of nodeids into edges
-                    nodeids.iter().for_each(|&rhs| {
-                        assert_ne!(nodeid, rhs, "Same node ID appears twice.");
-                        edges.insert((nodeid.min(rhs), nodeid.max(rhs)));
-                    });
+                    //we check whether the node is orphaned, and if it is we don't build any edges for it
+                    //NOTE: This is only half-built and only works some of the time!
+                    //We need to do a second check on the inner iteration, but I don't understand what it's doing well enough.
+                    if node.orphan != Some(true) {
+                        //we get the node's id from the id map
+                        //we iterate over the nodeids, ensure that there aren't any duplicates, and push each pair of nodeids into edges
+                        nodeids.iter().for_each(|rhs| {
+                            if nodes.iter().find(|n| nodeidmap.get(&n.id).unwrap() == rhs).unwrap().orphan != Some(true) {
+                            assert_ne!(nodeid, *rhs, "Same node ID appears twice.");
+                            edges.insert((nodeid.min(*rhs), nodeid.max(*rhs)));}
+                        })
+                    };
                     nodeids.push(nodeid);
                 });
 
@@ -710,7 +766,7 @@ impl Root {
             .map(|(i, nodeflavor)| {
                 //we turn the enumeration index into a key
                 let id = internal::Key::new_from_index(i);
-                //we make sure the key we just made matches the nodeflavor's entry in the idmap NOTE: Wait, why do we do this? The ID doesn't seem to get used anywhere. Couldn't we do this in any order?
+                //we make sure the key we just made matches the nodeflavor's entry in the idmap
                 assert_eq!(id, *nodeflavoridmap.get(&nodeflavor.id).unwrap());
                 let internal_nodeflavor = nodeflavor.hydrate();
                 internal_nodeflavor
@@ -771,19 +827,18 @@ impl Root {
             })
             .unzip();
 
-        let (engineclassidmap, engineclasses): (
-            HashMap<String, internal::Key<internal::EngineClass>>,
-            Vec<internal::EngineClass>,
-        ) = self
+        let engineclassidmap: HashMap<String, internal::Key<internal::EngineClass>> = self
+            .engineclasses
+            .iter()
+            .enumerate()
+            .map(|(i, engineclass)| (engineclass.id.clone(), internal::Key::new_from_index(i)))
+            .collect();
+
+        let engineclasses: Vec<internal::EngineClass> = self
             .engineclasses
             .drain(0..)
-            .enumerate()
-            .map(|(i, engineclass)| {
-                let (stringid, internal_engineclass) = engineclass.hydrate(&resourceidmap);
-                let kv_pair = (stringid, internal::Key::new_from_index(i));
-                (kv_pair, internal_engineclass)
-            })
-            .unzip();
+            .map(|engineclass| engineclass.hydrate(&resourceidmap, &engineclassidmap))
+            .collect();
 
         let (repairerclassidmap, repairerclasses): (
             HashMap<String, internal::Key<internal::RepairerClass>>,
@@ -832,6 +887,7 @@ impl Root {
             engines: None,
             repairers: None,
             defectchance: None,
+            toughnessscalar: None,
             escapescalar: None,
         };
 
@@ -927,30 +983,38 @@ impl Root {
             })
             .collect();
 
-        //same as shipyard classes
-        let (fleetclassidmap, fleetclasses): (
-            HashMap<String, internal::Key<internal::FleetClass>>,
-            Vec<internal::FleetClass>,
-        ) = self
+        let fleetclassidmap: HashMap<String, internal::Key<internal::FleetClass>> = self
+            .fleetclasses
+            .iter()
+            .enumerate()
+            .map(|(i, fleetclass)| (fleetclass.id.clone(), internal::Key::new_from_index(i)))
+            .collect();
+
+        let fleetclasses: Vec<internal::FleetClass> = self
             .fleetclasses
             .drain(0..)
             .enumerate()
             .map(|(i, fleetclass)| {
-                let (stringid, internal_fleetclass) =
-                    fleetclass.hydrate(&shipclassidmap, &factionidmap);
-                let kv_pair = (stringid, internal::Key::new_from_index(i));
-                (kv_pair, internal_fleetclass)
+                //we turn the enumeration index into a key
+                let id = internal::Key::new_from_index(i);
+                //we make sure the key we just made matches the fleetclass's entry in the idmap
+                assert_eq!(id, *fleetclassidmap.get(&fleetclass.id).unwrap());
+                let internal_fleetclass =
+                    fleetclass.hydrate(&shipclassidmap, &fleetclassidmap, &factionidmap);
+                internal_fleetclass
             })
-            .unzip();
+            .collect();
+
+        let battlescalars = self.battlescalars.hydrate();
 
         internal::Root {
             nodeflavors: internal::Table::from_vec(nodeflavors),
             nodes: internal::Table::from_vec(nodes),
             systems: internal::Table::from_vec(systems),
-            edges: edges,
+            edges,
             neighbors,
             factions: internal::Table::from_vec(factions),
-            wars: wars,
+            wars,
             resources: internal::Table::from_vec(resources),
             hangarclasses: internal::Table::from_vec(hangarclasses),
             engineclasses: internal::Table::from_vec(engineclasses),
@@ -964,6 +1028,7 @@ impl Root {
             fleetclasses: internal::Table::from_vec(fleetclasses),
             fleetinstances: internal::Table::new(),
             engagements: internal::Table::new(),
+            battlescalars,
             globalsalience: internal::GlobalSalience {
                 resourcesalience: Vec::new(),
                 shipclasssalience: Vec::new(),

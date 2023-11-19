@@ -13,9 +13,22 @@ make this problematic; discuss)
 
 
 [x] Have a "bitmap" field on Nodes, which sets the bitmap to be used in other nodes' backgrounds to depict this node
-[ ] We can have suns as orphaned, linkless nodes for environment-bitmap purposes; this should be cheap -- have an "exclude from system" field on json nodes, so that a sun can be in a system but not linked to the other nodes. Also probably useful for other purposes.
+[ ] We can have suns as orphaned, linkless nodes for environment-bitmap purposes; this should be cheap -- have an "exclude from system" field on json nodes, so that a sun can be in a system but not linked to the other nodes. Also probably useful for other purposes. (Need to figure out the orphan checking)
 [ ] Figure out the whole issue of whether and how we check for supply from input stockpiles (and demand from output stockpiles?).
 [ ] Test whether stockpiles set to not propagate work the way they're supposed to.
 [ ] Replace the threat field on Node with the factions field on Global Salience.
-[ ] Figure out issues surrounding engine mechanics -- the relationship between once-per-turn events and once-per-move events
+[x] Figure out issues surrounding engine mechanics -- the relationship between once-per-turn events and once-per-move events
 [ ] A list of ship keys is stored in hangar.contents, but ships in a hangar have their location data set to the carrier holding them. This is redundant. We should probably abandon the notion of the contents field and stick to ship.location, but given that ships can have multiple hangars, we'll need a way to specify, which probably means unique hangar keys and hangars being stored in a table in root...
+[ ] When entities are stored in a table, we don't (AFAIK) have a way to get the key associated with an entity if all we have is the entity itself. This means that any time we need the entity's key for a method on an entity, it can't actually be a method -- it has to be an associated function. This seems non-ideal.
+[ ] We'll need to make a "get ideal strength" method on fleetclass, which likewise references a "get ideal strength" method on shipclass, so that we can do disbandthreshold checking properly without the modder having to calculate it manually. Or maybe keep the idealstrength field on fleetclass, but compute it at hydration.
+[ ] Figure out how to handle some edges being traversable and not others by certain ships. Edgeflavors, probably.
+[x] Battlescalars struct
+[x] Engine health
+[ ] Battle check method (on root; maybe also make internal_battle a method on root?)
+
+QUESTIONS FOR AMARYLLIS:
+[x] process_engines short-circuiting
+[ ] retain for remove_dead and disband_fleets
+[ ] orphan checking/how does the all-to-all edge generation even work currently?
+[ ] figure out what objective data structure should be
+[ ] What's the tradeoff between storing data in the classes table and having to look it up/storing the data in the instance and having it be redundant?
