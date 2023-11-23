@@ -95,6 +95,7 @@ fn main() {
         )
     });
     let mut stockpile1 = PluripotentStockpile {
+        visibility: false,
         resource_contents: HashMap::from([(steel, 0), (components, 0)]),
         ship_contents: HashSet::from([
             root.create_ship(
@@ -129,6 +130,7 @@ fn main() {
         propagate: false,
     };
     let mut stockpile2 = PluripotentStockpile {
+        visibility: false,
         resource_contents: HashMap::from([
             (steel, 150),
             (components, 100),
@@ -213,7 +215,7 @@ fn main() {
 
     println!("{:#?}", stockpile1.collate_contents(&root));
     println!("{:#?}", stockpile2.collate_contents(&root));
-    root.edges.iter().for_each(|(a, b)| {
+    root.edges.iter().for_each(|((a, b), _)| {
         println!(
             "{}, {}",
             root.nodes.get(*a).unwrap().visiblename,
