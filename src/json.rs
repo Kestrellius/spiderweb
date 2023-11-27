@@ -28,6 +28,7 @@ struct Node {
     visiblename: String,        //location name as shown to player
     position: Option<[i64; 3]>, //node's position in 3d space; this is used for autogenerating skyboxes and determining reinforcement delay between nodes
     description: String,
+    visibility: Option<bool>,
     flavor: String, //type of location this node is -- planet, asteroid field, hyperspace transit zone
     factorylist: Vec<String>, //a list of the factories this node has, in the form of FactoryClass IDs
     shipyardlist: Vec<String>,
@@ -35,7 +36,7 @@ struct Node {
     bitmap: Option<(String, f32)>,
     orphan: Option<bool>, //an orphaned node does not get all-to-all edges automatically built with the other nodes in its system
     allegiance: String,   //faction that currently holds the node
-    efficiency: Option<f64>, //efficiency of any production facilities in this node; changes over time based on faction ownership
+    efficiency: Option<f32>, //efficiency of any production facilities in this node; changes over time based on faction ownership
 }
 
 impl Node {
@@ -53,6 +54,7 @@ impl Node {
             system: internal::Key::<internal::System>::new_from_index(0),
             position: self.position.unwrap_or([0, 0, 0]),
             description: self.description,
+            visibility: self.visibility.unwrap_or(true),
             flavor: *nodeflavoridmap
                 .get(&self.flavor)
                 .expect("Node flavor field is not correctly defined!"),
@@ -81,6 +83,7 @@ impl Node {
                 .expect("Allegiance field is not correctly defined!"),
             efficiency: self.efficiency.unwrap_or(1.0),
             threat: factionidmap.values().map(|&id| (id, 0_f32)).collect(),
+            already_balanced: false,
         };
         (self.id, node)
     }
@@ -91,6 +94,7 @@ struct System {
     id: String,
     visiblename: String,
     description: String,
+    visibility: Option<bool>,
     nodes: Vec<Node>,
 }
 
@@ -102,6 +106,7 @@ impl System {
         let internalsystem = internal::System {
             visiblename: self.visiblename,
             description: self.description,
+            visibility: self.visibility.unwrap_or(true),
             nodes: self
                 .nodes
                 .iter()
@@ -133,9 +138,10 @@ struct Faction {
     id: String,
     visiblename: String, //faction name as shown to player
     description: String,
-    efficiencydefault: f64, //starting value for production facility efficiency
-    efficiencytarget: f64, //end value for efficiency, toward which efficiency changes over time in a node held by this faction
-    efficiencydelta: f64,  //rate at which efficiency changes
+    visibility: Option<bool>,
+    efficiencydefault: f32, //starting value for production facility efficiency
+    efficiencytarget: f32, //end value for efficiency, toward which efficiency changes over time in a node held by this faction
+    efficiencydelta: f32,  //rate at which efficiency changes
     battlescalar: f32,
     relations: HashMap<String, f32>,
 }
@@ -148,6 +154,7 @@ impl Faction {
         let faction = internal::Faction {
             visiblename: self.visiblename,
             description: self.description,
+            visibility: self.visibility.unwrap_or(true),
             efficiencydefault: self.efficiencydefault,
             efficiencytarget: self.efficiencytarget,
             efficiencydelta: self.efficiencydelta,
@@ -312,9 +319,9 @@ struct EngineClass {
     id: String,
     visiblename: String,
     description: String,
+    visibility: Option<bool>,
     basehealth: Option<u64>,
     toughnessscalar: f32,
-    visibility: Option<bool>,
     inputs: Vec<UnipotentResourceStockpile>,
     forbidden_nodeflavors: Option<Vec<String>>,
     forbidden_edgeflavors: Option<Vec<String>>,
@@ -334,9 +341,9 @@ impl EngineClass {
             id: *engineclassidmap.get(&self.id).unwrap(),
             visiblename: self.visiblename,
             description: self.description,
+            visibility: self.visibility.unwrap_or(true),
             basehealth: self.basehealth,
             toughnessscalar: self.toughnessscalar,
-            visibility: self.visibility.unwrap_or(true),
             inputs: self
                 .inputs
                 .drain(0..)
@@ -373,6 +380,7 @@ struct RepairerClass {
     repair_factor: f32,
     engine_repair_points: i64,
     engine_repair_factor: f32,
+    per_engagement: Option<bool>, //whether this repairer is run once per turn, or after every engagement
 }
 
 impl RepairerClass {
@@ -395,6 +403,7 @@ impl RepairerClass {
             repair_factor: self.repair_factor,
             engine_repair_points: self.engine_repair_points,
             engine_repair_factor: self.engine_repair_factor,
+            per_engagement: self.per_engagement.unwrap_or(false),
         };
         repairerclass
     }
@@ -445,7 +454,7 @@ pub struct ShipyardClass {
     inputs: Vec<UnipotentResourceStockpile>,
     outputs: HashMap<String, u64>,
     constructrate: u64,
-    efficiency: f64,
+    efficiency: f32,
 }
 
 impl ShipyardClass {
@@ -528,7 +537,7 @@ struct ShipClass {
     factoryclasslist: Option<Vec<String>>,
     shipyardclasslist: Option<Vec<String>>,
     aiclass: String,
-    defectchance: Option<HashMap<String, f64>>,
+    defectchance: Option<HashMap<String, f32>>,
     toughnessscalar: Option<f32>,
     escapescalar: Option<f32>,
 }
@@ -642,10 +651,11 @@ struct FleetClass {
     id: String,
     visiblename: String,
     description: String,
-    strengthmod: (f32, u64),
     visibility: Option<bool>,
+    strengthmod: (f32, u64),
     fleetconfig: HashMap<String, u64>,
-    defectchance: HashMap<String, f64>,
+    defectchance: HashMap<String, f32>,
+    navthreshold: f32,
     disbandthreshold: f32,
 }
 
@@ -660,8 +670,8 @@ impl FleetClass {
             id: *fleetclassidmap.get(&self.id).unwrap(),
             visiblename: self.visiblename,
             description: self.description,
-            strengthmod: self.strengthmod,
             visibility: self.visibility.unwrap_or(true),
+            strengthmod: self.strengthmod,
             fleetconfig: self
                 .fleetconfig
                 .iter()
@@ -672,6 +682,7 @@ impl FleetClass {
                 .iter()
                 .map(|(stringid, n)| (*factionidmap.get(stringid).unwrap(), *n))
                 .collect(),
+            navthreshold: self.navthreshold,
             disbandthreshold: self.disbandthreshold,
         };
         fleetclass
@@ -1116,6 +1127,7 @@ impl Root {
             wars,
             resources: internal::Table::from_vec(resources),
             hangarclasses: internal::Table::from_vec(hangarclasses),
+            hangarinstances: internal::Table::new(),
             engineclasses: internal::Table::from_vec(engineclasses),
             repairerclasses: internal::Table::from_vec(repairerclasses),
             factoryclasses: internal::Table::from_vec(factoryclasses),

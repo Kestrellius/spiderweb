@@ -873,106 +873,143 @@
             ]
         }
     ],
-    "links": [
+    "edgeflavors": [
+        {
+            "id": "intrasystem",
+            "visiblename": "Intrasystem Path",
+            "description": "A pathway between two locations within a single star system."
+        },
+        {
+            "id": "intersystem",
+            "visiblename": "Hyperspace Route",
+            "description": "A clear path through hyperspace, connecting two star systems."
+        }
+    ],
+    "edges": [
         [
             "coruscanthtz",
-            "vulpterhtz"
+            "vulpterhtz",
+            "intersystem"
         ],
         [
             "vulpterhtz",
-            "tatooinehtz"
+            "tatooinehtz",
+            "intersystem"
         ],
         [
             "coruscanthtz",
-            "alderaanhtz"
+            "alderaanhtz",
+            "intersystem"
         ],
         [
             "tatooinehtz",
-            "hothhtz"
+            "hothhtz",
+            "intersystem"
         ],
         [
             "alderaanhtz",
-            "yavinhtz"
+            "yavinhtz",
+            "intersystem"
         ],
         [
             "alderaanhtz",
-            "caridahtz"
+            "caridahtz",
+            "intersystem"
         ],
         [
             "coruscanthtz",
-            "anaxeshtz"
+            "anaxeshtz",
+            "intersystem"
         ],
         [
             "vulpterhtz",
-            "empresstetahtz"
+            "empresstetahtz",
+            "intersystem"
         ],
         [
             "coruscanthtz",
-            "kuathtz"
+            "kuathtz",
+            "intersystem"
         ],
         [
             "anaxeshtz",
-            "kuathtz"
+            "kuathtz",
+            "intersystem"
         ],
         [
             "caridahtz",
-            "bilbringihtz"
+            "bilbringihtz",
+            "intersystem"
         ],
         [
             "tatooinehtz",
-            "bothawuihtz"
+            "bothawuihtz",
+            "intersystem"
         ],
         [
             "durohtz",
-            "caridahtz"
+            "caridahtz",
+            "intersystem"
         ],
         [
             "empresstetahtz",
-            "bespinhtz"
+            "bespinhtz",
+            "intersystem"
         ],
         [
             "empresstetahtz",
-            "sullusthtz"
+            "sullusthtz",
+            "intersystem"
         ],
         [
             "sullusthtz",
-            "dantooinehtz"
+            "dantooinehtz",
+            "intersystem"
         ],
         [
             "dantooinehtz",
-            "yavinhtz"
+            "yavinhtz",
+            "intersystem"
         ],
         [
             "dantooinehtz",
-            "endorhtz"
+            "endorhtz",
+            "intersystem"
         ],
         [
             "endorhtz",
-            "sullusthtz"
+            "sullusthtz",
+            "intersystem"
         ],
         [
             "rothanahtz",
-            "hothhtz"
+            "hothhtz",
+            "intersystem"
         ],
         [
             "durohtz",
-            "corelliahtz"
+            "corelliahtz",
+            "intersystem"
         ],
         [
             "kuathtz",
-            "corelliahtz"
+            "corelliahtz",
+            "intersystem"
         ],
         [
             "vulpterhtz",
-            "chandrilahtz"
+            "chandrilahtz",
+            "intersystem"
         ],
         [
             "chandrilahtz",
-            "moncalahtz"
+            "moncalahtz",
+            "intersystem"
         ],
         [
             "moncalahtz",
-            "sullusthtz"
+            "sullusthtz",
+            "intersystem"
         ]
     ],
     "factions": [
@@ -1368,6 +1405,7 @@
             },
             "idealstrength": 6980,
             "defectchance": {},
+            "navthreshold": 20.0,
             "disbandthreshold": 20.0
         }
     ],

@@ -8,29 +8,59 @@ cargovol right before showing the numbers to the player (shipinstances
 make this problematic; discuss)
 [x] Keep json file up-to-date
 [x] Run program as part of regular testing
-[ ] Have minimal and maximial test cases for various entities in json
+[ ] Have minimal and maximal test cases for various entities in json
 [x] Remove obsolete features promptly to prevent confusion
+[ ] Use highly explicit variable names
 
-
+GENERAL:
 [x] Have a "bitmap" field on Nodes, which sets the bitmap to be used in other nodes' backgrounds to depict this node
 [x] We can have suns as orphaned, linkless nodes for environment-bitmap purposes; this should be cheap -- have an "exclude from system" field on json nodes, so that a sun can be in a system but not linked to the other nodes. Also probably useful for other purposes. (Need to figure out the orphan checking)
 [ ] Figure out the whole issue of whether and how we check for supply from input stockpiles (and demand from output stockpiles?).
 [ ] Test whether stockpiles set to not propagate work the way they're supposed to.
 [ ] Replace the threat field on Node with the factions field on Global Salience.
 [x] Figure out issues surrounding engine mechanics -- the relationship between once-per-turn events and once-per-move events
-[ ] A list of ship keys is stored in hangar.contents, but ships in a hangar have their location data set to the carrier holding them. This is redundant. We should probably abandon the notion of the contents field and stick to ship.location, but given that ships can have multiple hangars, we'll need a way to specify, which probably means unique hangar keys and hangars being stored in a table in root...
+[x] A list of ship keys is stored in hangar.contents, but ships in a hangar have their location data set to the carrier holding them. This is redundant. We should probably abandon the notion of the contents field and stick to ship.location, but given that ships can have multiple hangars, we'll need a way to specify, which probably means unique hangar keys and hangars being stored in a table in root...
 [x] When entities are stored in a table, we don't (AFAIK) have a way to get the key associated with an entity if all we have is the entity itself. This means that any time we need the entity's key for a method on an entity, it can't actually be a method -- it has to be an associated function. This seems non-ideal. (Associated functions are fine, per Amaryllis.)
 [x] We'll need to make a "get ideal strength" method on fleetclass, which likewise references a "get ideal strength" method on shipclass, so that we can do disbandthreshold checking properly without the modder having to calculate it manually. Or maybe keep the idealstrength field on fleetclass, but compute it at hydration.
 [x] Add nodeflavor enterability checks
 [x] Figure out how to handle some edges being traversable and not others by certain ships. Edgeflavors, probably.
 [x] Battlescalars struct
 [x] Engine health
-[ ] Battle check method (on root; maybe also make internal_battle a method on root?)
+[x] Battle check method (on root)
+[x] maybe also make internal_battle a method on root?
 [x] Add hangarclass as a field to hangarinstance, and id as a field to hangarclass, maybe same for repairers, etc.
 [x] Have visibility defined in the class of things
-[ ] Maybe add visibility to more entity types (nodes? systems? factions?)
+[x] Maybe add visibility to more entity types (nodes? systems? factions?)
 [ ] If we implement disband checking the easy way, more experienced fleets will effectively have lower disband thresholds than less experienced fleets. Is this fine?
 [x] Split out force-gathering from internal_battle into a separate function that parcels out all the data needed by FSO (will this be viable in terms of expense?)
+[x] Add per-turn/per-engagement toggle on repairers
+[x] Have repairers check for damage before running
+[x] Build navigation/traversal methods for fleets
+[x] Add id field to entity instances; use this where relevant
+[ ] Base battle duration on strength calc with avg duration instead of shipcount
+[ ] Experience should probably work differently
+[ ] Defectchance as from-faction and to-faction
+[ ] Build defection logic
+[ ] Config struct on root with settings for salience propagation iters
+[ ] Build hangar entry and exit methods
+[ ] Build balance_stockpiles
+[ ] Build balance_hangars
+[ ] Clean up salience propagation logic
+[ ] Build operation logic
+[ ] Figure out the whole thing with whether demand from a pluripotent stockpile should be divided by the number of relevant resources or whatever
+
+LONGER-TERM:
+[ ] Build system for transmitting data to FSO
+[ ] Build in-FSO display system for Spiderweb data
+[ ] Hook Spiderweb into Project Alderaan
+
+LOW-PRIORITY:
+[ ] Have relations between factions in a coalition fighting together affect strength score
+[ ] Build system for ships deciding to leave fleet, and add fleet-misalignment-tolerance scalar to shipclass
+[ ] Build morale system
+[ ] Build pilot system
+[ ] Build intel system
+[ ] Build parser to convert .blend file to Spiderweb nodemap
 
 QUESTIONS FOR AMARYLLIS:
 [x] process_engines short-circuiting
@@ -40,3 +70,7 @@ QUESTIONS FOR AMARYLLIS:
 [ ] What's the best way to get the objective data for Engagement?
 [x] What's the tradeoff between storing data in the classes table and having to look it up/storing the data in the instance and having it be redundant? (Copy cheap integers, etc., into instances, leave strings in classes.)
 [x] Is there a more efficient way to handle the per-engine nodeflavor/edgeflavor checking than cloning the engine data and passing it up to traverse?
+[ ] Can we get rid of the clones in various places?
+[ ] Is the usize::MAX technique good design?
+[ ] Is there a better way to handle figuring out what ship a hangar belongs to while avoiding data duplication?
+[ ] Make sure table-index/key creation is adequately safe

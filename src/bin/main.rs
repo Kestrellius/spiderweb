@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, to_writer_pretty};
 use spiderweb::internal::CollatedCargo;
 use spiderweb::internal::GenericCargo;
+use spiderweb::internal::Key;
 use spiderweb::internal::PluripotentStockpile;
 use spiderweb::internal::SharedStockpile;
 use spiderweb::internal::ShipLocationFlavor;
@@ -21,12 +22,24 @@ fn main() {
     let duration = start.elapsed();
     dbg!(duration);
     let mut root = json_root.hydrate();
+
+    /*
+    for i in 0..10 {
+        dbg!(root.shipinstances.next_index);
+        root.create_ship(Key::new_from_index(0), ShipLocationFlavor::Node(Key::new_from_index(0)), Key::new_from_index(0));
+    }
+    for i in 0..10 {
+        let ship = root.shipinstances.get(Key::new_from_index(i));
+        dbg!(ship);
+    }*/
+
     //for i in 0..50 {
     //    root.process_turn();
     //}
     //    dbg!(root.nodes);
     //    dbg!(root.shipinstances);
     //    dbg!(root.shipinstancecounter);
+    /*
     let empire = internal::Key::<internal::Faction>::new_from_index(0);
     let steel = internal::Key::<internal::Resource>::new_from_index(0);
     let components = internal::Key::<internal::Resource>::new_from_index(1);
@@ -36,7 +49,9 @@ fn main() {
     let z95 = internal::Key::<internal::ShipClass>::new_from_index(2);
     let isd = internal::Key::<internal::ShipClass>::new_from_index(3);
     let nebulonb = internal::Key::<internal::ShipClass>::new_from_index(4);
+    */
 
+    /*
     while root.turn < 2 {
         root.process_turn();
     }
@@ -45,10 +60,11 @@ fn main() {
         root.update_node_threats(10);
         //dbg!();
     }
+    */
 
     //dbg!(&root.nodes);
 
-    root.process_turn();
+    //root.process_turn();
 
     /*root.nodes.iter().for_each(|node| {
         let mut threat_list: Vec<(internal::Key<internal::Faction>, f32)> =
@@ -61,6 +77,7 @@ fn main() {
         print!("\n");
     })*/
 
+    /*
     let salience_values = root
         .calculate_values::<internal::Key<internal::Resource>, internal::polarity::Supply>(
             internal::Key::<internal::Resource>::new_from_index(1),
@@ -222,4 +239,5 @@ fn main() {
             root.nodes.get(*b).unwrap().visiblename
         )
     });
+    */
 }
