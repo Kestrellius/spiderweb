@@ -1,4 +1,9 @@
 {
+    "config": {
+        "saliencescalars": {},
+        "entityscalars": {},
+        "battlescalars": {}
+    },
     "nodeflavors": [
         {
             "id": "htz",
@@ -1399,7 +1404,10 @@
             "id": "impmedfleet",
             "visiblename": "Medium Imperial Fleet",
             "description": "A mid-sized Imperial fleet.",
-            "strengthmod": [1.0, 100],
+            "strengthmod": [
+                1.0,
+                100
+            ],
             "fleetconfig": {
                 "isd": 4
             },
@@ -1408,7 +1416,5 @@
             "navthreshold": 20.0,
             "disbandthreshold": 20.0
         }
-    ],
-    "battlescalars": {
-    }
+    ]
 }

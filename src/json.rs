@@ -6,6 +6,96 @@ use serde_json::{from_reader, to_writer_pretty};
 use std::collections::{HashMap, HashSet};
 use std::iter;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Config {
+    saliencescalars: SalienceScalars,
+    entityscalars: EntityScalars,
+    battlescalars: BattleScalars,
+}
+
+impl Config {
+    fn hydrate(self) -> internal::Config {
+        internal::Config {
+            saliencescalars: self.saliencescalars.hydrate(),
+            entityscalars: self.entityscalars.hydrate(),
+            battlescalars: self.battlescalars.hydrate(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SalienceScalars {
+    faction_deg_mult: Option<f32>,
+    resource_deg_mult: Option<f32>,
+    shipclass_deg_mult: Option<f32>,
+    faction_prop_iters: Option<u64>, //number of edges across which this salience will propagate during a turn
+    resource_prop_iters: Option<u64>,
+    shipclass_prop_iters: Option<u64>,
+}
+
+impl SalienceScalars {
+    fn hydrate(self) -> internal::SalienceScalars {
+        internal::SalienceScalars {
+            faction_deg_mult: self.faction_deg_mult.unwrap_or(0.5),
+            resource_deg_mult: self.resource_deg_mult.unwrap_or(0.5),
+            shipclass_deg_mult: self.shipclass_deg_mult.unwrap_or(0.5),
+            faction_prop_iters: self.faction_prop_iters.unwrap_or(5),
+            resource_prop_iters: self.resource_prop_iters.unwrap_or(5),
+            shipclass_prop_iters: self.shipclass_prop_iters.unwrap_or(5),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct EntityScalars {
+    defect_escape_scalar: Option<f32>,
+    victor_morale_scalar: Option<f32>,
+    victis_morale_scalar: Option<f32>,
+}
+
+impl EntityScalars {
+    fn hydrate(self) -> internal::EntityScalars {
+        internal::EntityScalars {
+            defect_escape_scalar: self.defect_escape_scalar.unwrap_or(1.0),
+            victor_morale_scalar: self.victor_morale_scalar.unwrap_or(1.0),
+            victis_morale_scalar: self.victis_morale_scalar.unwrap_or(1.0),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BattleScalars {
+    avg_duration: Option<u64>, //average battle duration, used for strength calculations; defaults to 600
+    duration_log_exp: Option<f32>, //logarithmic exponent for scaling of battle duration over battle size; defaults to 1.0025
+    duration_dev: Option<f32>, //standard deviation for the randomly-generated scaling factor for battle duration; defaults to 0.25
+    attacker_chance_dev: Option<f32>, //standard deviation for the randomly-generated scaling factor for the attackers' chance of winning a battle; defaults to 0.25
+    defender_chance_dev: Option<f32>, //standard deviation for the randomly-generated scaling factor for the defenders' chance of winning a battle; defaults to 0.25
+    vae_victor: Option<f32>, //multiplier for damage done to ships winning a battle; defaults to 0.5
+    vae_victis: Option<f32>, //multiplier for damage done to ships losing a battle; defaults to 1.0
+    damage_dev: Option<f32>, //standard deviation for the randomly-generated scaling factor for damage done to ships; defaults to 1.005
+    base_damage: Option<f32>, //base value for the additive damage done to ships in addition to the percentage-based damage; defaults to 50.0
+    engine_damage_scalar: Option<f32>, //multiplier for damage done to ships' engines
+    duration_damage_scalar: Option<f32>, //multiplier for damage increase as battle duration rises; defaults to 1.0
+}
+
+impl BattleScalars {
+    fn hydrate(self) -> internal::BattleScalars {
+        internal::BattleScalars {
+            avg_duration: self.avg_duration.unwrap_or(600),
+            duration_log_exp: self.duration_log_exp.unwrap_or(1.0025),
+            duration_dev: self.duration_dev.unwrap_or(0.25),
+            attacker_chance_dev: self.attacker_chance_dev.unwrap_or(0.25),
+            defender_chance_dev: self.defender_chance_dev.unwrap_or(0.25),
+            vae_victor: self.vae_victor.unwrap_or(0.5),
+            vae_victis: self.vae_victis.unwrap_or(1.0),
+            damage_dev: self.damage_dev.unwrap_or(1.005),
+            base_damage: self.base_damage.unwrap_or(50.0),
+            engine_damage_scalar: self.engine_damage_scalar.unwrap_or(0.1),
+            duration_damage_scalar: self.duration_damage_scalar.unwrap_or(1.0),
+        }
+    }
+}
+
 #[derive(Debug, Hash, Clone, Eq, PartialEq, Serialize, Deserialize)]
 struct NodeFlavor {
     id: String,
@@ -537,9 +627,10 @@ struct ShipClass {
     factoryclasslist: Option<Vec<String>>,
     shipyardclasslist: Option<Vec<String>>,
     aiclass: String,
-    defectchance: Option<HashMap<String, f32>>,
+    defectchance: Option<HashMap<String, (f32, f32)>>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
     toughnessscalar: Option<f32>,
-    escapescalar: Option<f32>,
+    battleescapescalar: Option<f32>,
+    defectescapescalar: Option<f32>,
 }
 
 impl ShipClass {
@@ -640,7 +731,8 @@ impl ShipClass {
                 .map(|(k, v)| (*factionidmap.get(k).unwrap(), *v))
                 .collect(),
             toughnessscalar: self.toughnessscalar.unwrap_or(1.0),
-            escapescalar: self.escapescalar.unwrap_or(1.0),
+            battleescapescalar: self.battleescapescalar.unwrap_or(1.0),
+            defectescapescalar: self.defectescapescalar.unwrap_or(1.0),
         };
         shipclass
     }
@@ -654,7 +746,8 @@ struct FleetClass {
     visibility: Option<bool>,
     strengthmod: (f32, u64),
     fleetconfig: HashMap<String, u64>,
-    defectchance: HashMap<String, f32>,
+    defectchance: Option<HashMap<String, (f32, f32)>>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
+    defectescapescalar: Option<f32>,
     navthreshold: f32,
     disbandthreshold: f32,
 }
@@ -679,9 +772,11 @@ impl FleetClass {
                 .collect(),
             defectchance: self
                 .defectchance
+                .unwrap_or(HashMap::new())
                 .iter()
                 .map(|(stringid, n)| (*factionidmap.get(stringid).unwrap(), *n))
                 .collect(),
+            defectescapescalar: self.defectescapescalar.unwrap_or(1.0),
             navthreshold: self.navthreshold,
             disbandthreshold: self.disbandthreshold,
         };
@@ -689,41 +784,9 @@ impl FleetClass {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct BattleScalars {
-    avg_duration: Option<u64>, //average battle duration, used for strength calculations; defaults to 600
-    duration_log_exp: Option<f32>, //logarithmic exponent for scaling of battle duration over battle size; defaults to 1.0025
-    duration_dev: Option<f32>, //standard deviation for the randomly-generated scaling factor for battle duration; defaults to 0.25
-    attacker_chance_dev: Option<f32>, //standard deviation for the randomly-generated scaling factor for the attackers' chance of winning a battle; defaults to 0.25
-    defender_chance_dev: Option<f32>, //standard deviation for the randomly-generated scaling factor for the defenders' chance of winning a battle; defaults to 0.25
-    vae_victor: Option<f32>, //multiplier for damage done to ships winning a battle; defaults to 0.5
-    vae_victis: Option<f32>, //multiplier for damage done to ships losing a battle; defaults to 1.0
-    damage_dev: Option<f32>, //standard deviation for the randomly-generated scaling factor for damage done to ships; defaults to 1.005
-    base_damage: Option<f32>, //base value for the additive damage done to ships in addition to the percentage-based damage; defaults to 50.0
-    engine_damage_scalar: Option<f32>, //multiplier for damage done to ships' engines
-    duration_damage_scalar: Option<f32>, //multiplier for damage increase as battle duration rises; defaults to 1.0
-}
-
-impl BattleScalars {
-    fn hydrate(self) -> internal::BattleScalars {
-        internal::BattleScalars {
-            avg_duration: self.avg_duration.unwrap_or(600),
-            duration_log_exp: self.duration_log_exp.unwrap_or(1.0025),
-            duration_dev: self.duration_dev.unwrap_or(0.25),
-            attacker_chance_dev: self.attacker_chance_dev.unwrap_or(0.25),
-            defender_chance_dev: self.defender_chance_dev.unwrap_or(0.25),
-            vae_victor: self.vae_victor.unwrap_or(0.5),
-            vae_victis: self.vae_victis.unwrap_or(1.0),
-            damage_dev: self.damage_dev.unwrap_or(1.005),
-            base_damage: self.base_damage.unwrap_or(50.0),
-            engine_damage_scalar: self.engine_damage_scalar.unwrap_or(0.1),
-            duration_damage_scalar: self.duration_damage_scalar.unwrap_or(1.0),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)] //structure for modder-defined json
 pub struct Root {
+    config: Config,
     nodeflavors: Vec<NodeFlavor>,
     systems: Vec<System>,
     edgeflavors: Vec<EdgeFlavor>,
@@ -739,12 +802,12 @@ pub struct Root {
     shipais: Vec<ShipAI>,
     shipclasses: Vec<ShipClass>,
     fleetclasses: Vec<FleetClass>,
-    battlescalars: BattleScalars,
 }
 
 impl Root {
     //hydration method
     pub fn hydrate(mut self) -> internal::Root {
+        let config = self.config.hydrate();
         //here we iterate over the json systems to create a map between nodes' json string-ids and internal ids
         let nodeidmap: HashMap<String, internal::Key<internal::Node>> = self
             .systems
@@ -999,7 +1062,8 @@ impl Root {
             repairers: None,
             defectchance: None,
             toughnessscalar: None,
-            escapescalar: None,
+            battleescapescalar: None,
+            defectescapescalar: None,
         };
 
         //here we create the shipclassidmap, put the dummy ship class inside it, and then insert all the actual ship classes
@@ -1114,9 +1178,8 @@ impl Root {
             })
             .collect();
 
-        let battlescalars = self.battlescalars.hydrate();
-
         internal::Root {
+            config: config,
             nodeflavors: internal::Table::from_vec(nodeflavors),
             nodes: internal::Table::from_vec(nodes),
             systems: internal::Table::from_vec(systems),
@@ -1139,7 +1202,6 @@ impl Root {
             fleetclasses: internal::Table::from_vec(fleetclasses),
             fleetinstances: internal::Table::new(),
             engagements: internal::Table::new(),
-            battlescalars,
             globalsalience: internal::GlobalSalience {
                 resourcesalience: Vec::new(),
                 shipclasssalience: Vec::new(),

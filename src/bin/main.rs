@@ -23,15 +23,18 @@ fn main() {
     dbg!(duration);
     let mut root = json_root.hydrate();
 
-    /*
     for i in 0..10 {
         dbg!(root.shipinstances.next_index);
-        root.create_ship(Key::new_from_index(0), ShipLocationFlavor::Node(Key::new_from_index(0)), Key::new_from_index(0));
+        root.create_ship(
+            Key::new_from_index(3),
+            ShipLocationFlavor::Node(Key::new_from_index(0)),
+            Key::new_from_index(0),
+        );
     }
     for i in 0..10 {
         let ship = root.shipinstances.get(Key::new_from_index(i));
         dbg!(ship);
-    }*/
+    }
 
     //for i in 0..50 {
     //    root.process_turn();

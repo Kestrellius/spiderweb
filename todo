@@ -37,17 +37,20 @@ GENERAL:
 [x] Have repairers check for damage before running
 [x] Build navigation/traversal methods for fleets
 [x] Add id field to entity instances; use this where relevant
-[ ] Base battle duration on strength calc with avg duration instead of shipcount
-[ ] Experience should probably work differently
-[ ] Defectchance as from-faction and to-faction
-[ ] Build defection logic
-[ ] Config struct on root with settings for salience propagation iters
+[x] Base battle duration on strength calc with avg duration instead of shipcount
+[x] Experience should probably work differently (it should be a feature of characters, not ships; basically dummy it out for now)
+[x] Defectchance as from-faction and to-faction
+[x] Build defection logic
+[ ] Implement shipflavors (and maybe fleetflavors?)
+[x] Config struct on root with settings for salience propagation iters
+[ ] Replace current implementation of entity locations with entity-component system or similar
 [ ] Build hangar entry and exit methods
 [ ] Build balance_stockpiles
 [ ] Build balance_hangars
 [ ] Clean up salience propagation logic
 [ ] Build operation logic
 [ ] Figure out the whole thing with whether demand from a pluripotent stockpile should be divided by the number of relevant resources or whatever
+[ ] Build out process_turn
 
 LONGER-TERM:
 [ ] Build system for transmitting data to FSO
@@ -71,6 +74,9 @@ QUESTIONS FOR AMARYLLIS:
 [x] What's the tradeoff between storing data in the classes table and having to look it up/storing the data in the instance and having it be redundant? (Copy cheap integers, etc., into instances, leave strings in classes.)
 [x] Is there a more efficient way to handle the per-engine nodeflavor/edgeflavor checking than cloning the engine data and passing it up to traverse?
 [ ] Can we get rid of the clones in various places?
-[ ] Is the usize::MAX technique good design?
-[ ] Is there a better way to handle figuring out what ship a hangar belongs to while avoiding data duplication?
-[ ] Make sure table-index/key creation is adequately safe
+[x] Is the usize::MAX technique good design?
+[x] Is there a better way to handle figuring out what ship a hangar belongs to while avoiding data duplication?
+[x] Make sure table-index/key creation is adequately safe
+[x] What the fuck do we do about the mutability/ownership bullshit w/r/t ship creation if we can't clone???
+[x] How do we make an unwrap make the check fail instead of crashing when checking for forbidden edgeflavors between two nodes that don't have an edge (or if the thing is given two of the same node)?
+[ ] Doing "adding a specific thing to a collection we're getting from somewhere else" in a sane fashion
