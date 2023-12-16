@@ -26,9 +26,17 @@ fn main() {
     for i in 0..10 {
         dbg!(root.shipinstances.next_index);
         root.create_ship(
-            Key::new_from_index(3),
+            root.shipclasses
+                .iter()
+                .find(|shipclass| shipclass.id == 3)
+                .unwrap()
+                .clone(),
             ShipLocationFlavor::Node(Key::new_from_index(0)),
-            Key::new_from_index(0),
+            root.factions
+                .iter()
+                .find(|faction| faction.id == 0)
+                .unwrap()
+                .clone(),
         );
     }
     for i in 0..10 {

@@ -51,6 +51,26 @@ GENERAL:
 [ ] Build operation logic
 [ ] Figure out the whole thing with whether demand from a pluripotent stockpile should be divided by the number of relevant resources or whatever
 [ ] Build out process_turn
+[ ] Gigantic refactor! Switch everything in root over to Arcs.
+    [x] Convert nodeflavors.
+    [ ] Convert nodes.
+    [ ] Convert systems.
+    [ ] Convert edgeflavors.
+    [x] Convert factions.
+    [x] Convert resources.
+    [ ] Convert hangarclasses.
+    [ ] Convert hangarinstances.
+    [ ] Convert engineclasses.
+    [ ] Convert repairerclasses.
+    [ ] Convert factoryclasses.
+    [ ] Convert shipyardclasses.
+    [ ] Convert shipais.
+    [x] Convert shipclasses.
+    [ ] Convert shipinstances.
+    [ ] Convert fleetclasses.
+    [ ] Convert fleetinstances.
+    [ ] Convert engagements.
+[ ] Clean up hydration logic -- which things do or don't return just the internal struct vs. internal struct plus stringid.
 
 LONGER-TERM:
 [ ] Build system for transmitting data to FSO
@@ -73,7 +93,7 @@ QUESTIONS FOR AMARYLLIS:
 [ ] What's the best way to get the objective data for Engagement?
 [x] What's the tradeoff between storing data in the classes table and having to look it up/storing the data in the instance and having it be redundant? (Copy cheap integers, etc., into instances, leave strings in classes.)
 [x] Is there a more efficient way to handle the per-engine nodeflavor/edgeflavor checking than cloning the engine data and passing it up to traverse?
-[ ] Can we get rid of the clones in various places?
+[x] Can we get rid of the clones in various places?
 [x] Is the usize::MAX technique good design?
 [x] Is there a better way to handle figuring out what ship a hangar belongs to while avoiding data duplication?
 [x] Make sure table-index/key creation is adequately safe
