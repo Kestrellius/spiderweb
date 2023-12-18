@@ -3,10 +3,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, to_writer_pretty};
 use spiderweb::internal::CollatedCargo;
 use spiderweb::internal::GenericCargo;
-use spiderweb::internal::Key;
 use spiderweb::internal::PluripotentStockpile;
 use spiderweb::internal::SharedStockpile;
-use spiderweb::internal::ShipLocationFlavor;
+use spiderweb::internal::ShipLocation;
 use spiderweb::internal::Stockpileness;
 use spiderweb::internal::UnipotentResourceStockpile;
 use spiderweb::{internal, json};
@@ -23,24 +22,16 @@ fn main() {
     dbg!(duration);
     let mut root = json_root.hydrate();
 
-    for i in 0..10 {
-        dbg!(root.shipinstances.next_index);
+    for _ in 0..10 {
+        //dbg!(root.shipinstances.next_index);
         root.create_ship(
-            root.shipclasses
-                .iter()
-                .find(|shipclass| shipclass.id == 3)
-                .unwrap()
-                .clone(),
-            ShipLocationFlavor::Node(Key::new_from_index(0)),
-            root.factions
-                .iter()
-                .find(|faction| faction.id == 0)
-                .unwrap()
-                .clone(),
+            root.shipclasses[0].clone(),
+            ShipLocation::Node(root.nodes[0].clone()),
+            root.factions[0].clone(),
         );
     }
     for i in 0..10 {
-        let ship = root.shipinstances.get(Key::new_from_index(i));
+        let ship = root.shipinstances[i].clone();
         dbg!(ship);
     }
 

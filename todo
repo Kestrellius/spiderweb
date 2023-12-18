@@ -53,24 +53,26 @@ GENERAL:
 [ ] Build out process_turn
 [ ] Gigantic refactor! Switch everything in root over to Arcs.
     [x] Convert nodeflavors.
-    [ ] Convert nodes.
-    [ ] Convert systems.
-    [ ] Convert edgeflavors.
+    [x] Convert nodes.
+    [x] Convert systems.
+    [x] Convert edgeflavors.
     [x] Convert factions.
     [x] Convert resources.
-    [ ] Convert hangarclasses.
-    [ ] Convert hangarinstances.
-    [ ] Convert engineclasses.
-    [ ] Convert repairerclasses.
-    [ ] Convert factoryclasses.
-    [ ] Convert shipyardclasses.
-    [ ] Convert shipais.
+    [x] Convert hangarclasses.
+    [x] Convert engineclasses.
+    [x] Convert repairerclasses.
+    [x] Convert factoryclasses.
+    [x] Convert shipyardclasses.
+    [x] Convert shipais.
     [x] Convert shipclasses.
-    [ ] Convert shipinstances.
-    [ ] Convert fleetclasses.
-    [ ] Convert fleetinstances.
-    [ ] Convert engagements.
+    [x] Convert shipinstances.
+    [x] Convert fleetclasses.
+    [x] Convert fleetinstances.
+    [x] Convert engagements.
+    [x] Deal with hangarinstances.
 [ ] Clean up hydration logic -- which things do or don't return just the internal struct vs. internal struct plus stringid.
+[ ] Dessication logic
+[ ] Rehydration logic
 
 LONGER-TERM:
 [ ] Build system for transmitting data to FSO
@@ -99,4 +101,6 @@ QUESTIONS FOR AMARYLLIS:
 [x] Make sure table-index/key creation is adequately safe
 [x] What the fuck do we do about the mutability/ownership bullshit w/r/t ship creation if we can't clone???
 [x] How do we make an unwrap make the check fail instead of crashing when checking for forbidden edgeflavors between two nodes that don't have an edge (or if the thing is given two of the same node)?
-[ ] Doing "adding a specific thing to a collection we're getting from somewhere else" in a sane fashion
+[x] Doing "adding a specific thing to a collection we're getting from somewhere else" in a sane fashion
+[x] Making the get_ai thing work correctly without creating overlapping ids
+[x] Look over The System-Edge-Building Situation(TM)

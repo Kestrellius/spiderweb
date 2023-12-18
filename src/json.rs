@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{from_reader, to_writer_pretty};
 use std::collections::{HashMap, HashSet};
 use std::iter;
-use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::{Arc, RwLock};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Config {
@@ -134,59 +135,66 @@ struct Node {
 impl Node {
     fn hydrate(
         self,
+        index: usize,
         nodeflavoridmap: &HashMap<String, Arc<internal::NodeFlavor>>,
         factions: &HashMap<String, Arc<internal::Faction>>,
-        factoryclasses: &internal::Table<internal::FactoryClass>,
-        factoryclassidmap: &HashMap<String, internal::Key<internal::FactoryClass>>,
-        shipyardclasses: &internal::Table<internal::ShipyardClass>,
-        shipyardclassidmap: &HashMap<String, internal::Key<internal::ShipyardClass>>,
+        factoryclassidmap: &HashMap<String, Arc<internal::FactoryClass>>,
+        shipyardclassidmap: &HashMap<String, Arc<internal::ShipyardClass>>,
         shipclasses: &Vec<Arc<internal::ShipClass>>,
-    ) -> (String, internal::Node) {
+    ) -> internal::Node {
         let node = internal::Node {
+            id: index,
             visiblename: self.visiblename,
-            system: internal::Key::<internal::System>::new_from_index(0),
             position: self.position.unwrap_or([0, 0, 0]),
             description: self.description,
-            visibility: self.visibility.unwrap_or(true),
-            flavor: nodeflavoridmap
-                .get(&self.flavor)
-                .expect("Node flavor field is not correctly defined!")
-                .clone(),
-            factoryinstancelist: self
-                .factorylist
-                .iter()
-                .map(|stringid| {
-                    let classid = factoryclassidmap.get(stringid).unwrap();
-                    factoryclasses.get(*classid).unwrap().instantiate()
-                })
-                .collect(),
-            shipyardinstancelist: self
-                .shipyardlist
-                .iter()
-                .map(|stringid| {
-                    let classid = shipyardclassidmap
-                        .get(stringid)
-                        .expect(&format!("Shipyard '{}' does not exist.", stringid));
-                    shipyardclasses
-                        .get(*classid)
-                        .unwrap()
-                        .instantiate(shipclasses)
-                })
-                .collect(),
             environment: self.environment,
             bitmap: self.bitmap,
-            allegiance: factions
-                .get(&self.allegiance)
-                .expect("Allegiance field is not correctly defined!")
-                .clone(),
-            efficiency: self.efficiency.unwrap_or(1.0),
-            threat: factions
-                .values()
-                .map(|faction| (faction.clone(), 0_f32))
-                .collect(),
-            already_balanced: false,
+            mutables: RwLock::new(internal::NodeMut {
+                visibility: self.visibility.unwrap_or(true),
+                flavor: nodeflavoridmap
+                    .get(&self.flavor)
+                    .expect("Node flavor field is not correctly defined!")
+                    .clone(),
+                ships: Vec::new(),
+                fleets: Vec::new(),
+                factoryinstancelist: self
+                    .factorylist
+                    .iter()
+                    .map(|stringid| {
+                        internal::FactoryClass::instantiate(
+                            factoryclassidmap
+                                .get(stringid)
+                                .expect(&format!("Factory class '{}' does not exist.", stringid))
+                                .clone(),
+                        )
+                    })
+                    .collect(),
+                shipyardinstancelist: self
+                    .shipyardlist
+                    .iter()
+                    .map(|stringid| {
+                        internal::ShipyardClass::instantiate(
+                            shipyardclassidmap
+                                .get(stringid)
+                                .expect(&format!("Shipyard class '{}' does not exist.", stringid))
+                                .clone(),
+                            shipclasses,
+                        )
+                    })
+                    .collect(),
+                allegiance: factions
+                    .get(&self.allegiance)
+                    .expect("Allegiance field is not correctly defined!")
+                    .clone(),
+                efficiency: self.efficiency.unwrap_or(1.0),
+                threat: factions
+                    .values()
+                    .map(|faction| (faction.clone(), 0_f32))
+                    .collect(),
+                already_balanced: false,
+            }),
         };
-        (self.id, node)
+        node
     }
 }
 
@@ -202,19 +210,21 @@ struct System {
 impl System {
     fn hydrate(
         self,
-        nodeidmap: &HashMap<String, internal::Key<internal::Node>>,
-    ) -> (String, internal::System, Vec<Node>) {
+        index: usize,
+        nodeidmap: &HashMap<String, Arc<internal::Node>>,
+    ) -> internal::System {
         let internalsystem = internal::System {
+            id: index,
             visiblename: self.visiblename,
             description: self.description,
             visibility: self.visibility.unwrap_or(true),
             nodes: self
                 .nodes
                 .iter()
-                .map(|node| *nodeidmap.get(&node.id).unwrap())
+                .map(|node| nodeidmap.get(&node.id).unwrap().clone())
                 .collect(),
         };
-        (self.id, internalsystem, self.nodes)
+        internalsystem
     }
 }
 
@@ -226,8 +236,9 @@ pub struct EdgeFlavor {
 }
 
 impl EdgeFlavor {
-    fn hydrate(self) -> internal::EdgeFlavor {
+    fn hydrate(self, index: usize) -> internal::EdgeFlavor {
         internal::EdgeFlavor {
+            id: index,
             visiblename: self.visiblename,
             description: self.description,
         }
@@ -445,13 +456,13 @@ struct EngineClass {
 impl EngineClass {
     fn hydrate(
         mut self,
+        index: usize,
         resourceidmap: &HashMap<String, Arc<internal::Resource>>,
         nodeflavoridmap: &HashMap<String, Arc<internal::NodeFlavor>>,
-        edgeflavoridmap: &HashMap<String, internal::Key<internal::EdgeFlavor>>,
-        engineclassidmap: &HashMap<String, internal::Key<internal::EngineClass>>,
+        edgeflavoridmap: &HashMap<String, Arc<internal::EdgeFlavor>>,
     ) -> internal::EngineClass {
         internal::EngineClass {
-            id: *engineclassidmap.get(&self.id).unwrap(),
+            id: index,
             visiblename: self.visiblename,
             description: self.description,
             visibility: self.visibility.unwrap_or(true),
@@ -472,7 +483,7 @@ impl EngineClass {
             forbidden_edgeflavors: match self.forbidden_edgeflavors {
                 Some(mut v) => v
                     .drain(0..)
-                    .map(|s| *edgeflavoridmap.get(&s).unwrap())
+                    .map(|s| edgeflavoridmap.get(&s).unwrap().clone())
                     .collect(),
                 None => Vec::new(),
             },
@@ -499,11 +510,11 @@ struct RepairerClass {
 impl RepairerClass {
     fn hydrate(
         mut self,
+        index: usize,
         resourceidmap: &HashMap<String, Arc<internal::Resource>>,
-        repairerclassidmap: &HashMap<String, internal::Key<internal::RepairerClass>>,
     ) -> internal::RepairerClass {
         let repairerclass = internal::RepairerClass {
-            id: *repairerclassidmap.get(&self.id).unwrap(),
+            id: index,
             visiblename: self.visiblename,
             description: self.description,
             visibility: self.visibility.unwrap_or(true),
@@ -535,11 +546,11 @@ struct FactoryClass {
 impl FactoryClass {
     fn hydrate(
         mut self,
+        index: usize,
         resourceidmap: &HashMap<String, Arc<internal::Resource>>,
-        factoryclassidmap: &HashMap<String, internal::Key<internal::FactoryClass>>,
     ) -> internal::FactoryClass {
         let factoryclass = internal::FactoryClass {
-            id: *factoryclassidmap.get(&self.id).unwrap(),
+            id: index,
             visiblename: self.visiblename,
             description: self.description,
             visibility: self.visibility.unwrap_or(true),
@@ -573,12 +584,12 @@ pub struct ShipyardClass {
 impl ShipyardClass {
     fn hydrate(
         mut self,
+        index: usize,
         resourceidmap: &HashMap<String, Arc<internal::Resource>>,
         shipclassidmap: &HashMap<String, internal::ShipClassID>,
-        shipyardclassidmap: &HashMap<String, internal::Key<internal::ShipyardClass>>,
     ) -> internal::ShipyardClass {
         let shipyardclass = internal::ShipyardClass {
-            id: *shipyardclassidmap.get(&self.id).unwrap(),
+            id: index,
             visiblename: self.visiblename,
             description: self.description,
             visibility: self.visibility.unwrap_or(true),
@@ -611,10 +622,12 @@ struct ShipAI {
 impl ShipAI {
     fn hydrate(
         self,
+        index: usize,
         resourceidmap: &HashMap<String, Arc<internal::Resource>>,
         shipclassidmap: &HashMap<String, internal::ShipClassID>,
-    ) -> (String, internal::ShipAI) {
+    ) -> internal::ShipAI {
         let shipai = internal::ShipAI {
+            id: index,
             ship_attract_specific: self.ship_attract_specific,
             ship_attract_generic: self.ship_attract_generic,
             ship_cargo_attract: self
@@ -628,7 +641,7 @@ impl ShipAI {
                 .map(|(stringid, v)| (resourceidmap.get(stringid).unwrap().clone(), *v))
                 .collect(),
         };
-        (self.id, shipai)
+        shipai
     }
 }
 
@@ -662,11 +675,11 @@ impl ShipClass {
         shipclassidmap: &HashMap<String, internal::ShipClassID>,
         resourceidmap: &HashMap<String, Arc<internal::Resource>>,
         hangarclassidmap: &HashMap<String, Arc<internal::HangarClass>>,
-        engineclassidmap: &HashMap<String, internal::Key<internal::EngineClass>>,
-        repairerclassidmap: &HashMap<String, internal::Key<internal::RepairerClass>>,
-        factoryclassidmap: &HashMap<String, internal::Key<internal::FactoryClass>>,
-        shipyardclassidmap: &HashMap<String, internal::Key<internal::ShipyardClass>>,
-        shipaiidmap: &HashMap<String, internal::Key<internal::ShipAI>>,
+        engineclassidmap: &HashMap<String, Arc<internal::EngineClass>>,
+        repairerclassidmap: &HashMap<String, Arc<internal::RepairerClass>>,
+        factoryclassidmap: &HashMap<String, Arc<internal::FactoryClass>>,
+        shipyardclassidmap: &HashMap<String, Arc<internal::ShipyardClass>>,
+        shipaiidmap: &HashMap<String, Arc<internal::ShipAI>>,
         factions: &HashMap<String, Arc<internal::Faction>>,
     ) -> internal::ShipClass {
         let shipclass = internal::ShipClass {
@@ -713,9 +726,10 @@ impl ShipClass {
                 .unwrap_or(Vec::new())
                 .iter()
                 .map(|id| {
-                    *engineclassidmap
+                    engineclassidmap
                         .get(id)
                         .unwrap_or_else(|| panic!("{} is not found!", id))
+                        .clone()
                 })
                 .collect(),
             repairers: self
@@ -723,9 +737,10 @@ impl ShipClass {
                 .unwrap_or(Vec::new())
                 .iter()
                 .map(|id| {
-                    *repairerclassidmap
+                    repairerclassidmap
                         .get(id)
                         .unwrap_or_else(|| panic!("{} is not found!", id))
+                        .clone()
                 })
                 .collect(),
             factoryclasslist: self
@@ -733,9 +748,10 @@ impl ShipClass {
                 .unwrap_or(Vec::new())
                 .iter()
                 .map(|id| {
-                    *factoryclassidmap
+                    factoryclassidmap
                         .get(id)
                         .unwrap_or_else(|| panic!("{} is not found!", id))
+                        .clone()
                 })
                 .collect(),
             shipyardclasslist: self
@@ -743,12 +759,13 @@ impl ShipClass {
                 .unwrap_or(Vec::new())
                 .iter()
                 .map(|id| {
-                    *shipyardclassidmap
+                    shipyardclassidmap
                         .get(id)
                         .unwrap_or_else(|| panic!("{} is not found!", id))
+                        .clone()
                 })
                 .collect(),
-            aiclass: *shipaiidmap.get(&self.aiclass).unwrap(),
+            aiclass: shipaiidmap.get(&self.aiclass).unwrap().clone(),
             defectchance: self
                 .defectchance
                 .unwrap_or(HashMap::new())
@@ -780,13 +797,13 @@ struct FleetClass {
 impl FleetClass {
     fn hydrate(
         self,
+        index: usize,
         shipclassidmap: &HashMap<String, internal::ShipClassID>,
         shipclasses: &Vec<Arc<internal::ShipClass>>,
-        fleetclassidmap: &HashMap<String, internal::Key<internal::FleetClass>>,
         factions: &HashMap<String, Arc<internal::Faction>>,
     ) -> internal::FleetClass {
         let fleetclass = internal::FleetClass {
-            id: *fleetclassidmap.get(&self.id).unwrap(),
+            id: index,
             visiblename: self.visiblename,
             description: self.description,
             visibility: self.visibility.unwrap_or(true),
@@ -845,123 +862,19 @@ impl Root {
     //hydration method
     pub fn hydrate(mut self) -> internal::Root {
         let config = self.config.hydrate();
-        //here we iterate over the json systems to create a map between nodes' json string-ids and internal ids
-        let nodeidmap: HashMap<String, internal::Key<internal::Node>> = self
-            .systems
-            .iter()
-            .flat_map(|system| system.nodes.iter())
-            .enumerate()
-            .map(|(i, node)| {
-                (
-                    node.id.clone(),
-                    internal::Key::<internal::Node>::new_from_index(i),
-                )
-            })
-            .collect();
-
-        let edgeflavoridmap: HashMap<String, internal::Key<internal::EdgeFlavor>> = self
-            .edgeflavors
-            .iter()
-            .enumerate()
-            .map(|(i, edgeflavor)| (edgeflavor.id.clone(), internal::Key::new_from_index(i)))
-            .collect();
-
-        let edgeflavors: Vec<internal::EdgeFlavor> = self
-            .edgeflavors
-            .drain(0..)
-            .enumerate()
-            .map(|(i, edgeflavor)| {
-                //we turn the enumeration index into a key
-                let id = internal::Key::new_from_index(i);
-                //we make sure the key we just made matches the nodeflavor's entry in the idmap
-                assert_eq!(id, *edgeflavoridmap.get(&edgeflavor.id).unwrap());
-                edgeflavor.hydrate()
-            })
-            .collect();
-
-        //here we convert the json edge list into a set of pairs of internal node ids
-        let mut edges: HashMap<
-            (internal::Key<internal::Node>, internal::Key<internal::Node>),
-            internal::Key<internal::EdgeFlavor>,
-        > = self
-            .edges
-            .iter()
-            .map(|(a, b, f)| {
-                let aid = *nodeidmap.get(a).unwrap();
-                let bid = *nodeidmap.get(b).unwrap();
-                assert_ne!(aid, bid);
-                (
-                    (aid.min(bid), aid.max(bid)),
-                    *edgeflavoridmap.get(f).unwrap(),
-                )
-            })
-            .collect();
-
-        let mut jsonnodes: Vec<Node> = Vec::new();
-
-        //here we convert json systems into internal systems, and create a map between json string-id and internal id
-        let (systems, systemidmap): (
-            Vec<internal::System>,
-            HashMap<String, internal::Key<internal::System>>,
-        ) = self
-            .systems
-            .drain(0..)
-            .enumerate()
-            .map(|(i, system)| {
-                //we hydrate the system, getting the system's stringid, the internal system struct, and a vec of the nodes that are in this system
-                let (stringid, internalsystem, mut nodes) = system.hydrate(&nodeidmap);
-                let mut nodeids: Vec<internal::Key<internal::Node>> = Vec::new();
-                //here we build all-to-all edges between the nodes in the system
-                nodes.iter().for_each(|node| {
-                    let nodeid = *nodeidmap.get(&node.id).unwrap();
-                    //we check whether the node is orphaned, and if it is we don't build any edges for it
-                    if node.orphan != Some(true) {
-                        //we get the node's id from the id map
-                        //we iterate over the nodeids, ensure that there aren't any duplicates, and push each pair of nodeids into edges
-                        nodeids.iter().for_each(|rhs| {
-                            if nodes
-                                .iter()
-                                .find(|n| nodeidmap.get(&n.id).unwrap() == rhs)
-                                .unwrap()
-                                .orphan
-                                != Some(true)
-                            {
-                                assert_ne!(nodeid, *rhs, "Same node ID appears twice.");
-                                edges.insert(
-                                    (nodeid.min(*rhs), nodeid.max(*rhs)),
-                                    internal::Key::new_from_index(0),
-                                );
-                            }
-                        })
-                    };
-                    nodeids.push(nodeid);
-                });
-
-                //jsonnodes gets used later to generate the nodes vec, which we then turn into the internal table
-                nodes.drain(0..).for_each(|node| {
-                    jsonnodes.push(node);
-                });
-                //we create a system id from the enumeration index, then pair it with the system's stringid
-                let kv = (
-                    stringid,
-                    internal::Key::<internal::System>::new_from_index(i),
-                );
-                (internalsystem, kv)
-            })
-            .unzip();
-
-        let neighbors: HashMap<internal::Key<internal::Node>, Vec<internal::Key<internal::Node>>> =
-            edges.iter().fold(HashMap::new(), |mut acc, (&(a, b), _)| {
-                acc.entry(a).or_insert_with(Vec::new).push(b);
-                acc.entry(b).or_insert_with(Vec::new).push(a);
-                acc
-            });
 
         let nodeflavoridmap: (HashMap<String, Arc<internal::NodeFlavor>>) = self
             .nodeflavors
             .drain(0..)
             .enumerate()
             .map(|(i, nodeflavor)| (nodeflavor.id.clone(), Arc::new(nodeflavor.hydrate(i))))
+            .collect();
+
+        let edgeflavoridmap: HashMap<String, Arc<internal::EdgeFlavor>> = self
+            .edgeflavors
+            .drain(0..)
+            .enumerate()
+            .map(|(i, edgeflavor)| (edgeflavor.id.clone(), Arc::new(edgeflavor.hydrate(i))))
             .collect();
 
         let factionidmap: HashMap<String, internal::FactionID> = self
@@ -1009,50 +922,45 @@ impl Root {
             .map(|(i, resource)| (resource.id.clone(), Arc::new(resource.hydrate(i))))
             .collect();
 
-        let engineclassidmap: HashMap<String, internal::Key<internal::EngineClass>> = self
-            .engineclasses
-            .iter()
-            .enumerate()
-            .map(|(i, engineclass)| (engineclass.id.clone(), internal::Key::new_from_index(i)))
-            .collect();
-
-        let engineclasses: Vec<internal::EngineClass> = self
+        let engineclassidmap: HashMap<String, Arc<internal::EngineClass>> = self
             .engineclasses
             .drain(0..)
-            .map(|engineclass| {
-                engineclass.hydrate(
-                    &resourceidmap,
-                    &nodeflavoridmap,
-                    &edgeflavoridmap,
-                    &engineclassidmap,
+            .enumerate()
+            .map(|(i, engineclass)| {
+                (
+                    engineclass.id.clone(),
+                    Arc::new(engineclass.hydrate(
+                        i,
+                        &resourceidmap,
+                        &nodeflavoridmap,
+                        &edgeflavoridmap,
+                    )),
                 )
             })
             .collect();
 
-        let repairerclassidmap: HashMap<String, internal::Key<internal::RepairerClass>> = self
-            .repairerclasses
-            .iter()
-            .enumerate()
-            .map(|(i, repairerclass)| (repairerclass.id.clone(), internal::Key::new_from_index(i)))
-            .collect();
-
-        let repairerclasses: Vec<internal::RepairerClass> = self
+        let repairerclassidmap: HashMap<String, Arc<internal::RepairerClass>> = self
             .repairerclasses
             .drain(0..)
-            .map(|repairerclass| repairerclass.hydrate(&resourceidmap, &repairerclassidmap))
-            .collect();
-
-        let factoryclassidmap: HashMap<String, internal::Key<internal::FactoryClass>> = self
-            .factoryclasses
-            .iter()
             .enumerate()
-            .map(|(i, factoryclass)| (factoryclass.id.clone(), internal::Key::new_from_index(i)))
+            .map(|(i, repairerclass)| {
+                (
+                    repairerclass.id.clone(),
+                    Arc::new(repairerclass.hydrate(i, &resourceidmap)),
+                )
+            })
             .collect();
 
-        let factoryclasses: Vec<internal::FactoryClass> = self
+        let factoryclassidmap: HashMap<String, Arc<internal::FactoryClass>> = self
             .factoryclasses
             .drain(0..)
-            .map(|factoryclass| factoryclass.hydrate(&resourceidmap, &factoryclassidmap))
+            .enumerate()
+            .map(|(i, factoryclass)| {
+                (
+                    factoryclass.id.clone(),
+                    Arc::new(factoryclass.hydrate(i, &resourceidmap)),
+                )
+            })
             .collect();
 
         //this is a dummy ship class, which is here so that salience processes that require a shipclass to be specified can be parsed correctly
@@ -1104,35 +1012,29 @@ impl Root {
             })
             .collect();
 
-        let shipyardclassidmap: HashMap<String, internal::Key<internal::ShipyardClass>> = self
-            .shipyardclasses
-            .iter()
-            .enumerate()
-            .map(|(i, shipyardclass)| (shipyardclass.id.clone(), internal::Key::new_from_index(i)))
-            .collect();
-
-        let shipyardclasses: Vec<internal::ShipyardClass> = self
+        let shipyardclassidmap: HashMap<String, Arc<internal::ShipyardClass>> = self
             .shipyardclasses
             .drain(0..)
-            .map(|shipyardclass| {
-                shipyardclass.hydrate(&resourceidmap, &shipclassidmap, &shipyardclassidmap)
+            .enumerate()
+            .map(|(i, shipyardclass)| {
+                (
+                    shipyardclass.id.clone(),
+                    Arc::new(shipyardclass.hydrate(i, &resourceidmap, &shipclassidmap)),
+                )
             })
             .collect();
 
-        //same as with shipyard classes
-        let (shipaiidmap, shipais): (
-            HashMap<String, internal::Key<internal::ShipAI>>,
-            Vec<internal::ShipAI>,
-        ) = self
+        let shipaiidmap: HashMap<String, Arc<internal::ShipAI>> = self
             .shipais
             .drain(0..)
             .enumerate()
             .map(|(i, shipai)| {
-                let (stringid, internal_shipai) = shipai.hydrate(&resourceidmap, &shipclassidmap);
-                let kv_pair = (stringid, internal::Key::new_from_index(i));
-                (kv_pair, internal_shipai)
+                (
+                    shipai.id.clone(),
+                    Arc::new(shipai.hydrate(i, &resourceidmap, &shipclassidmap)),
+                )
             })
-            .unzip();
+            .collect();
 
         //we hydrate shipclasses, starting with the generic demand ship
         let shipclasses: Vec<Arc<internal::ShipClass>> = iter::once(generic_demand_ship)
@@ -1152,73 +1054,130 @@ impl Root {
             })
             .collect();
 
-        let nodes: Vec<internal::Node> = jsonnodes
-            .drain(0..)
+        //here we iterate over the json systems to create a map between nodes' json string-ids and internal ids
+        let nodeidmap: HashMap<String, Arc<internal::Node>> = self
+            .systems
+            .iter()
+            .flat_map(|system| system.nodes.iter())
             .enumerate()
             .map(|(i, node)| {
-                let (stringid, node) = node.hydrate(
-                    &nodeflavoridmap,
-                    &factions,
-                    &internal::Table::from_vec(factoryclasses.clone()),
-                    &factoryclassidmap,
-                    &internal::Table::from_vec(shipyardclasses.clone()),
-                    &shipyardclassidmap,
-                    &shipclasses,
-                );
-                assert_eq!(
-                    *nodeidmap.get(&stringid).unwrap(),
-                    internal::Key::<internal::Node>::new_from_index(i)
-                );
-                node
+                (
+                    node.id.clone(),
+                    Arc::new(node.clone().hydrate(
+                        i,
+                        &nodeflavoridmap,
+                        &factions,
+                        &factoryclassidmap,
+                        &shipyardclassidmap,
+                        &shipclasses,
+                    )),
+                )
             })
             .collect();
 
-        let fleetclassidmap: HashMap<String, internal::Key<internal::FleetClass>> = self
-            .fleetclasses
+        //here we convert the json edge list into a set of pairs of internal node ids
+        let mut edges: HashMap<
+            (Arc<internal::Node>, Arc<internal::Node>),
+            Arc<internal::EdgeFlavor>,
+        > = self
+            .edges
             .iter()
-            .enumerate()
-            .map(|(i, fleetclass)| (fleetclass.id.clone(), internal::Key::new_from_index(i)))
+            .map(|(a, b, f)| {
+                let aid = nodeidmap.get(a).unwrap().clone();
+                let bid = nodeidmap.get(b).unwrap().clone();
+                assert_ne!(aid, bid);
+                (
+                    (aid.clone().min(bid.clone()), bid.max(aid)),
+                    edgeflavoridmap.get(f).unwrap().clone(),
+                )
+            })
             .collect();
 
-        let fleetclasses: Vec<internal::FleetClass> = self
+        let systemidmap: HashMap<String, Arc<internal::System>> = self
+            .systems
+            .drain(0..)
+            .enumerate()
+            .map(|(i, system)| {
+                let mut nodestringids: Vec<String> = Vec::new();
+                for node in &system.nodes {
+                    //we check whether the node is orphaned, and if it is we don't build any edges for it
+                    if node.orphan != Some(true) {
+                        //we get the node's id from the id map
+                        //we iterate over the nodeids, ensure that there aren't any duplicates, and push each pair of nodeids into edges
+                        for rhs in &nodestringids {
+                            let nodeid = nodeidmap.get(&node.id).unwrap();
+                            let rhsid = nodeidmap.get(rhs).unwrap();
+                            if system.nodes.iter().find(|n| n.id == *rhs).unwrap().orphan
+                                != Some(true)
+                            {
+                                assert_ne!(nodeid, rhsid, "Same node ID appears twice.");
+                                edges.insert(
+                                    (nodeid.min(rhsid).clone(), nodeid.max(rhsid).clone()),
+                                    //NOTE: this is a little tortured; it works, but there might be a better way to handle it
+                                    edgeflavoridmap
+                                        .iter()
+                                        .map(|(_, edgeflavor)| edgeflavor)
+                                        .find(|edgeflavor| edgeflavor.id == 0)
+                                        .unwrap()
+                                        .clone(),
+                                );
+                            }
+                        }
+                    }
+                    nodestringids.push(node.id.clone());
+                }
+                (system.id.clone(), Arc::new(system.hydrate(i, &nodeidmap)))
+            })
+            .collect();
+
+        let neighbors: HashMap<Arc<internal::Node>, Vec<Arc<internal::Node>>> =
+            edges.iter().fold(HashMap::new(), |mut acc, ((a, b), _)| {
+                acc.entry(a.clone())
+                    .or_insert_with(Vec::new)
+                    .push(b.clone());
+                acc.entry(b.clone())
+                    .or_insert_with(Vec::new)
+                    .push(a.clone());
+                acc
+            });
+
+        let fleetclassidmap: HashMap<String, Arc<internal::FleetClass>> = self
             .fleetclasses
             .drain(0..)
             .enumerate()
             .map(|(i, fleetclass)| {
-                //we turn the enumeration index into a key
-                let id = internal::Key::new_from_index(i);
-                //we make sure the key we just made matches the fleetclass's entry in the idmap
-                assert_eq!(id, *fleetclassidmap.get(&fleetclass.id).unwrap());
-                let internal_fleetclass =
-                    fleetclass.hydrate(&shipclassidmap, &shipclasses, &fleetclassidmap, &factions);
-                internal_fleetclass
+                (
+                    fleetclass.id.clone(),
+                    Arc::new(fleetclass.hydrate(i, &shipclassidmap, &shipclasses, &factions)),
+                )
             })
             .collect();
 
         internal::Root {
             config: config,
             nodeflavors: nodeflavoridmap.values().cloned().collect(),
-            nodes: internal::Table::from_vec(nodes),
-            systems: internal::Table::from_vec(systems),
-            edgeflavors: internal::Table::from_vec(edgeflavors),
+            nodes: nodeidmap.values().cloned().collect(),
+            systems: systemidmap.values().cloned().collect(),
+            edgeflavors: edgeflavoridmap.values().cloned().collect(),
             edges,
             neighbors,
             factions: factions.values().cloned().collect(),
             wars,
             resources: resourceidmap.values().cloned().collect(),
             hangarclasses: hangarclassidmap.values().cloned().collect(),
-            hangarinstances: internal::Table::new(),
-            engineclasses: internal::Table::from_vec(engineclasses),
-            repairerclasses: internal::Table::from_vec(repairerclasses),
-            factoryclasses: internal::Table::from_vec(factoryclasses),
-            shipyardclasses: internal::Table::from_vec(shipyardclasses),
-            shipais: internal::Table::from_vec(shipais),
+            hangarinstancecounter: Arc::new(AtomicU64::new(0)),
+            engineclasses: engineclassidmap.values().cloned().collect(),
+            repairerclasses: repairerclassidmap.values().cloned().collect(),
+            factoryclasses: factoryclassidmap.values().cloned().collect(),
+            shipyardclasses: shipyardclassidmap.values().cloned().collect(),
+            shipais: shipaiidmap.values().cloned().collect(),
             shipclasses,
-            shipinstances: internal::Table::new(),
-            shipinstancecounter: 0_usize,
-            fleetclasses: internal::Table::from_vec(fleetclasses),
-            fleetinstances: internal::Table::new(),
-            engagements: internal::Table::new(),
+            shipinstances: Vec::new(),
+            shipinstancecounter: Arc::new(AtomicU64::new(0)),
+            fleetclasses: fleetclassidmap.values().cloned().collect(),
+            fleetinstances: Vec::new(),
+            fleetinstancecounter: Arc::new(AtomicU64::new(0)),
+            engagements: Vec::new(),
             globalsalience: internal::GlobalSalience {
                 resourcesalience: Vec::new(),
                 shipclasssalience: Vec::new(),
