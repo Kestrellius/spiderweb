@@ -1,16 +1,14 @@
-use average::Mean;
-use no_panic::no_panic;
 use ordered_float::NotNan;
 use rand::prelude::*;
 use rand_distr::*;
 use std::cmp::Ordering;
-use std::collections::{btree_map, hash_map, BTreeMap, HashMap, HashSet};
-use std::fmt;
+use std::collections::{HashMap, HashSet};
+
 use std::hash::{Hash, Hasher};
 use std::iter;
-use std::marker::PhantomData;
+
 use std::sync::atomic::{self, AtomicU64};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::sync::{RwLock, RwLockWriteGuard};
 
 #[derive(Debug, Clone)]
@@ -115,25 +113,39 @@ impl Hash for Node {
 }
 
 impl Node {
+    fn get_strength(&self, faction: Arc<Faction>, time: u64) -> u64 {
+        self.mutables
+            .read()
+            .unwrap()
+            .ships
+            .iter()
+            .filter(|ship| ship.mutables.read().unwrap().allegiance == faction)
+            .map(|ship| ship.get_strength(time))
+            .sum()
+    }
     pub fn get_node_forces(
-        node: Arc<Node>,
+        &self,
         root: &Root,
     ) -> HashMap<Arc<Faction>, (Vec<Arc<FleetInstance>>, Vec<Arc<ShipInstance>>)> {
         root.factions
             .iter()
             .map(|faction| {
-                let ships: Vec<Arc<ShipInstance>> = root
-                    .shipinstances
+                let ships: Vec<Arc<ShipInstance>> = self
+                    .mutables
+                    .read()
+                    .unwrap()
+                    .ships
                     .iter()
                     .filter(|ship| ship.mutables.read().unwrap().allegiance == *faction)
-                    .filter(|ship| ship.get_node() == node)
                     .cloned()
                     .collect();
-                let fleets: Vec<Arc<FleetInstance>> = root
-                    .fleetinstances
+                let fleets: Vec<Arc<FleetInstance>> = self
+                    .mutables
+                    .read()
+                    .unwrap()
+                    .fleets
                     .iter()
                     .filter(|fleet| fleet.mutables.read().unwrap().allegiance == *faction)
-                    .filter(|fleet| fleet.mutables.read().unwrap().location == node)
                     .cloned()
                     .collect();
                 (faction.clone(), (fleets, ships))
@@ -141,15 +153,17 @@ impl Node {
             .filter(|(_, (_, ships))| ships.len() > 0)
             .collect()
     }
-    pub fn get_node_factions(nodeid: Arc<Node>, root: &Root) -> Vec<Arc<Faction>> {
+    pub fn get_node_factions(&self, root: &Root) -> Vec<Arc<Faction>> {
         root.factions
             .iter()
             .filter(|faction| {
-                !root
-                    .shipinstances
+                !self
+                    .mutables
+                    .read()
+                    .unwrap()
+                    .ships
                     .iter()
                     .filter(|ship| ship.mutables.read().unwrap().allegiance == **faction)
-                    .filter(|ship| ship.get_node() == nodeid)
                     .collect::<Vec<_>>()
                     .is_empty()
             })
@@ -157,34 +171,38 @@ impl Node {
             .collect()
     }
     pub fn get_node_faction_reinforcements(
-        location: Arc<Node>,
+        &self,
         destination: Arc<Node>,
         factionid: Arc<Faction>,
         root: &Root,
     ) -> (Vec<Arc<FleetInstance>>, Vec<Arc<ShipInstance>>) {
-        let relevant_ships: Vec<Arc<ShipInstance>> = root
-            .shipinstances
+        let relevant_ships: Vec<Arc<ShipInstance>> = self
+            .mutables
+            .read()
+            .unwrap()
+            .ships
             .iter()
             .filter(|ship| ship.mutables.read().unwrap().allegiance == factionid)
-            .filter(|ship| ship.get_node() == location.clone())
             .cloned()
             .collect();
-        let (active_fleets, passive_fleets): (Vec<_>, Vec<_>) = root
-            .fleetinstances
+        let (active_fleets, passive_fleets): (Vec<_>, Vec<_>) = self
+            .mutables
+            .read()
+            .unwrap()
+            .fleets
             .iter()
             .filter(|fleet| fleet.mutables.read().unwrap().allegiance == factionid)
-            .filter(|fleet| fleet.mutables.read().unwrap().location == location.clone())
             .cloned()
             .partition(|fleet| fleet.nav_check(root, destination.clone()).is_some());
         let ships_in_active_fleets: Vec<Arc<ShipInstance>> = relevant_ships
             .iter()
             .filter(|ship| {
-                ship.get_fleet(root)
+                ship.get_fleet()
                     .map(|fleet| active_fleets.contains(&fleet))
                     .unwrap_or(false)
             })
             .map(|ship| {
-                let mut vec = ship.get_daughters(&root.shipinstances);
+                let mut vec = ship.get_daughters();
                 vec.insert(0, ship.clone());
                 vec
             })
@@ -192,10 +210,10 @@ impl Node {
             .collect();
         let ships_in_node: Vec<Arc<ShipInstance>> = relevant_ships
             .iter()
-            .filter(|ship| ship.is_in_node(root))
+            .filter(|ship| ship.is_in_node())
             .filter(|ship| ship.nav_check(root, vec![destination.clone()]))
             .map(|ship| {
-                let mut vec = ship.get_daughters(&root.shipinstances);
+                let mut vec = ship.get_daughters();
                 vec.insert(0, ship.clone());
                 vec
             })
@@ -204,9 +222,9 @@ impl Node {
         let passive_ships: Vec<Arc<ShipInstance>> = relevant_ships
             .iter()
             .filter(|ship| {
-                (ship.is_in_node(root) && !ships_in_node.contains(ship.clone()))
+                (ship.is_in_node() && !ships_in_node.contains(ship.clone()))
                     || ship
-                        .get_fleet(root)
+                        .get_fleet()
                         .map(|fleet| passive_fleets.contains(&fleet))
                         .unwrap_or(false)
             })
@@ -225,46 +243,61 @@ impl Node {
         (active_fleets, ships)
     }
     pub fn get_node_faction_forces(
-        node: Arc<Node>,
+        &self,
         faction: Arc<Faction>,
-        root: &Root,
     ) -> (Vec<Arc<FleetInstance>>, Vec<Arc<ShipInstance>>) {
-        let ships: Vec<Arc<ShipInstance>> = root
-            .shipinstances
+        let ships: Vec<Arc<ShipInstance>> = self
+            .mutables
+            .read()
+            .unwrap()
+            .ships
             .iter()
             .filter(|ship| ship.mutables.read().unwrap().allegiance == faction)
-            .filter(|ship| ship.get_node() == node)
             .cloned()
             .collect();
-        let fleets: Vec<Arc<FleetInstance>> = root
-            .fleetinstances
+        let fleets: Vec<Arc<FleetInstance>> = self
+            .mutables
+            .read()
+            .unwrap()
+            .fleets
             .iter()
             .filter(|fleet| fleet.mutables.read().unwrap().allegiance == faction)
-            .filter(|fleet| fleet.mutables.read().unwrap().location == node)
             .cloned()
             .collect();
         (fleets, ships)
     }
-    pub fn get_shipclass_num(nodeid: Arc<Node>, root: &Root, shipclass: Arc<ShipClass>) -> u64 {
-        root.shipinstances
+    pub fn get_shipclass_num(&self, shipclass: Arc<ShipClass>) -> u64 {
+        self.mutables
+            .read()
+            .unwrap()
+            .ships
             .iter()
-            .filter(|ship| ship.get_node() == nodeid)
             .filter(|ship| Arc::ptr_eq(&ship.class, &shipclass))
             .count() as u64
     }
-    pub fn get_system(node: Arc<Node>, root: &Root) -> Option<Arc<System>> {
-        let system = root.systems.iter().find(|s| s.nodes.contains(&node));
+    pub fn get_system(&self, root: &Root) -> Option<Arc<System>> {
+        let system = root.systems.iter().find(|system| {
+            system
+                .nodes
+                .iter()
+                .find(|sys_node| sys_node.id == self.id)
+                .is_some()
+        });
         match system {
             Some(sys) => Some(sys.clone()),
             None => None,
         }
     }
-    pub fn is_in_system(node: Arc<Node>, system: Arc<System>, root: &Root) -> bool {
-        system.nodes.contains(&node)
+    pub fn is_in_system(&self, system: Arc<System>) -> bool {
+        system
+            .nodes
+            .iter()
+            .find(|sys_node| sys_node.id == self.id)
+            .is_some()
     }
-    pub fn get_distance(a: Arc<Node>, b: Arc<Node>, root: &Root) -> u64 {
+    pub fn get_distance(a: Arc<Node>, b: Arc<Node>) -> u64 {
         let a_pos = a.position;
-        let b_pos = a.position;
+        let b_pos = b.position;
         (((a_pos[0] - b_pos[0]) + (a_pos[1] - b_pos[1]) + (a_pos[2] - b_pos[2])) as f32).sqrt()
             as u64
     }
@@ -290,14 +323,15 @@ impl Node {
         node: Arc<Node>,
         shipclasses: &Vec<Arc<ShipClass>>,
     ) -> Vec<(Arc<ShipClass>, ShipLocation, Arc<Faction>)> {
-        node.mutables
-            .write()
-            .unwrap()
+        let mut mutables = node.mutables.write().unwrap();
+        let efficiency = mutables.efficiency;
+        let allegiance = mutables.allegiance.clone();
+        mutables
             .shipyardinstancelist
             .iter_mut()
             .map(|shipyard| {
                 let ship_plans =
-                    shipyard.plan_ships(node.mutables.read().unwrap().efficiency, shipclasses);
+                    shipyard.plan_ships(efficiency, shipclasses);
                 //here we take the list of ships for a specific shipyard and tag them with the location and allegiance they should have when they're built
                 ship_plans
                     .iter()
@@ -305,7 +339,7 @@ impl Node {
                         (
                             ship_plan.clone(),
                             ShipLocation::Node(node.clone()),
-                            node.mutables.read().unwrap().allegiance.clone(),
+                            allegiance.clone(),
                         )
                     })
                     // <^>>(
@@ -507,21 +541,6 @@ pub enum GenericCargo {
     ShipInstance(Arc<ShipInstance>),
 }
 
-impl GenericCargo {
-    fn is_resource(self) -> Option<(Arc<Resource>, u64)> {
-        match self {
-            GenericCargo::Resource { id, value } => Some((id, value)),
-            _ => None,
-        }
-    }
-    fn is_shipinstance(self) -> Option<Arc<ShipInstance>> {
-        match self {
-            GenericCargo::ShipInstance(k) => Some(k),
-            _ => None,
-        }
-    }
-}
-
 //CollatedCargo tells us the type of resource or ship that the cargo entity is; it's used in a hashmap with an integer denoting the quantity
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum CollatedCargo {
@@ -530,7 +549,7 @@ pub enum CollatedCargo {
 }
 
 impl CollatedCargo {
-    fn get_volume(self, root: &Root) -> u64 {
+    fn get_volume(self) -> u64 {
         match self {
             CollatedCargo::Resource(k) => k.cargovol,
             CollatedCargo::ShipClass(k) => k.cargovol.unwrap_or(u64::MAX),
@@ -541,27 +560,21 @@ impl CollatedCargo {
 pub trait Stockpileness {
     fn get_resource_contents(&self) -> HashMap<Arc<Resource>, u64>;
     fn get_ship_contents(&self) -> HashSet<Arc<ShipInstance>>;
-    fn collate_contents(&self, root: &Root) -> HashMap<CollatedCargo, u64>;
-    fn get_resource_num(&self, root: &Root, cargo: Arc<Resource>) -> u64;
-    fn get_shipclass_num(&self, root: &Root, cargo: Arc<ShipClass>) -> u64;
+    fn collate_contents(&self) -> HashMap<CollatedCargo, u64>;
+    fn get_resource_num(&self, cargo: Arc<Resource>) -> u64;
+    fn get_shipclass_num(&self, cargo: Arc<ShipClass>) -> u64;
     fn get_capacity(&self) -> u64;
-    fn get_fullness(&self, root: &Root) -> u64;
+    fn get_fullness(&self) -> u64;
     fn get_allowed(&self) -> Option<(Vec<Arc<Resource>>, Vec<Arc<ShipClass>>)>;
-    fn get_resource_supply(&self, root: &Root, resourceid: Arc<Resource>) -> u64;
-    fn get_resource_demand(&self, root: &Root, resourceid: Arc<Resource>) -> u64;
-    fn get_shipclass_supply(&self, root: &Root, shipclass: Arc<ShipClass>) -> u64;
-    fn get_shipclass_demand(&self, root: &Root, shipclass: Arc<ShipClass>) -> u64;
-    fn insert(&mut self, root: &Root, cargo: GenericCargo) -> Option<GenericCargo>;
-    fn remove(&mut self, root: &Root, cargo: GenericCargo) -> Option<GenericCargo>;
-    fn transfer<S: Stockpileness>(
-        &mut self,
-        rhs: &mut S,
-        root: &Root,
-        class: CollatedCargo,
-        quantity: u64,
-    ) {
-        let available_space = (rhs.get_capacity() - rhs.get_fullness(root))
-            .checked_div(class.clone().get_volume(root))
+    fn get_resource_supply(&self, resourceid: Arc<Resource>) -> u64;
+    fn get_resource_demand(&self, resourceid: Arc<Resource>) -> u64;
+    fn get_shipclass_supply(&self, shipclass: Arc<ShipClass>) -> u64;
+    fn get_shipclass_demand(&self, shipclass: Arc<ShipClass>) -> u64;
+    fn insert(&mut self, cargo: GenericCargo) -> Option<GenericCargo>;
+    fn remove(&mut self, cargo: GenericCargo) -> Option<GenericCargo>;
+    fn transfer<S: Stockpileness>(&mut self, rhs: &mut S, class: CollatedCargo, quantity: u64) {
+        let available_space = (rhs.get_capacity() - rhs.get_fullness())
+            .checked_div(class.clone().get_volume())
             .unwrap_or(u64::MAX);
         let constrained_quantity = std::cmp::min(quantity, available_space);
         let cargo: Vec<GenericCargo> = match class {
@@ -579,9 +592,9 @@ pub trait Stockpileness {
         };
         dbg!(&cargo);
         cargo.iter().for_each(|item| {
-            self.remove(root, item.clone())
-                .and_then(|remainder| rhs.insert(root, remainder))
-                .and_then(|remainder| self.insert(root, remainder));
+            self.remove(item.clone())
+                .and_then(|remainder| rhs.insert(remainder))
+                .and_then(|remainder| self.insert(remainder));
         })
     }
 }
@@ -606,28 +619,27 @@ impl<A: Stockpileness, B: Stockpileness> Stockpileness for (A, B) {
             .collect()
     }
     //It actually works now
-    fn collate_contents(&self, root: &Root) -> HashMap<CollatedCargo, u64> {
+    fn collate_contents(&self) -> HashMap<CollatedCargo, u64> {
         self.0
-            .collate_contents(root)
+            .collate_contents()
             .iter()
-            .chain(self.1.collate_contents(root).iter())
+            .chain(self.1.collate_contents().iter())
             .fold(HashMap::new(), |mut acc, (k, v)| {
                 *acc.entry(k.clone()).or_insert(0) += v;
                 acc
             })
     }
-    fn get_resource_num(&self, root: &Root, cargo: Arc<Resource>) -> u64 {
-        self.0.get_resource_num(root, cargo.clone()) + self.1.get_resource_num(root, cargo.clone())
+    fn get_resource_num(&self, cargo: Arc<Resource>) -> u64 {
+        self.0.get_resource_num(cargo.clone()) + self.1.get_resource_num(cargo.clone())
     }
-    fn get_shipclass_num(&self, root: &Root, cargo: Arc<ShipClass>) -> u64 {
-        self.0.get_shipclass_num(root, cargo.clone())
-            + self.1.get_shipclass_num(root, cargo.clone())
+    fn get_shipclass_num(&self, cargo: Arc<ShipClass>) -> u64 {
+        self.0.get_shipclass_num(cargo.clone()) + self.1.get_shipclass_num(cargo.clone())
     }
     fn get_capacity(&self) -> u64 {
         self.0.get_capacity() + self.1.get_capacity()
     }
-    fn get_fullness(&self, root: &Root) -> u64 {
-        self.0.get_fullness(root) + self.1.get_fullness(root)
+    fn get_fullness(&self) -> u64 {
+        self.0.get_fullness() + self.1.get_fullness()
     }
     fn get_allowed(&self) -> Option<(Vec<Arc<Resource>>, Vec<Arc<ShipClass>>)> {
         //self.0
@@ -637,26 +649,24 @@ impl<A: Stockpileness, B: Stockpileness> Stockpileness for (A, B) {
         //    .collect()
         Some((Vec::new(), Vec::new()))
     }
-    fn get_resource_supply(&self, root: &Root, resource: Arc<Resource>) -> u64 {
-        self.0.get_resource_supply(root, resource.clone())
-            + self.1.get_resource_supply(root, resource.clone())
+    fn get_resource_supply(&self, resource: Arc<Resource>) -> u64 {
+        self.0.get_resource_supply(resource.clone()) + self.1.get_resource_supply(resource.clone())
     }
-    fn get_resource_demand(&self, root: &Root, resource: Arc<Resource>) -> u64 {
-        self.0.get_resource_demand(root, resource.clone())
-            + self.1.get_resource_demand(root, resource.clone())
+    fn get_resource_demand(&self, resource: Arc<Resource>) -> u64 {
+        self.0.get_resource_demand(resource.clone()) + self.1.get_resource_demand(resource.clone())
     }
-    fn get_shipclass_supply(&self, root: &Root, shipclass: Arc<ShipClass>) -> u64 {
-        self.0.get_shipclass_supply(root, shipclass.clone())
-            + self.1.get_shipclass_supply(root, shipclass.clone())
+    fn get_shipclass_supply(&self, shipclass: Arc<ShipClass>) -> u64 {
+        self.0.get_shipclass_supply(shipclass.clone())
+            + self.1.get_shipclass_supply(shipclass.clone())
     }
-    fn get_shipclass_demand(&self, root: &Root, shipclass: Arc<ShipClass>) -> u64 {
-        self.0.get_shipclass_demand(root, shipclass.clone())
-            + self.1.get_shipclass_demand(root, shipclass.clone())
+    fn get_shipclass_demand(&self, shipclass: Arc<ShipClass>) -> u64 {
+        self.0.get_shipclass_demand(shipclass.clone())
+            + self.1.get_shipclass_demand(shipclass.clone())
     }
-    fn insert(&mut self, root: &Root, cargo: GenericCargo) -> Option<GenericCargo> {
+    fn insert(&mut self, _cargo: GenericCargo) -> Option<GenericCargo> {
         None
     }
-    fn remove(&mut self, root: &Root, cargo: GenericCargo) -> Option<GenericCargo> {
+    fn remove(&mut self, _cargo: GenericCargo) -> Option<GenericCargo> {
         None
     }
 }
@@ -682,40 +692,40 @@ impl Stockpileness for UnipotentResourceStockpile {
     fn get_ship_contents(&self) -> HashSet<Arc<ShipInstance>> {
         HashSet::new()
     }
-    fn collate_contents(&self, root: &Root) -> HashMap<CollatedCargo, u64> {
+    fn collate_contents(&self) -> HashMap<CollatedCargo, u64> {
         iter::once((
             CollatedCargo::Resource(self.resourcetype.clone()),
             self.contents,
         ))
         .collect()
     }
-    fn get_resource_num(&self, root: &Root, cargo: Arc<Resource>) -> u64 {
+    fn get_resource_num(&self, cargo: Arc<Resource>) -> u64 {
         if cargo == self.resourcetype {
             self.contents
         } else {
             0
         }
     }
-    fn get_shipclass_num(&self, root: &Root, cargo: Arc<ShipClass>) -> u64 {
+    fn get_shipclass_num(&self, _cargo: Arc<ShipClass>) -> u64 {
         0
     }
     fn get_capacity(&self) -> u64 {
         self.capacity
     }
-    fn get_fullness(&self, root: &Root) -> u64 {
+    fn get_fullness(&self) -> u64 {
         self.contents * self.resourcetype.cargovol
     }
     fn get_allowed(&self) -> Option<(Vec<Arc<Resource>>, Vec<Arc<ShipClass>>)> {
         Some((vec![self.resourcetype.clone()], Vec::new()))
     }
-    fn get_resource_supply(&self, root: &Root, resource: Arc<Resource>) -> u64 {
+    fn get_resource_supply(&self, resource: Arc<Resource>) -> u64 {
         if resource == self.resourcetype {
             (self.contents * resource.cargovol).saturating_sub(self.target)
         } else {
             0
         }
     }
-    fn get_resource_demand(&self, root: &Root, resource: Arc<Resource>) -> u64 {
+    fn get_resource_demand(&self, resource: Arc<Resource>) -> u64 {
         if resource == self.resourcetype {
             self.target
                 .saturating_sub(self.contents * resource.cargovol)
@@ -723,13 +733,13 @@ impl Stockpileness for UnipotentResourceStockpile {
             0
         }
     }
-    fn get_shipclass_supply(&self, root: &Root, shipclass: Arc<ShipClass>) -> u64 {
+    fn get_shipclass_supply(&self, _shipclass: Arc<ShipClass>) -> u64 {
         0
     }
-    fn get_shipclass_demand(&self, root: &Root, shipclass: Arc<ShipClass>) -> u64 {
+    fn get_shipclass_demand(&self, _shipclass: Arc<ShipClass>) -> u64 {
         0
     }
-    fn insert(&mut self, root: &Root, cargo: GenericCargo) -> Option<GenericCargo> {
+    fn insert(&mut self, cargo: GenericCargo) -> Option<GenericCargo> {
         match cargo.clone() {
             GenericCargo::Resource { id, value } => {
                 let cargo_vol = id.cargovol;
@@ -757,7 +767,7 @@ impl Stockpileness for UnipotentResourceStockpile {
             }
         }
     }
-    fn remove(&mut self, root: &Root, cargo: GenericCargo) -> Option<GenericCargo> {
+    fn remove(&mut self, cargo: GenericCargo) -> Option<GenericCargo> {
         match cargo {
             GenericCargo::Resource { id, value } => {
                 if id == self.resourcetype {
@@ -829,7 +839,7 @@ impl Stockpileness for PluripotentStockpile {
     fn get_ship_contents(&self) -> HashSet<Arc<ShipInstance>> {
         self.ship_contents.clone()
     }
-    fn collate_contents(&self, root: &Root) -> HashMap<CollatedCargo, u64> {
+    fn collate_contents(&self) -> HashMap<CollatedCargo, u64> {
         let resource_list = self
             .resource_contents
             .iter()
@@ -845,10 +855,10 @@ impl Stockpileness for PluripotentStockpile {
                 acc
             })
     }
-    fn get_resource_num(&self, root: &Root, cargo: Arc<Resource>) -> u64 {
+    fn get_resource_num(&self, cargo: Arc<Resource>) -> u64 {
         *self.resource_contents.get(&cargo).unwrap_or(&0)
     }
-    fn get_shipclass_num(&self, root: &Root, cargo: Arc<ShipClass>) -> u64 {
+    fn get_shipclass_num(&self, cargo: Arc<ShipClass>) -> u64 {
         self.ship_contents
             .iter()
             .filter(|ship| ship.class == cargo)
@@ -860,7 +870,7 @@ impl Stockpileness for PluripotentStockpile {
     fn get_capacity(&self) -> u64 {
         self.capacity.clone()
     }
-    fn get_fullness(&self, root: &Root) -> u64 {
+    fn get_fullness(&self) -> u64 {
         self.resource_contents
             .iter()
             .map(|(resource, value)| value * resource.cargovol)
@@ -874,7 +884,7 @@ impl Stockpileness for PluripotentStockpile {
     //NOTE: Partially dummied out currently; waiting on removal of ship-carrying ability from stockpiles
     fn get_allowed(&self) -> Option<(Vec<Arc<Resource>>, Vec<Arc<ShipClass>>)> {
         match &self.allowed {
-            Some((resource_allowed, shipclass_allowed)) => {
+            Some((resource_allowed, _shipclass_allowed)) => {
                 Some((resource_allowed.clone(), Vec::new()))
             }
             None => None,
@@ -882,37 +892,37 @@ impl Stockpileness for PluripotentStockpile {
     }
     //unlike other places, here in pluripotent stockpiles we don't take target into account when calculating supply
     //thus, items in pluripotent stockpiles always emit supply, even if the stockpile still wants more
-    fn get_resource_supply(&self, root: &Root, resource: Arc<Resource>) -> u64 {
-        self.get_resource_num(root, resource.clone()) * resource.cargovol
+    fn get_resource_supply(&self, resource: Arc<Resource>) -> u64 {
+        self.get_resource_num(resource.clone()) * resource.cargovol
     }
-    fn get_resource_demand(&self, root: &Root, resource: Arc<Resource>) -> u64 {
+    fn get_resource_demand(&self, resource: Arc<Resource>) -> u64 {
         if self
             .get_allowed()
             .unwrap_or((vec![resource.clone()], Vec::new()))
             .0
             .contains(&resource.clone())
         {
-            self.target.saturating_sub(self.get_fullness(root))
+            self.target.saturating_sub(self.get_fullness())
         } else {
             0
         }
     }
-    fn get_shipclass_supply(&self, root: &Root, shipclass: Arc<ShipClass>) -> u64 {
-        self.get_shipclass_num(root, shipclass.clone()) * shipclass.cargovol.unwrap_or(0)
+    fn get_shipclass_supply(&self, shipclass: Arc<ShipClass>) -> u64 {
+        self.get_shipclass_num(shipclass.clone()) * shipclass.cargovol.unwrap_or(0)
     }
-    fn get_shipclass_demand(&self, root: &Root, shipclass: Arc<ShipClass>) -> u64 {
+    fn get_shipclass_demand(&self, shipclass: Arc<ShipClass>) -> u64 {
         if self
             .get_allowed()
             .unwrap_or((Vec::new(), vec![shipclass.clone()]))
             .1
             .contains(&shipclass)
         {
-            self.target.saturating_sub(self.get_fullness(root))
+            self.target.saturating_sub(self.get_fullness())
         } else {
             0
         }
     }
-    fn insert(&mut self, root: &Root, cargo: GenericCargo) -> Option<GenericCargo> {
+    fn insert(&mut self, cargo: GenericCargo) -> Option<GenericCargo> {
         match cargo.clone() {
             GenericCargo::Resource { id, value } => {
                 if self
@@ -922,7 +932,7 @@ impl Stockpileness for PluripotentStockpile {
                     .unwrap_or(true)
                 {
                     let cargo_vol = id.cargovol;
-                    let fullness = self.get_fullness(root);
+                    let fullness = self.get_fullness();
                     let how_many_fit = (self.capacity - fullness) / cargo_vol;
                     let remainder = value.saturating_sub(how_many_fit);
                     *self.resource_contents.get_mut(&id).unwrap() += value - remainder;
@@ -944,7 +954,7 @@ impl Stockpileness for PluripotentStockpile {
                     .unwrap_or(true)
                 {
                     let cargo_vol = class.cargovol.unwrap();
-                    if cargo_vol <= (self.capacity - self.get_fullness(root)) {
+                    if cargo_vol <= (self.capacity - self.get_fullness()) {
                         self.ship_contents.insert(ship);
                         None
                     } else {
@@ -956,7 +966,7 @@ impl Stockpileness for PluripotentStockpile {
             }
         }
     }
-    fn remove(&mut self, root: &Root, cargo: GenericCargo) -> Option<GenericCargo> {
+    fn remove(&mut self, cargo: GenericCargo) -> Option<GenericCargo> {
         match cargo.clone() {
             GenericCargo::Resource { id, value } => {
                 if self
@@ -1013,49 +1023,49 @@ impl Stockpileness for SharedStockpile {
     fn get_ship_contents(&self) -> HashSet<Arc<ShipInstance>> {
         HashSet::new()
     }
-    fn collate_contents(&self, root: &Root) -> HashMap<CollatedCargo, u64> {
+    fn collate_contents(&self) -> HashMap<CollatedCargo, u64> {
         iter::once((
             CollatedCargo::Resource(self.resourcetype.clone()),
             self.contents.load(atomic::Ordering::SeqCst),
         ))
         .collect()
     }
-    fn get_resource_num(&self, root: &Root, cargo: Arc<Resource>) -> u64 {
+    fn get_resource_num(&self, cargo: Arc<Resource>) -> u64 {
         if cargo == self.resourcetype {
             self.contents.load(atomic::Ordering::SeqCst)
         } else {
             0
         }
     }
-    fn get_shipclass_num(&self, root: &Root, cargo: Arc<ShipClass>) -> u64 {
+    fn get_shipclass_num(&self, _cargo: Arc<ShipClass>) -> u64 {
         0
     }
     fn get_capacity(&self) -> u64 {
         self.capacity
     }
-    fn get_fullness(&self, root: &Root) -> u64 {
+    fn get_fullness(&self) -> u64 {
         self.contents.load(atomic::Ordering::SeqCst) * self.resourcetype.cargovol
     }
     fn get_allowed(&self) -> Option<(Vec<Arc<Resource>>, Vec<Arc<ShipClass>>)> {
         Some((vec![self.resourcetype.clone()], Vec::new()))
     }
-    fn get_resource_supply(&self, root: &Root, resource: Arc<Resource>) -> u64 {
+    fn get_resource_supply(&self, resource: Arc<Resource>) -> u64 {
         if resource == self.resourcetype {
             self.contents.load(atomic::Ordering::SeqCst) * resource.cargovol
         } else {
             0
         }
     }
-    fn get_resource_demand(&self, root: &Root, resourceid: Arc<Resource>) -> u64 {
+    fn get_resource_demand(&self, _resourceid: Arc<Resource>) -> u64 {
         0
     }
-    fn get_shipclass_supply(&self, root: &Root, shipclass: Arc<ShipClass>) -> u64 {
+    fn get_shipclass_supply(&self, _shipclass: Arc<ShipClass>) -> u64 {
         0
     }
-    fn get_shipclass_demand(&self, root: &Root, shipclass: Arc<ShipClass>) -> u64 {
+    fn get_shipclass_demand(&self, _shipclass: Arc<ShipClass>) -> u64 {
         0
     }
-    fn insert(&mut self, root: &Root, cargo: GenericCargo) -> Option<GenericCargo> {
+    fn insert(&mut self, cargo: GenericCargo) -> Option<GenericCargo> {
         match cargo.clone() {
             GenericCargo::Resource { id, value } => {
                 let cargo_vol = id.clone().cargovol;
@@ -1078,7 +1088,7 @@ impl Stockpileness for SharedStockpile {
             _ => Some(cargo),
         }
     }
-    fn remove(&mut self, root: &Root, cargo: GenericCargo) -> Option<GenericCargo> {
+    fn remove(&mut self, cargo: GenericCargo) -> Option<GenericCargo> {
         match cargo {
             GenericCargo::Resource { id, value } => {
                 if id == self.resourcetype {
@@ -1153,7 +1163,7 @@ impl HangarClass {
     pub fn instantiate(
         class: Arc<Self>,
         mother: Arc<ShipInstance>,
-        shipclasses: &Vec<Arc<ShipClass>>,
+        _shipclasses: &Vec<Arc<ShipClass>>,
         counter: &Arc<AtomicU64>,
     ) -> HangarInstance {
         let index = counter.fetch_add(1, atomic::Ordering::Relaxed);
@@ -1212,14 +1222,14 @@ impl Hash for HangarInstance {
 }
 
 impl HangarInstance {
-    pub fn get_strength(&self, root: &Root, time: u64) -> u64 {
+    pub fn get_strength(&self, time: u64) -> u64 {
         let contents_strength = self
             .mutables
             .read()
             .unwrap()
             .contents
             .iter()
-            .map(|ship| ship.get_strength(root, time))
+            .map(|ship| ship.get_strength(time))
             .sum::<u64>() as f32;
         let contents_vol = self
             .mutables
@@ -1244,7 +1254,7 @@ impl HangarInstance {
             .map(|ship| ship.class.hangarvol.unwrap())
             .sum()
     }
-    pub fn get_shipclass_num(&self, root: &Root, shipclass: Arc<ShipClass>) -> u64 {
+    pub fn get_shipclass_num(&self, shipclass: Arc<ShipClass>) -> u64 {
         self.mutables
             .read()
             .unwrap()
@@ -1256,7 +1266,7 @@ impl HangarInstance {
             .try_into()
             .unwrap()
     }
-    pub fn get_shipclass_supply(&self, root: &Root, shipclass: Arc<ShipClass>) -> u64 {
+    pub fn get_shipclass_supply(&self, shipclass: Arc<ShipClass>) -> u64 {
         self.mutables
             .read()
             .unwrap()
@@ -1266,13 +1276,13 @@ impl HangarInstance {
             .map(|_| shipclass.cargovol.unwrap())
             .sum()
     }
-    pub fn get_shipclass_demand(&self, root: &Root, shipclass: Arc<ShipClass>) -> u64 {
+    pub fn get_shipclass_demand(&self, shipclass: Arc<ShipClass>) -> u64 {
         let ideal_num = self
             .class
             .ideal
             .get(&ShipClassID::new_from_index(shipclass.id))
             .unwrap_or(&0);
-        ideal_num.saturating_sub(self.get_shipclass_num(root, shipclass.clone()))
+        ideal_num.saturating_sub(self.get_shipclass_num(shipclass.clone()))
             * shipclass.cargovol.unwrap()
     }
 }
@@ -1288,11 +1298,11 @@ fn collapse_cargo_maps(vec: &Vec<HashMap<CollatedCargo, u64>>) -> HashMap<Collat
 
 pub trait ResourceProcess {
     fn get_state(&self) -> FactoryState;
-    fn get_resource_supply_total(&self, root: &Root, resource: Arc<Resource>) -> u64;
-    fn get_resource_demand_total(&self, root: &Root, resource: Arc<Resource>) -> u64;
+    fn get_resource_supply_total(&self, resource: Arc<Resource>) -> u64;
+    fn get_resource_demand_total(&self, resource: Arc<Resource>) -> u64;
     fn get_target_total(&self) -> u64;
-    fn collate_outputs(&self, root: &Root) -> HashMap<CollatedCargo, u64>;
-    fn get_output_resource_num(&self, root: &Root, cargo: Arc<Resource>) -> u64;
+    fn collate_outputs(&self) -> HashMap<CollatedCargo, u64>;
+    fn get_output_resource_num(&self, cargo: Arc<Resource>) -> u64;
 }
 
 #[derive(Debug, Clone)]
@@ -1378,23 +1388,23 @@ impl ResourceProcess for EngineInstance {
             FactoryState::Stalled
         }
     }
-    fn get_resource_supply_total(&self, root: &Root, resource: Arc<Resource>) -> u64 {
+    fn get_resource_supply_total(&self, _resource: Arc<Resource>) -> u64 {
         0
     }
-    fn get_resource_demand_total(&self, root: &Root, resource: Arc<Resource>) -> u64 {
+    fn get_resource_demand_total(&self, resource: Arc<Resource>) -> u64 {
         self.inputs
             .iter()
             .filter(|sp| sp.propagate)
-            .map(|sp| sp.get_resource_demand(root, resource.clone()))
+            .map(|sp| sp.get_resource_demand(resource.clone()))
             .sum()
     }
     fn get_target_total(&self) -> u64 {
         self.inputs.iter().map(|sp| sp.target).sum()
     }
-    fn collate_outputs(&self, root: &Root) -> HashMap<CollatedCargo, u64> {
+    fn collate_outputs(&self) -> HashMap<CollatedCargo, u64> {
         HashMap::new()
     }
-    fn get_output_resource_num(&self, root: &Root, cargo: Arc<Resource>) -> u64 {
+    fn get_output_resource_num(&self, _cargo: Arc<Resource>) -> u64 {
         0
     }
 }
@@ -1422,15 +1432,15 @@ impl EngineInstance {
             None
         }
     }
-    //this is run once per turn for a given engine; it checks to see if the engine has enough resources to run this turn, whether it's already been run, and whether it's off cooldown
-    //then consumes stockpile resources, and sets the engine's moves left for the turn to equal its speed
+    //this is run once per turn for a given engine; it checks to see if the engine has enough resources to run this turn and whether it's off cooldown
+    //then consumes stockpile resources, and returns the engine's speed
     //we'll need to reset movement_left to max at the start of the turn
     fn process_engine(
         &mut self,
         root: &Root,
         location: Arc<Node>,
         destination: Arc<Node>,
-    ) -> Option<(u64)> {
+    ) -> Option<u64> {
         if (self.health != Some(0))
             && (root.turn - self.last_move_turn > self.cooldown)
             && (self.get_state() == FactoryState::Active)
@@ -1440,21 +1450,7 @@ impl EngineInstance {
                 .iter_mut()
                 .for_each(|stockpile| stockpile.input_process());
             self.last_move_turn = root.turn;
-            Some((self.speed))
-        } else {
-            None
-        }
-    }
-    //For ownership reasons, this version of process_engine does not run checks to ensure the engine is capable of performing the movement in question.
-    //If used for an engine that is performing a movement, this must only be used immediately after the engine has been checked using the same movement data!
-    //Otherwise the engine may perform forbidden movements.
-    fn process_engine_unchecked(&mut self, turn: u64) -> Option<(u64)> {
-        if (self.health != Some(0)) && (self.get_state() == FactoryState::Active) {
-            self.inputs
-                .iter_mut()
-                .for_each(|stockpile| stockpile.input_process());
-            self.last_move_turn = turn;
-            Some((self.speed))
+            Some(self.speed)
         } else {
             None
         }
@@ -1550,23 +1546,23 @@ impl ResourceProcess for RepairerInstance {
             FactoryState::Stalled
         }
     }
-    fn get_resource_supply_total(&self, root: &Root, resource: Arc<Resource>) -> u64 {
+    fn get_resource_supply_total(&self, _resource: Arc<Resource>) -> u64 {
         0
     }
-    fn get_resource_demand_total(&self, root: &Root, resource: Arc<Resource>) -> u64 {
+    fn get_resource_demand_total(&self, resource: Arc<Resource>) -> u64 {
         self.inputs
             .iter()
             .filter(|sp| sp.propagate)
-            .map(|sp| sp.get_resource_demand(root, resource.clone()))
+            .map(|sp| sp.get_resource_demand(resource.clone()))
             .sum()
     }
     fn get_target_total(&self) -> u64 {
         self.inputs.iter().map(|sp| sp.target).sum()
     }
-    fn collate_outputs(&self, root: &Root) -> HashMap<CollatedCargo, u64> {
+    fn collate_outputs(&self) -> HashMap<CollatedCargo, u64> {
         HashMap::new()
     }
-    fn get_output_resource_num(&self, root: &Root, cargo: Arc<Resource>) -> u64 {
+    fn get_output_resource_num(&self, _cargo: Arc<Resource>) -> u64 {
         0
     }
 }
@@ -1660,43 +1656,43 @@ impl ResourceProcess for FactoryInstance {
             OutputState::Stalled => FactoryState::Stalled,
         }
     }
-    fn get_resource_supply_total(&self, root: &Root, resource: Arc<Resource>) -> u64 {
+    fn get_resource_supply_total(&self, resource: Arc<Resource>) -> u64 {
         self.outputs
             .iter()
             .filter(|sp| sp.propagate)
-            .map(|sp| sp.get_resource_supply(root, resource.clone()))
+            .map(|sp| sp.get_resource_supply(resource.clone()))
             .sum::<u64>()
     }
-    fn get_resource_demand_total(&self, root: &Root, resource: Arc<Resource>) -> u64 {
+    fn get_resource_demand_total(&self, resource: Arc<Resource>) -> u64 {
         self.inputs
             .iter()
             .filter(|sp| sp.propagate)
-            .map(|sp| sp.get_resource_demand(root, resource.clone()))
+            .map(|sp| sp.get_resource_demand(resource.clone()))
             .sum::<u64>()
             + self
                 .outputs
                 .iter()
                 .filter(|sp| sp.propagate)
-                .map(|sp| sp.get_resource_demand(root, resource.clone()))
+                .map(|sp| sp.get_resource_demand(resource.clone()))
                 .sum::<u64>()
     }
     fn get_target_total(&self) -> u64 {
         self.inputs.iter().map(|sp| sp.target).sum::<u64>()
             + self.outputs.iter().map(|sp| sp.target).sum::<u64>()
     }
-    fn collate_outputs(&self, root: &Root) -> HashMap<CollatedCargo, u64> {
+    fn collate_outputs(&self) -> HashMap<CollatedCargo, u64> {
         collapse_cargo_maps(
             &self
                 .outputs
                 .iter()
-                .map(|sp| sp.collate_contents(root))
+                .map(|sp| sp.collate_contents())
                 .collect(),
         )
     }
-    fn get_output_resource_num(&self, root: &Root, cargo: Arc<Resource>) -> u64 {
+    fn get_output_resource_num(&self, cargo: Arc<Resource>) -> u64 {
         self.outputs
             .iter()
-            .map(|sp| sp.get_resource_num(root, cargo.clone()))
+            .map(|sp| sp.get_resource_num(cargo.clone()))
             .sum()
     }
 }
@@ -1713,7 +1709,6 @@ impl FactoryInstance {
                 .iter_mut()
                 .for_each(|stockpile| stockpile.output_process(location_efficiency));
         } else {
-            dbg!("Factory is inactive.");
         }
     }
 }
@@ -1832,15 +1827,15 @@ impl ResourceProcess for ShipyardInstance {
         }
     }
 
-    fn get_resource_supply_total(&self, root: &Root, resource: Arc<Resource>) -> u64 {
+    fn get_resource_supply_total(&self, _resource: Arc<Resource>) -> u64 {
         0
     }
 
-    fn get_resource_demand_total(&self, root: &Root, resource: Arc<Resource>) -> u64 {
+    fn get_resource_demand_total(&self, resource: Arc<Resource>) -> u64 {
         self.inputs
             .iter()
             .filter(|sp| sp.propagate)
-            .map(|sp| sp.get_resource_demand(root, resource.clone()))
+            .map(|sp| sp.get_resource_demand(resource.clone()))
             .sum()
     }
 
@@ -1848,11 +1843,11 @@ impl ResourceProcess for ShipyardInstance {
         self.inputs.iter().map(|sp| sp.target).sum()
     }
 
-    fn collate_outputs(&self, root: &Root) -> HashMap<CollatedCargo, u64> {
+    fn collate_outputs(&self) -> HashMap<CollatedCargo, u64> {
         HashMap::new()
     }
 
-    fn get_output_resource_num(&self, root: &Root, cargo: Arc<Resource>) -> u64 {
+    fn get_output_resource_num(&self, _cargo: Arc<Resource>) -> u64 {
         0
     }
 }
@@ -1867,7 +1862,7 @@ impl ShipyardInstance {
         }
     }
 
-    fn try_choose_ship(&mut self, shipclasses: &Vec<Arc<ShipClass>>) -> Option<Arc<ShipClass>> {
+    fn try_choose_ship(&mut self, _shipclasses: &Vec<Arc<ShipClass>>) -> Option<Arc<ShipClass>> {
         //we go through the list of ships the shipyard can produce, specified as its outputs, and grab the one with the highest desirability weight
         let shipclass = self
             .outputs
@@ -1944,8 +1939,8 @@ pub enum ShipLocation {
 impl ShipLocation {
     fn check_insert(&self, ship: Arc<ShipInstance>) -> bool {
         match self {
-            ShipLocation::Node(node) => true,
-            ShipLocation::Fleet(fleet) => true,
+            ShipLocation::Node(_node) => true,
+            ShipLocation::Fleet(_fleet) => true,
             ShipLocation::Hangar(hangar) => {
                 ship.class.hangarvol.unwrap() <= hangar.class.capacity - hangar.get_fullness()
             }
@@ -2006,17 +2001,6 @@ pub struct CargoStat {
 enum CargoFlavor {
     Resource((Arc<Resource>, u64)),
     ShipInstance(Vec<Arc<ShipInstance>>),
-}
-
-impl CargoFlavor {
-    fn cargocapused(&self) -> u64 {
-        match self {
-            Self::Resource((resource, n)) => resource.cargovol * n,
-            Self::ShipInstance(ships) => {
-                ships.iter().map(|ship| ship.class.cargovol.unwrap()).sum()
-            }
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
@@ -2096,7 +2080,7 @@ impl ShipClass {
         class: Arc<Self>,
         location: ShipLocation,
         faction: Arc<Faction>,
-        root: &mut Root,
+        root: &Root,
     ) -> ShipInstance {
         let index = root
             .shipinstancecounter
@@ -2260,7 +2244,7 @@ impl ShipInstance {
             false
         }
     }
-    pub fn get_daughters(&self, shipinstances: &Vec<Arc<ShipInstance>>) -> Vec<Arc<ShipInstance>> {
+    pub fn get_daughters(&self) -> Vec<Arc<ShipInstance>> {
         self.mutables
             .read()
             .unwrap()
@@ -2274,7 +2258,7 @@ impl ShipInstance {
                     .contents
                     .iter()
                     .map(|ship| {
-                        let mut vec = ship.get_daughters(shipinstances);
+                        let mut vec = ship.get_daughters();
                         vec.insert(0, ship.clone());
                         vec
                     })
@@ -2306,7 +2290,7 @@ impl ShipInstance {
                 let active_daughters = active
                     .iter()
                     .map(|ship| {
-                        let mut active_daughters_mut = ship.get_daughters(&root.shipinstances);
+                        let mut active_daughters_mut = ship.get_daughters();
                         active_daughters_mut.insert(0, ship.clone());
                         active_daughters_mut
                     })
@@ -2327,28 +2311,26 @@ impl ShipInstance {
             .flatten()
             .collect()
     }
-    pub fn change_allegiance(&self, root: &Root, new_faction: Arc<Faction>) {
+    pub fn change_allegiance(&self, new_faction: Arc<Faction>) {
         self.mutables.write().unwrap().allegiance = new_faction.clone();
-        self.get_daughters(&root.shipinstances)
+        self.get_daughters()
             .iter()
-            .for_each(|daughter| daughter.change_allegiance(root, new_faction.clone()));
+            .for_each(|daughter| daughter.change_allegiance(new_faction.clone()));
     }
-    pub fn kill(&self, shipinstances: &Vec<Arc<ShipInstance>>) {
+    pub fn kill(&self) {
         self.mutables.write().unwrap().hull = 0;
-        self.get_daughters(shipinstances)
-            .iter()
-            .for_each(|ship| ship.kill(shipinstances));
+        self.get_daughters().iter().for_each(|ship| ship.kill());
     }
     //NOTE: Dummied out until characters exist.
-    pub fn get_character_strength_scalar(&self, root: &Root) -> f32 {
+    pub fn get_character_strength_scalar(&self) -> f32 {
         1.0
     }
-    pub fn get_strength(&self, root: &Root, time: u64) -> u64 {
+    pub fn get_strength(&self, time: u64) -> u64 {
         let mutables = self.mutables.read().unwrap();
         let daughter_strength = mutables
             .hangars
             .iter()
-            .map(|hangar| hangar.get_strength(root, time))
+            .map(|hangar| hangar.get_strength(time))
             .sum::<u64>();
         let objective_strength: f32 = mutables
             .objectives
@@ -2357,12 +2339,12 @@ impl ShipInstance {
             .product();
         (self.class.basestrength as f32
             * (mutables.hull as f32 / self.class.basehull as f32)
-            * self.get_character_strength_scalar(root)
+            * self.get_character_strength_scalar()
             * objective_strength) as u64
             + daughter_strength
     }
     //NOTE: Dummied out until morale system exists.
-    pub fn get_morale_scalar(&self, root: &Root) -> f32 {
+    pub fn get_morale_scalar(&self) -> f32 {
         1.0
     }
     //Checks whether the shipinstance will defect this turn; if it will, makes the ship defect and returns the node the ship is in afterward
@@ -2390,7 +2372,7 @@ impl ShipInstance {
                 .unwrap_or(&(0.0, 0.0))
                 .0)
                 //NOTE: I *think* that clamp will resolve things properly if we end up dividing by zero -- it'll set the probability to 1 -- but it's hard to be sure
-                /self.get_morale_scalar(root))
+                /self.get_morale_scalar())
             .clamp(0.0, 1.0)
         } else {
             0.0
@@ -2447,66 +2429,6 @@ impl ShipInstance {
         } else {
             None
         }
-    }
-    pub fn get_checked_destinations(
-        &self,
-        root: &Root,
-        destinations: &Vec<Arc<Node>>,
-    ) -> Option<Vec<Arc<Node>>> {
-        let location = self.get_node();
-        let mutables = self.mutables.read().unwrap();
-        if mutables.movement_left > 0 {
-            if let Some((viable, speed)) = mutables
-                .engines
-                .iter()
-                .find_map(|e| e.check_engine(root, location.clone(), destinations))
-            {
-                Some(viable)
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-    pub fn process_engines(&self, root: &Root, destination: Arc<Node>) {
-        let location = self.get_node();
-        let mut mutables = self.mutables.write().unwrap();
-        if mutables.movement_left > 0 {
-            if let Some(speed) = mutables
-                .engines
-                .iter_mut()
-                .find_map(|e| e.process_engine(root, location.clone(), destination.clone()))
-            {
-                mutables.movement_left.saturating_sub(u64::MAX / speed);
-            } else {
-                panic!();
-            }
-        } else {
-            panic!();
-        }
-    }
-    //For ownership reasons, this version of process_engines does not run checks to ensure the ship's engines are capable of performing the movement in question.
-    //If used for an ship that is performing a movement, this must only be used immediately after the ship has been checked using the same movement data!
-    //Otherwise the ship may perform forbidden movements.
-    pub fn process_engines_unchecked(&self, turn: u64) {
-        let mut mutables = self.mutables.write().unwrap();
-        if mutables.movement_left > 0 {
-            if let Some(speed) = mutables
-                .engines
-                .iter_mut()
-                .find_map(|e| e.process_engine_unchecked(turn))
-            {
-                mutables.movement_left.saturating_sub(u64::MAX / speed);
-            } else {
-                panic!();
-            }
-        } else {
-            panic!();
-        }
-    }
-    pub fn reset_movement(&self) {
-        self.mutables.write().unwrap().movement_left = u64::MAX;
     }
     pub fn repair(&self, per_engagement: bool) {
         let mut mutables: RwLockWriteGuard<ShipInstanceMut> = self.mutables.write().unwrap();
@@ -2566,68 +2488,68 @@ impl ShipInstance {
             .iter_mut()
             .for_each(|sy| sy.process(efficiency));
     }
-    pub fn get_resource_num(&self, root: &Root, cargo: Arc<Resource>) -> u64 {
+    pub fn get_resource_num(&self, cargo: Arc<Resource>) -> u64 {
         let mutables = self.mutables.read().unwrap();
         mutables
             .stockpiles
             .iter()
-            .map(|sp| sp.get_resource_num(root, cargo.clone()))
+            .map(|sp| sp.get_resource_num(cargo.clone()))
             .sum::<u64>()
             + mutables
                 .factoryinstancelist
                 .iter()
-                .map(|f| f.get_output_resource_num(root, cargo.clone()))
+                .map(|f| f.get_output_resource_num(cargo.clone()))
                 .sum::<u64>()
     }
-    pub fn get_resource_supply(&self, root: &Root, cargo: Arc<Resource>) -> u64 {
+    pub fn get_resource_supply(&self, cargo: Arc<Resource>) -> u64 {
         let mutables = self.mutables.read().unwrap();
         mutables
             .stockpiles
             .iter()
             .filter(|sp| sp.propagate)
-            .map(|sp| sp.get_resource_supply(root, cargo.clone()))
+            .map(|sp| sp.get_resource_supply(cargo.clone()))
             .sum::<u64>()
             + mutables
                 .factoryinstancelist
                 .iter()
-                .map(|f| f.get_resource_supply_total(root, cargo.clone()))
+                .map(|f| f.get_resource_supply_total(cargo.clone()))
                 .sum::<u64>()
     }
-    pub fn get_resource_demand(&self, root: &Root, cargo: Arc<Resource>) -> u64 {
+    pub fn get_resource_demand(&self, cargo: Arc<Resource>) -> u64 {
         let mutables = self.mutables.read().unwrap();
         mutables
             .stockpiles
             .iter()
             .filter(|sp| sp.propagate)
-            .map(|sp| sp.get_resource_demand(root, cargo.clone()))
+            .map(|sp| sp.get_resource_demand(cargo.clone()))
             .sum::<u64>()
             + mutables
                 .engines
                 .iter()
-                .map(|e| e.get_resource_demand_total(root, cargo.clone()))
+                .map(|e| e.get_resource_demand_total(cargo.clone()))
                 .sum::<u64>()
             + mutables
                 .repairers
                 .iter()
-                .map(|r| r.get_resource_demand_total(root, cargo.clone()))
+                .map(|r| r.get_resource_demand_total(cargo.clone()))
                 .sum::<u64>()
             + mutables
                 .factoryinstancelist
                 .iter()
-                .map(|f| f.get_resource_demand_total(root, cargo.clone()))
+                .map(|f| f.get_resource_demand_total(cargo.clone()))
                 .sum::<u64>()
             + mutables
                 .shipyardinstancelist
                 .iter()
-                .map(|s| s.get_resource_demand_total(root, cargo.clone()))
+                .map(|s| s.get_resource_demand_total(cargo.clone()))
                 .sum::<u64>()
     }
-    pub fn get_shipclass_num(&self, root: &Root, cargo: Arc<ShipClass>) -> u64 {
+    pub fn get_shipclass_num(&self, cargo: Arc<ShipClass>) -> u64 {
         let mutables = self.mutables.read().unwrap();
         mutables
             .stockpiles
             .iter()
-            .map(|sp| sp.get_shipclass_num(root, cargo.clone()))
+            .map(|sp| sp.get_shipclass_num(cargo.clone()))
             .sum::<u64>()
             + self
                 .mutables
@@ -2635,20 +2557,20 @@ impl ShipInstance {
                 .unwrap()
                 .hangars
                 .iter()
-                .map(|hangar| hangar.get_shipclass_num(root, cargo.clone()))
+                .map(|hangar| hangar.get_shipclass_num(cargo.clone()))
                 .sum::<u64>()
     }
-    pub fn get_shipclass_supply(&self, root: &Root, cargo: Arc<ShipClass>) -> u64 {
+    pub fn get_shipclass_supply(&self, cargo: Arc<ShipClass>) -> u64 {
         let mutables = self.mutables.read().unwrap();
         mutables
             .stockpiles
             .iter()
-            .map(|sp| sp.get_shipclass_supply(root, cargo.clone()))
+            .map(|sp| sp.get_shipclass_supply(cargo.clone()))
             .sum::<u64>()
             + mutables
                 .hangars
                 .iter()
-                .map(|hangar| hangar.get_shipclass_supply(root, cargo.clone()))
+                .map(|hangar| hangar.get_shipclass_supply(cargo.clone()))
                 .sum::<u64>()
             + if self.class == cargo {
                 self.class.cargovol.unwrap()
@@ -2656,36 +2578,36 @@ impl ShipInstance {
                 0
             }
     }
-    pub fn get_shipclass_demand(&self, root: &Root, cargo: Arc<ShipClass>) -> u64 {
+    pub fn get_shipclass_demand(&self, cargo: Arc<ShipClass>) -> u64 {
         let mutables = self.mutables.read().unwrap();
         mutables
             .stockpiles
             .iter()
-            .map(|sp| sp.get_shipclass_demand(root, cargo.clone()))
+            .map(|sp| sp.get_shipclass_demand(cargo.clone()))
             .sum::<u64>()
             + mutables
                 .hangars
                 .iter()
-                .map(|hangar| hangar.get_shipclass_demand(root, cargo.clone()))
+                .map(|hangar| hangar.get_shipclass_demand(cargo.clone()))
                 .sum::<u64>()
     }
-    pub fn get_resource_demand_ratio(&self, root: &Root, resource: Arc<Resource>) -> f32 {
+    pub fn get_resource_demand_ratio(&self, resource: Arc<Resource>) -> f32 {
         let mutables = self.mutables.read().unwrap();
         let demand_total = mutables
             .stockpiles
             .iter()
-            .map(|sp| sp.get_resource_demand(root, resource.clone()))
+            .map(|sp| sp.get_resource_demand(resource.clone()))
             .sum::<u64>() as f32;
         let target_total = mutables.stockpiles.iter().map(|sp| sp.target).sum::<u64>() as f32;
         assert!(demand_total < target_total);
         demand_total / target_total
     }
-    pub fn get_shipclass_demand_ratio(&self, root: &Root, shipclass: Arc<ShipClass>) -> f32 {
+    pub fn get_shipclass_demand_ratio(&self, shipclass: Arc<ShipClass>) -> f32 {
         let mutables = self.mutables.read().unwrap();
         let demand_total = mutables
             .stockpiles
             .iter()
-            .map(|sp| sp.get_shipclass_demand(root, shipclass.clone()))
+            .map(|sp| sp.get_shipclass_demand(shipclass.clone()))
             .sum::<u64>() as f32;
         let target_total = mutables.stockpiles.iter().map(|sp| sp.target).sum::<u64>() as f32;
         assert!(demand_total < target_total);
@@ -2715,41 +2637,24 @@ impl ShipInstance {
             .flatten()
             .collect::<Vec<_>>()
     }
-    pub fn is_in_node(&self, root: &Root) -> bool {
+    pub fn is_in_node(&self) -> bool {
         match self.mutables.read().unwrap().location.clone() {
             ShipLocation::Node(_) => true,
             _ => false,
         }
     }
-    pub fn is_in_fleet(&self, root: &Root) -> bool {
+    pub fn is_in_fleet(&self) -> bool {
         match self.mutables.read().unwrap().location.clone() {
             ShipLocation::Node(_) => false,
             ShipLocation::Fleet(_) => true,
-            ShipLocation::Hangar(hangar) => hangar.mother.is_in_fleet(root),
+            ShipLocation::Hangar(hangar) => hangar.mother.is_in_fleet(),
         }
     }
-    pub fn get_fleet(&self, root: &Root) -> Option<Arc<FleetInstance>> {
+    pub fn get_fleet(&self) -> Option<Arc<FleetInstance>> {
         match self.mutables.read().unwrap().location.clone() {
             ShipLocation::Node(_) => None,
             ShipLocation::Fleet(fleet) => Some(fleet),
-            ShipLocation::Hangar(hangar) => hangar.mother.get_fleet(root),
-        }
-    }
-    pub fn get_carrier(&self, root: &Root) -> Arc<ShipInstance> {
-        match self.mutables.read().unwrap().location.clone() {
-            ShipLocation::Node(_) => root
-                .shipinstances
-                .iter()
-                .find(|ship| ship.id == self.id)
-                .unwrap()
-                .clone(),
-            ShipLocation::Fleet(_) => root
-                .shipinstances
-                .iter()
-                .find(|ship| ship.id == self.id)
-                .unwrap()
-                .clone(),
-            ShipLocation::Hangar(_) => self.get_carrier(root),
+            ShipLocation::Hangar(hangar) => hangar.mother.get_fleet(),
         }
     }
     //determines which node the ship is in
@@ -2760,6 +2665,47 @@ impl ShipInstance {
             ShipLocation::Fleet(fleet) => fleet.mutables.read().unwrap().location.clone(),
             ShipLocation::Hangar(hangar) => hangar.mother.get_node(),
         }
+    }
+    pub fn get_checked_destinations(
+        &self,
+        root: &Root,
+        destinations: &Vec<Arc<Node>>,
+    ) -> Option<Vec<Arc<Node>>> {
+        let location = self.get_node();
+        let mutables = self.mutables.read().unwrap();
+        if mutables.movement_left > 0 {
+            if let Some((viable, _speed)) = mutables
+                .engines
+                .iter()
+                .find_map(|e| e.check_engine(root, location.clone(), destinations))
+            {
+                Some(viable)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+    pub fn process_engines(&self, root: &Root, destination: Arc<Node>) {
+        let location = self.get_node();
+        let mut mutables = self.mutables.write().unwrap();
+        if mutables.movement_left > 0 {
+            if let Some(speed) = mutables
+                .engines
+                .iter_mut()
+                .find_map(|e| e.process_engine(root, location.clone(), destination.clone()))
+            {
+                mutables.movement_left.saturating_sub(u64::MAX / speed);
+            } else {
+                panic!();
+            }
+        } else {
+            panic!();
+        }
+    }
+    pub fn reset_movement(&self) {
+        self.mutables.write().unwrap().movement_left = u64::MAX;
     }
     pub fn nav_check(&self, root: &Root, destinations: Vec<Arc<Node>>) -> bool {
         self.get_checked_destinations(root, &destinations).is_some()
@@ -2796,7 +2742,7 @@ impl ShipInstance {
                             [resource.id][node.id][1];
                         //let cargo = self.stockpiles.iter().map(|x|)
                         (demand - supply)
-                            * (self.get_resource_num(root, resource.clone()) as f32
+                            * (self.get_resource_num(resource.clone()) as f32
                                 * resource.cargovol as f32)
                             * scalar
                     })
@@ -2815,10 +2761,7 @@ impl ShipInstance {
                             [resource.id][node.id][0];
                         let supply = root.globalsalience.resourcesalience[mutables.allegiance.id]
                             [resource.id][node.id][1];
-                        supply
-                            * demand
-                            * self.get_resource_demand_ratio(root, resource.clone())
-                            * scalar
+                        supply * demand * self.get_resource_demand_ratio(resource.clone()) * scalar
                     })
                     .sum();
                 let shipclass_demand_value: f32 = mutables
@@ -2832,7 +2775,7 @@ impl ShipInstance {
                         let supply = root.globalsalience.shipclasssalience[mutables.allegiance.id]
                             [shipclassid.index][node.id][1];
                         (demand - supply)
-                            * (self.get_shipclass_num(root, attractive_shipclass.clone()) as f32
+                            * (self.get_shipclass_num(attractive_shipclass.clone()) as f32
                                 * attractive_shipclass.cargovol.unwrap_or(0) as f32)
                             * scalar
                     })
@@ -2859,7 +2802,7 @@ impl ShipInstance {
                             [shipclassid.index][node.id][1];
                         supply
                             * demand
-                            * self.get_shipclass_demand_ratio(root, attractive_shipclass.clone())
+                            * self.get_shipclass_demand_ratio(attractive_shipclass.clone())
                             * scalar
                     })
                     .sum();
@@ -3070,26 +3013,26 @@ impl FleetInstance {
     pub fn get_daughters(&self) -> Vec<Arc<ShipInstance>> {
         self.mutables.read().unwrap().daughters.clone()
     }
-    pub fn get_strength(&self, root: &Root, time: u64) -> u64 {
+    pub fn get_strength(&self, time: u64) -> u64 {
         let (factor, additive) = self.class.strengthmod;
         let sum = self
             .get_daughters()
             .iter()
-            .map(|daughter| daughter.get_strength(root, time))
+            .map(|daughter| daughter.get_strength(time))
             .sum::<u64>();
         (sum as f32 * factor) as u64 + additive
     }
-    pub fn get_morale_scalar(&self, root: &Root) -> f32 {
+    pub fn get_morale_scalar(&self) -> f32 {
         self.get_daughters()
             .iter()
-            .map(|daughter| daughter.get_morale_scalar(root))
+            .map(|daughter| daughter.get_morale_scalar())
             .product()
     }
-    pub fn change_allegiance(&mut self, root: &mut Root, new_faction: Arc<Faction>) {
+    pub fn change_allegiance(&mut self, new_faction: Arc<Faction>) {
         self.mutables.write().unwrap().allegiance = new_faction.clone();
         self.get_daughters()
             .iter()
-            .for_each(|daughter| daughter.change_allegiance(root, new_faction.clone()));
+            .for_each(|daughter| daughter.change_allegiance(new_faction.clone()));
     }
     //Checks whether the fleetinstance will defect this turn; if it will, makes the ship defect and returns the node the ship is in afterward
     //so that that node can be checked for engagements
@@ -3114,7 +3057,7 @@ impl FleetInstance {
                 .unwrap_or(&(0.0, 0.0))
                 .0)
                 //NOTE: I *think* that clamp will resolve things properly if we end up dividing by zero -- it'll set the probability to 1 -- but it's hard to be sure
-                /self.get_morale_scalar(root))
+                /self.get_morale_scalar())
             .clamp(0.0, 1.0)
         } else {
             0.0
@@ -3140,7 +3083,7 @@ impl FleetInstance {
                 .unwrap()
                 .0
                 .clone();
-            self.change_allegiance(root, new_faction.clone());
+            self.change_allegiance(new_faction.clone());
             let escapes = rng.gen_bool(self.class.defectescapescalar.clamp(0.0, 1.0) as f64);
             if escapes {
                 let neighbors = root
@@ -3173,7 +3116,7 @@ impl FleetInstance {
             None
         }
     }
-    pub fn get_ai(&self, root: &Root) -> FleetAI {
+    pub fn get_ai(&self) -> FleetAI {
         self.get_daughters().iter().fold(
             FleetAI {
                 ship_attract_specific: 1.0,
@@ -3195,31 +3138,31 @@ impl FleetInstance {
             },
         )
     }
-    pub fn get_resource_num(&self, root: &Root, cargo: Arc<Resource>) -> u64 {
+    pub fn get_resource_num(&self, cargo: Arc<Resource>) -> u64 {
         self.get_daughters()
             .iter()
-            .map(|daughter| daughter.get_resource_num(root, cargo.clone()))
+            .map(|daughter| daughter.get_resource_num(cargo.clone()))
             .sum()
     }
-    pub fn get_resource_demand_ratio(&self, root: &Root, resource: Arc<Resource>) -> f32 {
+    pub fn get_resource_demand_ratio(&self, resource: Arc<Resource>) -> f32 {
         let daughters = self.get_daughters();
         daughters
             .iter()
-            .map(|daughter| daughter.get_resource_demand_ratio(root, resource.clone()))
+            .map(|daughter| daughter.get_resource_demand_ratio(resource.clone()))
             .sum::<f32>()
             / daughters.len() as f32
     }
-    pub fn get_shipclass_num(&self, root: &Root, cargo: Arc<ShipClass>) -> u64 {
+    pub fn get_shipclass_num(&self, cargo: Arc<ShipClass>) -> u64 {
         self.get_daughters()
             .iter()
-            .map(|daughter| daughter.get_shipclass_num(root, cargo.clone()))
+            .map(|daughter| daughter.get_shipclass_num(cargo.clone()))
             .sum()
     }
-    pub fn get_shipclass_demand_ratio(&self, root: &Root, shipclass: Arc<ShipClass>) -> f32 {
+    pub fn get_shipclass_demand_ratio(&self, shipclass: Arc<ShipClass>) -> f32 {
         let daughters = self.get_daughters();
         daughters
             .iter()
-            .map(|daughter| daughter.get_shipclass_demand_ratio(root, shipclass.clone()))
+            .map(|daughter| daughter.get_shipclass_demand_ratio(shipclass.clone()))
             .sum::<f32>()
             / daughters.len() as f32
     }
@@ -3231,21 +3174,16 @@ impl FleetInstance {
             );
         });
     }
-    pub fn disband(&self, root: &mut Root) {
+    pub fn disband(&self) {
         self.expel(self.get_daughters());
     }
     pub fn get_node(&self) -> Arc<Node> {
         self.mutables.read().unwrap().location.clone()
     }
-    pub fn process_engines(&self, root: &mut Root, destination: Arc<Node>) {
-        let turn = root.turn;
-        let daughters = self.get_daughters();
-        for daughter in &daughters {
-            assert!(daughter.nav_check(root, vec![destination.clone()]));
-        }
-        for daughter in daughters {
-            daughter.process_engines_unchecked(turn)
-        }
+    pub fn process_engines(&self, root: &Root, destination: Arc<Node>) {
+        self.get_daughters()
+            .iter()
+            .for_each(|daughter| daughter.process_engines(root, destination.clone()));
     }
     pub fn nav_check(&self, root: &Root, destination: Arc<Node>) -> Option<Vec<Arc<ShipInstance>>> {
         let daughters = self.get_daughters();
@@ -3260,12 +3198,12 @@ impl FleetInstance {
         //if we did, the fleet's strength modifiers would be counted only toward its total
         if passed_ships
             .iter()
-            .map(|ship| ship.get_strength(root, root.config.battlescalars.avg_duration) as f32)
+            .map(|ship| ship.get_strength(root.config.battlescalars.avg_duration) as f32)
             .sum::<f32>()
             / daughters
                 .iter()
                 .map(|daughter| {
-                    daughter.get_strength(root, root.config.battlescalars.avg_duration) as f32
+                    daughter.get_strength(root.config.battlescalars.avg_duration) as f32
                 })
                 .sum::<f32>()
             > self.class.navthreshold
@@ -3308,7 +3246,7 @@ impl FleetInstance {
             //we go through all the different kinds of desirable salience values each node might have and add them up
             //then return the node with the highest value
             .max_by_key(|node| {
-                let ai = self.get_ai(root);
+                let ai = self.get_ai();
                 //this checks how much value the node holds with regards to resources the subject ship is seeking
                 let resource_demand_value: f32 = ai
                     .resource_attract
@@ -3319,7 +3257,7 @@ impl FleetInstance {
                         let supply = root.globalsalience.resourcesalience
                             [self.mutables.read().unwrap().allegiance.id][resource.id][node.id][1];
                         (demand - supply)
-                            * (self.get_resource_num(root, resource.clone()) as f32
+                            * (self.get_resource_num(resource.clone()) as f32
                                 * resource.cargovol as f32)
                             * scalar
                     })
@@ -3338,10 +3276,7 @@ impl FleetInstance {
                             [self.mutables.read().unwrap().location.id][0];
                         let supply = root.globalsalience.resourcesalience
                             [self.mutables.read().unwrap().allegiance.id][resource.id][node.id][1];
-                        supply
-                            * demand
-                            * self.get_resource_demand_ratio(root, resource.clone())
-                            * scalar
+                        supply * demand * self.get_resource_demand_ratio(resource.clone()) * scalar
                     })
                     .sum();
                 let shipclass_demand_value: f32 = ai
@@ -3360,7 +3295,7 @@ impl FleetInstance {
                             [self.mutables.read().unwrap().allegiance.id][shipclassid.index]
                             [node.id][1];
                         (demand - supply)
-                            * (self.get_shipclass_num(root, attractive_shipclass.clone()) as f32
+                            * (self.get_shipclass_num(attractive_shipclass.clone()) as f32
                                 * attractive_shipclass.cargovol.unwrap_or(0) as f32)
                             * scalar
                     })
@@ -3389,7 +3324,7 @@ impl FleetInstance {
                             [node.id][1];
                         supply
                             * demand
-                            * self.get_shipclass_demand_ratio(root, attractive_shipclass.clone())
+                            * self.get_shipclass_demand_ratio(attractive_shipclass.clone())
                             * scalar
                     })
                     .sum();
@@ -3536,7 +3471,7 @@ pub struct EngagementPrep {
 
 impl EngagementPrep {
     pub fn engagement_prep(root: &Root, location: Arc<Node>, aggressor: Arc<Faction>) -> Self {
-        let belligerents = Node::get_node_forces(location.clone(), root);
+        let belligerents = location.clone().get_node_forces(root);
 
         //at present there can be only one attacker faction
         //we figure out which of the belligerents is the aggressor
@@ -3596,9 +3531,8 @@ impl EngagementPrep {
                         .iter()
                         .map(|n| {
                             (
-                                Node::get_distance(n.clone(), location.clone(), root),
-                                Node::get_node_faction_reinforcements(
-                                    n.clone(),
+                                Node::get_distance(n.clone(), location.clone()),
+                                n.get_node_faction_reinforcements(
                                     location.clone(),
                                     faction.clone(),
                                     root,
@@ -3624,9 +3558,8 @@ impl EngagementPrep {
                         .iter()
                         .map(|n| {
                             (
-                                Node::get_distance(n.clone(), location.clone(), root),
-                                Node::get_node_faction_reinforcements(
-                                    n.clone(),
+                                Node::get_distance(n.clone(), location.clone()),
+                                n.get_node_faction_reinforcements(
                                     location.clone(),
                                     faction.clone(),
                                     root,
@@ -3738,14 +3671,20 @@ pub mod polarity {
 pub trait Salience<P: Polarity> {
     const DEG_MULT: f32;
     //this retrieves the value of a specific salience in a specific node
-    fn get_value(self, node: Arc<Node>, faction: Arc<Faction>, root: &Root) -> Option<f32>;
+    fn get_value(self, node: Arc<Node>, faction: Arc<Faction>, battle_duration: u64)
+        -> Option<f32>;
 }
 
 //this method retrieves threat value generated by a given faction
 impl Salience<polarity::Supply> for Arc<Faction> {
     const DEG_MULT: f32 = 0.5;
-    fn get_value(self, node: Arc<Node>, faction: Arc<Faction>, root: &Root) -> Option<f32> {
-        let node_strength: u64 = root.get_node_strength(node, self.clone());
+    fn get_value(
+        self,
+        node: Arc<Node>,
+        faction: Arc<Faction>,
+        battle_duration: u64,
+    ) -> Option<f32> {
+        let node_strength: u64 = node.get_strength(self.clone(), battle_duration);
         //here we get the relations value -- the subject faction's opinion of the object faction, which will influence the threat value
         let relation = faction
             .relations
@@ -3760,7 +3699,12 @@ impl Salience<polarity::Supply> for Arc<Faction> {
 //NOTE: This is dummied out currently! We need to think about how threat demand works.
 impl Salience<polarity::Demand> for Arc<Faction> {
     const DEG_MULT: f32 = 0.5;
-    fn get_value(self, node: Arc<Node>, faction: Arc<Faction>, root: &Root) -> Option<f32> {
+    fn get_value(
+        self,
+        _node: Arc<Node>,
+        _faction: Arc<Faction>,
+        _battle_duration: u64,
+    ) -> Option<f32> {
         None
     }
 }
@@ -3768,7 +3712,12 @@ impl Salience<polarity::Demand> for Arc<Faction> {
 //this method tells us how much supply there is of a given resource in a given node
 impl Salience<polarity::Supply> for Arc<Resource> {
     const DEG_MULT: f32 = 1.0;
-    fn get_value(self, node: Arc<Node>, faction: Arc<Faction>, root: &Root) -> Option<f32> {
+    fn get_value(
+        self,
+        node: Arc<Node>,
+        faction: Arc<Faction>,
+        _battle_duration: u64,
+    ) -> Option<f32> {
         //NOTE: Currently this does not take input stockpiles of any kind into account. We may wish to change this.
         //we add up all the resource quantity in factory output stockpiles in the node
         let factorysupply: u64 = if node.mutables.read().unwrap().allegiance == faction {
@@ -3777,18 +3726,20 @@ impl Salience<polarity::Supply> for Arc<Resource> {
                 .unwrap()
                 .factoryinstancelist
                 .iter()
-                .map(|factory| factory.get_resource_supply_total(root, self.clone()))
+                .map(|factory| factory.get_resource_supply_total(self.clone()))
                 .sum::<u64>()
         } else {
             0
         };
         //then all the valid resource quantity in ships
-        let shipsupply: u64 = root
-            .shipinstances
+        let shipsupply: u64 = node
+            .mutables
+            .read()
+            .unwrap()
+            .ships
             .iter()
-            .filter(|ship| ship.get_node() == node)
             .filter(|ship| ship.mutables.read().unwrap().allegiance == faction)
-            .map(|ship| ship.get_resource_supply(root, self.clone()))
+            .map(|ship| ship.get_resource_supply(self.clone()))
             .sum::<u64>();
         //then sum them together
         let sum = (factorysupply + shipsupply) as f32;
@@ -3803,7 +3754,12 @@ impl Salience<polarity::Supply> for Arc<Resource> {
 //this method tells us how much demand there is for a given resource in a given node
 impl Salience<polarity::Demand> for Arc<Resource> {
     const DEG_MULT: f32 = 1.0;
-    fn get_value(self, node: Arc<Node>, faction: Arc<Faction>, root: &Root) -> Option<f32> {
+    fn get_value(
+        self,
+        node: Arc<Node>,
+        faction: Arc<Faction>,
+        _battle_duration: u64,
+    ) -> Option<f32> {
         //add up resources from factory input stockpiles in node
         let factorydemand: u64 = if node.mutables.read().unwrap().allegiance == faction {
             node.mutables
@@ -3811,7 +3767,7 @@ impl Salience<polarity::Demand> for Arc<Resource> {
                 .unwrap()
                 .factoryinstancelist
                 .iter()
-                .map(|factory| factory.get_resource_demand_total(root, self.clone()))
+                .map(|factory| factory.get_resource_demand_total(self.clone()))
                 .sum::<u64>()
         } else {
             0
@@ -3823,18 +3779,20 @@ impl Salience<polarity::Demand> for Arc<Resource> {
                 .unwrap()
                 .shipyardinstancelist
                 .iter()
-                .map(|shipyard| shipyard.get_resource_demand_total(root, self.clone()))
+                .map(|shipyard| shipyard.get_resource_demand_total(self.clone()))
                 .sum::<u64>()
         } else {
             0
         };
         //now we have to look at ships in the node, since they might have stockpiles of their own
-        let shipdemand: u64 = root
-            .shipinstances
+        let shipdemand: u64 = node
+            .mutables
+            .read()
+            .unwrap()
+            .ships
             .iter()
-            .filter(|ship| ship.get_node() == node)
             .filter(|ship| ship.mutables.read().unwrap().allegiance == faction)
-            .map(|ship| ship.get_resource_demand(root, self.clone()))
+            .map(|ship| ship.get_resource_demand(self.clone()))
             .sum::<u64>();
         //and sum everything together
         let sum = (factorydemand + shipyarddemand + shipdemand) as f32;
@@ -3849,13 +3807,20 @@ impl Salience<polarity::Demand> for Arc<Resource> {
 //this method tells us how much supply there is of a given shipclass in a given node
 impl Salience<polarity::Supply> for Arc<ShipClass> {
     const DEG_MULT: f32 = 1.0;
-    fn get_value(self, node: Arc<Node>, faction: Arc<Faction>, root: &Root) -> Option<f32> {
-        let sum = root
-            .shipinstances
+    fn get_value(
+        self,
+        node: Arc<Node>,
+        faction: Arc<Faction>,
+        _battle_duration: u64,
+    ) -> Option<f32> {
+        let sum = node
+            .mutables
+            .read()
+            .unwrap()
+            .ships
             .iter()
-            .filter(|ship| ship.get_node() == node)
             .filter(|ship| ship.mutables.read().unwrap().allegiance == faction)
-            .map(|ship| ship.get_shipclass_supply(root, self.clone()))
+            .map(|ship| ship.get_shipclass_supply(self.clone()))
             .sum::<u64>() as f32;
         if sum == 0_f32 {
             None
@@ -3868,13 +3833,20 @@ impl Salience<polarity::Supply> for Arc<ShipClass> {
 //this method tells us how much demand there is for a given shipclass in a given node
 impl Salience<polarity::Demand> for Arc<ShipClass> {
     const DEG_MULT: f32 = 1.0;
-    fn get_value(self, node: Arc<Node>, faction: Arc<Faction>, root: &Root) -> Option<f32> {
-        let sum = root
-            .shipinstances
+    fn get_value(
+        self,
+        node: Arc<Node>,
+        faction: Arc<Faction>,
+        _battle_duration: u64,
+    ) -> Option<f32> {
+        let sum = node
+            .mutables
+            .read()
+            .unwrap()
+            .ships
             .iter()
-            .filter(|ship| ship.get_node() == node)
             .filter(|ship| ship.mutables.read().unwrap().allegiance == faction)
-            .map(|ship| ship.get_shipclass_demand(root, self.clone()))
+            .map(|ship| ship.get_shipclass_demand(self.clone()))
             .sum::<u64>() as f32;
         if sum == 0_f32 {
             None
@@ -3980,9 +3952,9 @@ impl Root {
 
     pub fn balance_hangars(
         &mut self,
-        nodeid: Arc<Node>,
-        faction: Arc<Faction>,
-        salience_map: Vec<f32>,
+        _nodeid: Arc<Node>,
+        _faction: Arc<Faction>,
+        _salience_map: Vec<f32>,
     ) {
     }
     //this is the method for creating a ship
@@ -4012,8 +3984,8 @@ impl Root {
         location.insert_ship(new_ship.clone());
         new_ship
     }
-    pub fn engagement_check(&self, nodeid: Arc<Node>, actor: Arc<Faction>) -> Option<Arc<Faction>> {
-        let factions = Node::get_node_factions(nodeid, self);
+    pub fn engagement_check(&self, node: Arc<Node>, actor: Arc<Faction>) -> Option<Arc<Faction>> {
+        let factions = node.get_node_factions(&self);
         if factions.iter().any(|f1| {
             factions.iter().any(|f2| {
                 self.wars
@@ -4036,8 +4008,8 @@ impl Root {
             .iter()
             .map(|(_, (_, ss))| {
                 ss.iter()
-                    .filter(|ship| ship.is_in_node(self))
-                    .map(|ship| ship.get_strength(self, self.config.battlescalars.avg_duration))
+                    .filter(|ship| ship.is_in_node())
+                    .map(|ship| ship.get_strength(self.config.battlescalars.avg_duration))
                     .sum::<u64>()
             })
             .sum::<u64>()
@@ -4046,9 +4018,7 @@ impl Root {
                 .iter()
                 .map(|(_, (fs, _))| {
                     fs.iter()
-                        .map(|fleet| {
-                            fleet.get_strength(self, self.config.battlescalars.avg_duration)
-                        })
+                        .map(|fleet| fleet.get_strength(self.config.battlescalars.avg_duration))
                         .sum::<u64>()
                 })
                 .sum::<u64>()) as i64;
@@ -4057,8 +4027,8 @@ impl Root {
             .iter()
             .map(|(_, (_, ss))| {
                 ss.iter()
-                    .filter(|ship| ship.is_in_node(self))
-                    .map(|ship| ship.get_strength(self, self.config.battlescalars.avg_duration))
+                    .filter(|ship| ship.is_in_node())
+                    .map(|ship| ship.get_strength(self.config.battlescalars.avg_duration))
                     .sum::<u64>()
             })
             .sum::<u64>()
@@ -4067,9 +4037,7 @@ impl Root {
                 .iter()
                 .map(|(_, (fs, _))| {
                     fs.iter()
-                        .map(|fleet| {
-                            fleet.get_strength(self, self.config.battlescalars.avg_duration)
-                        })
+                        .map(|fleet| fleet.get_strength(self.config.battlescalars.avg_duration))
                         .sum::<u64>()
                 })
                 .sum::<u64>()) as i64;
@@ -4088,7 +4056,7 @@ impl Root {
                 d.append(
                     &mut ss
                         .iter()
-                        .filter(|ship| !ship.is_in_fleet(self))
+                        .filter(|ship| !ship.is_in_fleet())
                         .map(|ship| ship.mutables.read().unwrap().objectives.clone())
                         .flatten()
                         .collect::<Vec<ObjectiveFlavor>>(),
@@ -4110,7 +4078,7 @@ impl Root {
                     d.append(
                         &mut ss
                             .iter()
-                            .filter(|ship| !ship.is_in_fleet(self))
+                            .filter(|ship| !ship.is_in_fleet())
                             .map(|ship| ship.mutables.read().unwrap().objectives.clone())
                             .flatten()
                             .collect::<Vec<ObjectiveFlavor>>(),
@@ -4182,11 +4150,11 @@ impl Root {
             .iter()
             .map(|(_, (fs, ss))| {
                 ss.iter()
-                    .filter(|ship| !ship.is_in_fleet(self))
-                    .map(|ship| ship.get_strength(self, duration))
+                    .filter(|ship| !ship.is_in_fleet())
+                    .map(|ship| ship.get_strength(duration))
                     .sum::<u64>()
                     + fs.iter()
-                        .map(|fleet| fleet.get_strength(self, duration))
+                        .map(|fleet| fleet.get_strength(duration))
                         .sum::<u64>()
             })
             .sum::<u64>()
@@ -4196,11 +4164,11 @@ impl Root {
                     v.iter()
                         .map(|(scalar, (fs, ss))| {
                             ((ss.iter()
-                                .filter(|ship| !ship.is_in_fleet(self))
-                                .map(|ship| ship.get_strength(self, duration))
+                                .filter(|ship| !ship.is_in_fleet())
+                                .map(|ship| ship.get_strength(duration))
                                 .sum::<u64>()
                                 + fs.iter()
-                                    .map(|fleet| fleet.get_strength(self, duration))
+                                    .map(|fleet| fleet.get_strength(duration))
                                     .sum::<u64>()) as f32
                                 * scalar) as u64
                         })
@@ -4213,25 +4181,25 @@ impl Root {
             .iter()
             .map(|(_, (fs, ss))| {
                 ss.iter()
-                    .filter(|ship| !ship.is_in_fleet(self))
-                    .map(|ship| ship.get_strength(self, duration))
+                    .filter(|ship| !ship.is_in_fleet())
+                    .map(|ship| ship.get_strength(duration))
                     .sum::<u64>()
                     + fs.iter()
-                        .map(|fleet| fleet.get_strength(self, duration))
+                        .map(|fleet| fleet.get_strength(duration))
                         .sum::<u64>()
             })
             .sum::<u64>()
             + scaled_defender_reinforcements
                 .iter()
-                .map(|(fid, v)| {
+                .map(|(_fid, v)| {
                     v.iter()
                         .map(|(scalar, (fs, ss))| {
                             ((ss.iter()
-                                .filter(|ship| !ship.is_in_fleet(self))
-                                .map(|ship| ship.get_strength(self, duration))
+                                .filter(|ship| !ship.is_in_fleet())
+                                .map(|ship| ship.get_strength(duration))
                                 .sum::<u64>()
                                 + fs.iter()
-                                    .map(|fleet| fleet.get_strength(self, duration))
+                                    .map(|fleet| fleet.get_strength(duration))
                                     .sum::<u64>()) as f32
                                 * scalar) as u64
                         })
@@ -4261,7 +4229,7 @@ impl Root {
                 d.append(
                     &mut ss
                         .iter()
-                        .filter(|ship| !ship.is_in_fleet(self))
+                        .filter(|ship| !ship.is_in_fleet())
                         .map(|ship| ship.mutables.read().unwrap().objectives.clone())
                         .flatten()
                         .collect::<Vec<ObjectiveFlavor>>(),
@@ -4284,7 +4252,7 @@ impl Root {
                 d.append(
                     &mut ss
                         .iter()
-                        .filter(|ship| !ship.is_in_fleet(self))
+                        .filter(|ship| !ship.is_in_fleet())
                         .map(|ship| ship.mutables.read().unwrap().objectives.clone())
                         .flatten()
                         .collect::<Vec<ObjectiveFlavor>>(),
@@ -4339,18 +4307,18 @@ impl Root {
         let all_fleets: Vec<Arc<FleetInstance>> = data
             .attackers
             .iter()
-            .map(|(fid, (fs, ss))| fs.clone())
-            .chain(data.defenders.iter().map(|(fid, (fs, ss))| fs.clone())) //NOTE: Can we avoid this clone?
+            .map(|(_fid, (fs, _ss))| fs.clone())
+            .chain(data.defenders.iter().map(|(_fid, (fs, _ss))| fs.clone())) //NOTE: Can we avoid this clone?
             .chain(
                 scaled_attacker_reinforcements
                     .iter()
-                    .map(|(fid, vec)| vec.iter().map(|(fid, (fs, ss))| fs.clone()))
+                    .map(|(_fid, vec)| vec.iter().map(|(_fid, (fs, _ss))| fs.clone()))
                     .flatten(),
             )
             .chain(
                 scaled_defender_reinforcements
                     .iter()
-                    .map(|(fid, vec)| vec.iter().map(|(fid, (fs, ss))| fs.clone()))
+                    .map(|(_fid, vec)| vec.iter().map(|(_fid, (fs, _ss))| fs.clone()))
                     .flatten(),
             )
             .flatten()
@@ -4359,18 +4327,18 @@ impl Root {
         let all_ships: Vec<Arc<ShipInstance>> = data
             .attackers
             .iter()
-            .map(|(fid, (fs, ss))| ss.clone())
-            .chain(data.defenders.iter().map(|(fid, (fs, ss))| ss.clone())) //NOTE: Can we avoid this clone?
+            .map(|(_fid, (_fs, ss))| ss.clone())
+            .chain(data.defenders.iter().map(|(_fid, (_fs, ss))| ss.clone())) //NOTE: Can we avoid this clone?
             .chain(
                 scaled_attacker_reinforcements
                     .iter()
-                    .map(|(fid, vec)| vec.iter().map(|(fid, (fs, ss))| ss.clone()))
+                    .map(|(_fid, vec)| vec.iter().map(|(_fid, (_fs, ss))| ss.clone()))
                     .flatten(),
             )
             .chain(
                 scaled_defender_reinforcements
                     .iter()
-                    .map(|(fid, vec)| vec.iter().map(|(fid, (fs, ss))| ss.clone()))
+                    .map(|(_fid, vec)| vec.iter().map(|(_fid, (_fs, ss))| ss.clone()))
                     .flatten(),
             )
             .flatten()
@@ -4406,7 +4374,7 @@ impl Root {
                             .sample(&mut rand::thread_rng())
                             .clamp(0.0, 10.0);
                     if !victor.contains(&ship.mutables.read().unwrap().allegiance) {
-                        let new_location = if ship.is_in_node(self) {
+                        let new_location = if ship.is_in_node() {
                             ShipLocation::Node(
                                 ship.navigate(self, neighbors)
                                     .unwrap_or(data.location.clone()),
@@ -4469,7 +4437,7 @@ impl Root {
                         (ship.clone(), (damage, engine_damage, new_location))
                     } else {
                         let new_location = if ship
-                            .get_fleet(self)
+                            .get_fleet()
                             .map(|fleet| all_fleets.contains(&fleet))
                             .unwrap_or(false)
                         {
@@ -4545,7 +4513,7 @@ impl Root {
             .cloned()
             .collect();
         dead.iter().for_each(|ship| {
-            ship.clone().kill(&self.shipinstances);
+            ship.clone().kill();
         });
         self.shipinstances
             .retain(|ship| ship.mutables.read().unwrap().hull > 0);
@@ -4555,14 +4523,14 @@ impl Root {
             .fleetinstances
             .iter()
             .filter(|fleet| {
-                ((fleet.get_strength(self, self.config.battlescalars.avg_duration) as f32)
+                ((fleet.get_strength(self.config.battlescalars.avg_duration) as f32)
                     < (fleet.idealstrength as f32 * fleet.class.disbandthreshold))
                     && !fleet.mutables.read().unwrap().phantom
             })
             .cloned()
             .collect::<Vec<_>>();
         for fleet in dead {
-            fleet.disband(self);
+            fleet.disband();
         }
         let remaining: Vec<Arc<FleetInstance>> = self
             .fleetinstances
@@ -4574,15 +4542,6 @@ impl Root {
             .collect();
         self.fleetinstances
             .retain(|fleet| remaining.contains(fleet));
-    }
-    //we get the military strength of a node for a given faction by filtering down the global ship list by node and faction allegiance, then summing their strength values
-    fn get_node_strength(&self, nodeid: Arc<Node>, faction: Arc<Faction>) -> u64 {
-        self.shipinstances
-            .iter()
-            .filter(|ship| ship.get_node() == nodeid)
-            .filter(|ship| ship.mutables.read().unwrap().allegiance == faction)
-            .map(|ship| ship.get_strength(&self, self.config.battlescalars.avg_duration))
-            .sum()
     }
     //oh god
     //NOTE: I removed the "+ Copy" from this so that it can use Arc<ShipClass>es or the like. Not sure if that's a problem.
@@ -4604,7 +4563,11 @@ impl Root {
             .filter_map(|node| {
                 salience
                     .clone()
-                    .get_value(node.clone(), subject_faction.clone(), &self)
+                    .get_value(
+                        node.clone(),
+                        subject_faction.clone(),
+                        self.config.battlescalars.avg_duration,
+                    )
                     .map(|v| (node.clone(), v))
             })
             .collect();
@@ -4816,24 +4779,24 @@ impl Root {
 
         //reset all ships' engines
         self.shipinstances
-            .iter_mut()
+            .iter()
             .for_each(|ship| ship.reset_movement());
 
         //run all ship repairers
         self.shipinstances
-            .iter_mut()
+            .iter()
             .for_each(|ship| ship.repair(false));
 
         //process all factories
-        self.nodes.iter_mut().for_each(|n| n.process_factories());
+        self.nodes.iter().for_each(|n| n.process_factories());
         self.shipinstances
-            .iter_mut()
+            .iter()
             .for_each(|ship| ship.process_factories());
 
         //process all shipyards
-        self.nodes.iter_mut().for_each(|n| n.process_shipyards());
+        self.nodes.iter().for_each(|n| n.process_shipyards());
         self.shipinstances
-            .iter_mut()
+            .iter()
             .for_each(|ship| ship.process_shipyards());
 
         //plan ship creation
@@ -4843,12 +4806,11 @@ impl Root {
             .map(|node| Node::plan_ships(node.clone(), &self.shipclasses))
             .chain(
                 self.shipinstances
-                    .iter_mut()
+                    .iter()
                     .map(|ship| ship.plan_ships(&self.shipclasses)),
             )
             .flatten()
             .collect();
-
         //create queued ships
         let n_newships = ship_plan_list
             .iter()

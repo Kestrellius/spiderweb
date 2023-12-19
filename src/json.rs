@@ -1,9 +1,9 @@
 //this is the section of the program that manages the json files defined by the modder
 use crate::internal;
-use serde::de::Deserializer;
+
 use serde::{Deserialize, Serialize};
-use serde_json::{from_reader, to_writer_pretty};
-use std::collections::{HashMap, HashSet};
+
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
@@ -211,7 +211,7 @@ impl System {
     fn hydrate(
         self,
         index: usize,
-        nodeidmap: &HashMap<String, Arc<internal::Node>>,
+        nodeidmap: &BTreeMap<String, Arc<internal::Node>>,
     ) -> internal::System {
         let internalsystem = internal::System {
             id: index,
@@ -863,7 +863,7 @@ impl Root {
     pub fn hydrate(mut self) -> internal::Root {
         let config = self.config.hydrate();
 
-        let nodeflavoridmap: (HashMap<String, Arc<internal::NodeFlavor>>) = self
+        let nodeflavoridmap: HashMap<String, Arc<internal::NodeFlavor>> = self
             .nodeflavors
             .drain(0..)
             .enumerate()
@@ -1055,7 +1055,7 @@ impl Root {
             .collect();
 
         //here we iterate over the json systems to create a map between nodes' json string-ids and internal ids
-        let nodeidmap: HashMap<String, Arc<internal::Node>> = self
+        let nodeidmap: BTreeMap<String, Arc<internal::Node>> = self
             .systems
             .iter()
             .flat_map(|system| system.nodes.iter())
@@ -1093,7 +1093,7 @@ impl Root {
             })
             .collect();
 
-        let systemidmap: HashMap<String, Arc<internal::System>> = self
+        let systemidmap: BTreeMap<String, Arc<internal::System>> = self
             .systems
             .drain(0..)
             .enumerate()

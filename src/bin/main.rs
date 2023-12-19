@@ -1,18 +1,10 @@
-use serde::de::Deserializer;
-use serde::{Deserialize, Serialize};
-use serde_json::{from_reader, to_writer_pretty};
-use spiderweb::internal::CollatedCargo;
-use spiderweb::internal::GenericCargo;
-use spiderweb::internal::PluripotentStockpile;
-use spiderweb::internal::SharedStockpile;
 use spiderweb::internal::ShipLocation;
-use spiderweb::internal::Stockpileness;
-use spiderweb::internal::UnipotentResourceStockpile;
-use spiderweb::{internal, json};
-use std::collections::{HashMap, HashSet};
+
+use spiderweb::json;
+
 use std::fs::File;
-use std::io::prelude::*;
-use std::time::{Duration, Instant};
+
+use std::time::Instant;
 
 fn main() {
     let file = File::open("mod-specs.json").unwrap();
@@ -22,26 +14,22 @@ fn main() {
     dbg!(duration);
     let mut root = json_root.hydrate();
 
-    for _ in 0..10 {
-        //dbg!(root.shipinstances.next_index);
-        root.create_ship(
-            root.shipclasses[0].clone(),
-            ShipLocation::Node(root.nodes[0].clone()),
-            root.factions[0].clone(),
-        );
-    }
-    for i in 0..10 {
-        let ship = root.shipinstances[i].clone();
-        dbg!(ship);
-    }
+    //dbg!(root.shipinstances.next_index);
+    root.create_ship(
+        root.shipclasses[0].clone(),
+        ShipLocation::Node(root.nodes[0].clone()),
+        root.factions[0].clone(),
+    );
+    let ship = &root.shipinstances[0];
 
-    //for i in 0..50 {
-    //    root.process_turn();
-    //}
-    //    dbg!(root.nodes);
-    //    dbg!(root.shipinstances);
-    //    dbg!(root.shipinstancecounter);
+    for i in 0..50 {
+        root.process_turn();
+    }
     /*
+        dbg!(root.nodes);
+        dbg!(root.shipinstances);
+        dbg!(root.shipinstancecounter);
+
     let empire = internal::Key::<internal::Faction>::new_from_index(0);
     let steel = internal::Key::<internal::Resource>::new_from_index(0);
     let components = internal::Key::<internal::Resource>::new_from_index(1);
