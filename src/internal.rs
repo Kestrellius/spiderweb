@@ -50,11 +50,37 @@ pub struct BattleScalars {
     pub duration_damage_scalar: f32, //multiplier for damage increase as battle duration rises
 }
 
-#[derive(Debug, Hash, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct NodeFlavor {
     pub id: usize,
     pub visiblename: String,
     pub description: String,
+}
+
+impl PartialEq for NodeFlavor {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for NodeFlavor {}
+
+impl Ord for NodeFlavor {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.id.cmp(&other.id)
+    }
+}
+
+impl PartialOrd for NodeFlavor {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.id.partial_cmp(&other.id)
+    }
+}
+
+impl Hash for NodeFlavor {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -330,8 +356,7 @@ impl Node {
             .shipyardinstancelist
             .iter_mut()
             .map(|shipyard| {
-                let ship_plans =
-                    shipyard.plan_ships(efficiency, shipclasses);
+                let ship_plans = shipyard.plan_ships(efficiency, shipclasses);
                 //here we take the list of ships for a specific shipyard and tag them with the location and allegiance they should have when they're built
                 ship_plans
                     .iter()
@@ -504,7 +529,7 @@ pub struct Resource {
     pub visiblename: String,
     pub description: String,
     pub visibility: bool,
-    pub cargovol: u64, //how much space one unit of this resource takes up when transported by a cargo ship
+    pub unit_vol: u64, //how much volume (in e.g. cubic meters) one unit of this resource takes up; this is intended only for player-facing use
     pub valuemult: u64, //how valuable the AI considers one unit of this resource to be
 }
 
@@ -534,106 +559,36 @@ impl Hash for Resource {
     }
 }
 
-//GenericCargo is an entity which can be either a quantity of a resource or a shipinstance
-#[derive(Debug, Clone)]
-pub enum GenericCargo {
-    Resource { id: Arc<Resource>, value: u64 },
-    ShipInstance(Arc<ShipInstance>),
-}
-
-//CollatedCargo tells us the type of resource or ship that the cargo entity is; it's used in a hashmap with an integer denoting the quantity
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub enum CollatedCargo {
-    Resource(Arc<Resource>),
-    ShipClass(Arc<ShipClass>),
-}
-
-impl CollatedCargo {
-    fn get_volume(self) -> u64 {
-        match self {
-            CollatedCargo::Resource(k) => k.cargovol,
-            CollatedCargo::ShipClass(k) => k.cargovol.unwrap_or(u64::MAX),
-        }
-    }
-}
-
 pub trait Stockpileness {
-    fn get_resource_contents(&self) -> HashMap<Arc<Resource>, u64>;
-    fn get_ship_contents(&self) -> HashSet<Arc<ShipInstance>>;
-    fn collate_contents(&self) -> HashMap<CollatedCargo, u64>;
+    fn collate_contents(&self) -> HashMap<Arc<Resource>, u64>;
     fn get_resource_num(&self, cargo: Arc<Resource>) -> u64;
-    fn get_shipclass_num(&self, cargo: Arc<ShipClass>) -> u64;
     fn get_capacity(&self) -> u64;
     fn get_fullness(&self) -> u64;
-    fn get_allowed(&self) -> Option<(Vec<Arc<Resource>>, Vec<Arc<ShipClass>>)>;
+    fn get_allowed(&self) -> Option<Vec<Arc<Resource>>>;
     fn get_resource_supply(&self, resourceid: Arc<Resource>) -> u64;
     fn get_resource_demand(&self, resourceid: Arc<Resource>) -> u64;
-    fn get_shipclass_supply(&self, shipclass: Arc<ShipClass>) -> u64;
-    fn get_shipclass_demand(&self, shipclass: Arc<ShipClass>) -> u64;
-    fn insert(&mut self, cargo: GenericCargo) -> Option<GenericCargo>;
-    fn remove(&mut self, cargo: GenericCargo) -> Option<GenericCargo>;
-    fn transfer<S: Stockpileness>(&mut self, rhs: &mut S, class: CollatedCargo, quantity: u64) {
-        let available_space = (rhs.get_capacity() - rhs.get_fullness())
-            .checked_div(class.clone().get_volume())
-            .unwrap_or(u64::MAX);
-        let constrained_quantity = std::cmp::min(quantity, available_space);
-        let cargo: Vec<GenericCargo> = match class {
-            CollatedCargo::Resource(k) => vec![GenericCargo::Resource {
-                id: k,
-                value: constrained_quantity,
-            }],
-            CollatedCargo::ShipClass(k) => self
-                .get_ship_contents()
-                .iter()
-                .filter(|ship| Arc::ptr_eq(&ship.class, &k))
-                .take(constrained_quantity as usize)
-                .map(|ship| GenericCargo::ShipInstance(ship.clone()))
-                .collect(),
-        };
-        dbg!(&cargo);
-        cargo.iter().for_each(|item| {
-            self.remove(item.clone())
-                .and_then(|remainder| rhs.insert(remainder))
-                .and_then(|remainder| self.insert(remainder));
-        })
+    fn insert(&mut self, cargo: Arc<Resource>, quantity: u64) -> u64;
+    fn remove(&mut self, cargo: Arc<Resource>, quantity: u64) -> u64;
+    fn transfer<S: Stockpileness>(&mut self, rhs: &mut S, cargo: Arc<Resource>, quantity: u64) {
+        let extracted = self.remove(cargo.clone(), quantity);
+        let remainder = rhs.insert(cargo.clone(), extracted);
+        self.insert(cargo, remainder);
     }
 }
 
 //this is a horrible incomprehensible nightmare that Amaryllis put me through for some reason
 //okay, so, a year later, what this actually does is that it takes two individual stockpiles and allows them to function together as a single stockpile
 impl<A: Stockpileness, B: Stockpileness> Stockpileness for (A, B) {
-    fn get_resource_contents(&self) -> HashMap<Arc<Resource>, u64> {
-        self.0
-            .get_resource_contents()
-            .iter()
-            .chain(self.1.get_resource_contents().iter())
-            .map(|(resource, value)| (resource.clone(), *value))
-            .collect()
-    }
-    fn get_ship_contents(&self) -> HashSet<Arc<ShipInstance>> {
-        self.0
-            .get_ship_contents()
-            .iter()
-            .chain(self.1.get_ship_contents().iter())
-            .cloned()
-            .collect()
-    }
-    //It actually works now
-    fn collate_contents(&self) -> HashMap<CollatedCargo, u64> {
+    fn collate_contents(&self) -> HashMap<Arc<Resource>, u64> {
         self.0
             .collate_contents()
             .iter()
             .chain(self.1.collate_contents().iter())
-            .fold(HashMap::new(), |mut acc, (k, v)| {
-                *acc.entry(k.clone()).or_insert(0) += v;
-                acc
-            })
+            .map(|(resource, value)| (resource.clone(), *value))
+            .collect()
     }
     fn get_resource_num(&self, cargo: Arc<Resource>) -> u64 {
         self.0.get_resource_num(cargo.clone()) + self.1.get_resource_num(cargo.clone())
-    }
-    fn get_shipclass_num(&self, cargo: Arc<ShipClass>) -> u64 {
-        self.0.get_shipclass_num(cargo.clone()) + self.1.get_shipclass_num(cargo.clone())
     }
     fn get_capacity(&self) -> u64 {
         self.0.get_capacity() + self.1.get_capacity()
@@ -641,13 +596,13 @@ impl<A: Stockpileness, B: Stockpileness> Stockpileness for (A, B) {
     fn get_fullness(&self) -> u64 {
         self.0.get_fullness() + self.1.get_fullness()
     }
-    fn get_allowed(&self) -> Option<(Vec<Arc<Resource>>, Vec<Arc<ShipClass>>)> {
+    fn get_allowed(&self) -> Option<Vec<Arc<Resource>>> {
         //self.0
         //    .get_allowed()
         //    .iter()
         //    .chain(self.1.get_allowed().iter())
         //    .collect()
-        Some((Vec::new(), Vec::new()))
+        Some(Vec::new())
     }
     fn get_resource_supply(&self, resource: Arc<Resource>) -> u64 {
         self.0.get_resource_supply(resource.clone()) + self.1.get_resource_supply(resource.clone())
@@ -655,19 +610,11 @@ impl<A: Stockpileness, B: Stockpileness> Stockpileness for (A, B) {
     fn get_resource_demand(&self, resource: Arc<Resource>) -> u64 {
         self.0.get_resource_demand(resource.clone()) + self.1.get_resource_demand(resource.clone())
     }
-    fn get_shipclass_supply(&self, shipclass: Arc<ShipClass>) -> u64 {
-        self.0.get_shipclass_supply(shipclass.clone())
-            + self.1.get_shipclass_supply(shipclass.clone())
+    fn insert(&mut self, _cargo: Arc<Resource>, quantity: u64) -> u64 {
+        quantity
     }
-    fn get_shipclass_demand(&self, shipclass: Arc<ShipClass>) -> u64 {
-        self.0.get_shipclass_demand(shipclass.clone())
-            + self.1.get_shipclass_demand(shipclass.clone())
-    }
-    fn insert(&mut self, _cargo: GenericCargo) -> Option<GenericCargo> {
-        None
-    }
-    fn remove(&mut self, _cargo: GenericCargo) -> Option<GenericCargo> {
-        None
+    fn remove(&mut self, _cargo: Arc<Resource>, quantity: u64) -> u64 {
+        0
     }
 }
 
@@ -675,7 +622,7 @@ impl<A: Stockpileness, B: Stockpileness> Stockpileness for (A, B) {
 //however, the quantity of resource specified in the rate field may be added to or removed from the stockpile under various circumstances,
 //such as once every turn, depending on how it's used
 #[derive(Debug, Clone, PartialEq)]
-pub struct UnipotentResourceStockpile {
+pub struct UnipotentStockpile {
     pub visibility: bool,
     pub resourcetype: Arc<Resource>,
     pub contents: u64,
@@ -685,19 +632,9 @@ pub struct UnipotentResourceStockpile {
     pub propagate: bool,
 }
 
-impl Stockpileness for UnipotentResourceStockpile {
-    fn get_resource_contents(&self) -> HashMap<Arc<Resource>, u64> {
+impl Stockpileness for UnipotentStockpile {
+    fn collate_contents(&self) -> HashMap<Arc<Resource>, u64> {
         iter::once((self.resourcetype.clone(), self.contents)).collect()
-    }
-    fn get_ship_contents(&self) -> HashSet<Arc<ShipInstance>> {
-        HashSet::new()
-    }
-    fn collate_contents(&self) -> HashMap<CollatedCargo, u64> {
-        iter::once((
-            CollatedCargo::Resource(self.resourcetype.clone()),
-            self.contents,
-        ))
-        .collect()
     }
     fn get_resource_num(&self, cargo: Arc<Resource>) -> u64 {
         if cargo == self.resourcetype {
@@ -706,89 +643,54 @@ impl Stockpileness for UnipotentResourceStockpile {
             0
         }
     }
-    fn get_shipclass_num(&self, _cargo: Arc<ShipClass>) -> u64 {
-        0
-    }
     fn get_capacity(&self) -> u64 {
         self.capacity
     }
     fn get_fullness(&self) -> u64 {
-        self.contents * self.resourcetype.cargovol
+        self.contents
     }
-    fn get_allowed(&self) -> Option<(Vec<Arc<Resource>>, Vec<Arc<ShipClass>>)> {
-        Some((vec![self.resourcetype.clone()], Vec::new()))
+    fn get_allowed(&self) -> Option<Vec<Arc<Resource>>> {
+        Some(vec![self.resourcetype.clone()])
     }
     fn get_resource_supply(&self, resource: Arc<Resource>) -> u64 {
         if resource == self.resourcetype {
-            (self.contents * resource.cargovol).saturating_sub(self.target)
+            (self.contents).saturating_sub(self.target)
         } else {
             0
         }
     }
     fn get_resource_demand(&self, resource: Arc<Resource>) -> u64 {
         if resource == self.resourcetype {
-            self.target
-                .saturating_sub(self.contents * resource.cargovol)
+            self.target.saturating_sub(self.contents)
         } else {
             0
         }
     }
-    fn get_shipclass_supply(&self, _shipclass: Arc<ShipClass>) -> u64 {
-        0
-    }
-    fn get_shipclass_demand(&self, _shipclass: Arc<ShipClass>) -> u64 {
-        0
-    }
-    fn insert(&mut self, cargo: GenericCargo) -> Option<GenericCargo> {
-        match cargo.clone() {
-            GenericCargo::Resource { id, value } => {
-                let cargo_vol = id.cargovol;
-                if id == self.resourcetype {
-                    let old_contents = self.contents;
-                    let count_capacity = self.capacity / cargo_vol;
-                    let remainder = value.saturating_sub(count_capacity - self.contents);
-                    self.contents += value - remainder;
-                    println!("Inserting {}.", value - remainder);
-                    assert!(self.contents <= count_capacity);
-                    assert_eq!(self.contents + remainder, old_contents + value);
-                    Some(GenericCargo::Resource {
-                        id: id,
-                        value: remainder,
-                    })
-                } else {
-                    //this will just hand the cargo back to whoever was trying to put it in
-                    println!("Wrong resource type! No insertion.");
-                    Some(cargo)
-                }
-            }
-            _ => {
-                println!("Ship, not resource! No insertion.");
-                Some(cargo)
-            }
+    fn insert(&mut self, cargo: Arc<Resource>, quantity: u64) -> u64 {
+        if cargo == self.resourcetype {
+            let old_contents = self.contents;
+            let remainder = quantity.saturating_sub(self.capacity - old_contents);
+            self.contents += (quantity - remainder);
+            assert!(self.contents <= self.capacity);
+            assert_eq!(self.contents + remainder, old_contents + quantity);
+            remainder
+        } else {
+            quantity
         }
     }
-    fn remove(&mut self, cargo: GenericCargo) -> Option<GenericCargo> {
-        match cargo {
-            GenericCargo::Resource { id, value } => {
-                if id == self.resourcetype {
-                    let remainder = value.saturating_sub(self.contents);
-                    self.contents -= value - remainder;
-                    println!("Removing {}.", value - remainder);
-                    Some(GenericCargo::Resource {
-                        id: id,
-                        value: (value - remainder),
-                    })
-                } else {
-                    //we can't get out something the stockpile can't hold
-                    Some(GenericCargo::Resource { id: id, value: 0 })
-                }
-            }
-            _ => None,
+    fn remove(&mut self, cargo: Arc<Resource>, quantity: u64) -> u64 {
+        if cargo == self.resourcetype {
+            let old_contents = self.contents;
+            let remainder = quantity.saturating_sub(self.contents);
+            self.contents -= (quantity - remainder);
+            (quantity - remainder)
+        } else {
+            0
         }
     }
 }
 
-impl UnipotentResourceStockpile {
+impl UnipotentStockpile {
     fn input_is_sufficient(&self) -> bool {
         self.contents >= self.rate
     }
@@ -824,82 +726,42 @@ impl UnipotentResourceStockpile {
 #[derive(Debug, Clone)]
 pub struct PluripotentStockpile {
     pub visibility: bool,
-    pub resource_contents: HashMap<Arc<Resource>, u64>,
-    pub ship_contents: HashSet<Arc<ShipInstance>>,
-    pub allowed: Option<(Vec<Arc<Resource>>, Vec<ShipClassID>)>,
+    pub contents: HashMap<Arc<Resource>, u64>,
+    pub allowed: Option<Vec<Arc<Resource>>>,
     pub target: u64,
     pub capacity: u64,
     pub propagate: bool,
 }
 
 impl Stockpileness for PluripotentStockpile {
-    fn get_resource_contents(&self) -> HashMap<Arc<Resource>, u64> {
-        self.resource_contents.clone()
-    }
-    fn get_ship_contents(&self) -> HashSet<Arc<ShipInstance>> {
-        self.ship_contents.clone()
-    }
-    fn collate_contents(&self) -> HashMap<CollatedCargo, u64> {
-        let resource_list = self
-            .resource_contents
-            .iter()
-            .map(|(resource, value)| (CollatedCargo::Resource(resource.clone()), *value));
-        let ship_list = self
-            .ship_contents
-            .iter()
-            .map(|ship| (CollatedCargo::ShipClass(ship.class.clone()), 1));
-        resource_list
-            .chain(ship_list)
-            .fold(HashMap::new(), |mut acc, (cc, num)| {
-                *acc.entry(cc).or_insert(0) += num;
-                acc
-            })
+    fn collate_contents(&self) -> HashMap<Arc<Resource>, u64> {
+        self.contents.clone()
     }
     fn get_resource_num(&self, cargo: Arc<Resource>) -> u64 {
-        *self.resource_contents.get(&cargo).unwrap_or(&0)
-    }
-    fn get_shipclass_num(&self, cargo: Arc<ShipClass>) -> u64 {
-        self.ship_contents
-            .iter()
-            .filter(|ship| ship.class == cargo)
-            .fold(0, |mut acc, _| {
-                acc += 1;
-                acc
-            })
+        *self.contents.get(&cargo).unwrap_or(&0)
     }
     fn get_capacity(&self) -> u64 {
         self.capacity.clone()
     }
     fn get_fullness(&self) -> u64 {
-        self.resource_contents
-            .iter()
-            .map(|(resource, value)| value * resource.cargovol)
-            .sum::<u64>()
-            + self
-                .ship_contents
-                .iter()
-                .map(|ship| ship.class.cargovol.unwrap_or(0))
-                .sum::<u64>()
+        self.contents.iter().map(|(_, value)| value).sum::<u64>()
     }
     //NOTE: Partially dummied out currently; waiting on removal of ship-carrying ability from stockpiles
-    fn get_allowed(&self) -> Option<(Vec<Arc<Resource>>, Vec<Arc<ShipClass>>)> {
+    fn get_allowed(&self) -> Option<Vec<Arc<Resource>>> {
         match &self.allowed {
-            Some((resource_allowed, _shipclass_allowed)) => {
-                Some((resource_allowed.clone(), Vec::new()))
-            }
+            Some(resource_allowed) => Some(resource_allowed.clone()),
             None => None,
         }
     }
     //unlike other places, here in pluripotent stockpiles we don't take target into account when calculating supply
     //thus, items in pluripotent stockpiles always emit supply, even if the stockpile still wants more
     fn get_resource_supply(&self, resource: Arc<Resource>) -> u64 {
-        self.get_resource_num(resource.clone()) * resource.cargovol
+        self.get_resource_num(resource.clone())
     }
     fn get_resource_demand(&self, resource: Arc<Resource>) -> u64 {
         if self
             .get_allowed()
-            .unwrap_or((vec![resource.clone()], Vec::new()))
-            .0
+            .unwrap_or(vec![resource.clone()])
             .contains(&resource.clone())
         {
             self.target.saturating_sub(self.get_fullness())
@@ -907,97 +769,36 @@ impl Stockpileness for PluripotentStockpile {
             0
         }
     }
-    fn get_shipclass_supply(&self, shipclass: Arc<ShipClass>) -> u64 {
-        self.get_shipclass_num(shipclass.clone()) * shipclass.cargovol.unwrap_or(0)
-    }
-    fn get_shipclass_demand(&self, shipclass: Arc<ShipClass>) -> u64 {
+    fn insert(&mut self, cargo: Arc<Resource>, quantity: u64) -> u64 {
         if self
-            .get_allowed()
-            .unwrap_or((Vec::new(), vec![shipclass.clone()]))
-            .1
-            .contains(&shipclass)
+            .allowed
+            .clone()
+            .map(|allowed| allowed.contains(&cargo))
+            .unwrap_or(true)
         {
-            self.target.saturating_sub(self.get_fullness())
+            let old_fullness = self.get_fullness();
+            let remainder = quantity.saturating_sub(self.capacity - old_fullness);
+            *self.contents.get_mut(&cargo).unwrap() += (quantity - remainder);
+            assert!(self.get_fullness() <= self.capacity);
+            assert_eq!(self.get_fullness() + remainder, old_fullness + quantity);
+            remainder
+        } else {
+            quantity
+        }
+    }
+    fn remove(&mut self, cargo: Arc<Resource>, quantity: u64) -> u64 {
+        if self
+            .allowed
+            .clone()
+            .map(|allowed| allowed.contains(&cargo))
+            .unwrap_or(true)
+        {
+            let old_contents = self.contents.get(&cargo).unwrap();
+            let remainder = quantity.saturating_sub(*old_contents);
+            *self.contents.get_mut(&cargo).unwrap() -= (quantity - remainder);
+            (quantity - remainder)
         } else {
             0
-        }
-    }
-    fn insert(&mut self, cargo: GenericCargo) -> Option<GenericCargo> {
-        match cargo.clone() {
-            GenericCargo::Resource { id, value } => {
-                if self
-                    .allowed
-                    .clone()
-                    .map(|(x, _)| x.contains(&id))
-                    .unwrap_or(true)
-                {
-                    let cargo_vol = id.cargovol;
-                    let fullness = self.get_fullness();
-                    let how_many_fit = (self.capacity - fullness) / cargo_vol;
-                    let remainder = value.saturating_sub(how_many_fit);
-                    *self.resource_contents.get_mut(&id).unwrap() += value - remainder;
-                    Some(GenericCargo::Resource {
-                        id: id,
-                        value: remainder,
-                    })
-                } else {
-                    Some(cargo)
-                }
-            }
-            GenericCargo::ShipInstance(ship) => {
-                let class = ship.class.clone();
-                let classid = ShipClassID::new_from_index(class.id);
-                if self
-                    .allowed
-                    .clone()
-                    .map(|(_, x)| x.contains(&classid))
-                    .unwrap_or(true)
-                {
-                    let cargo_vol = class.cargovol.unwrap();
-                    if cargo_vol <= (self.capacity - self.get_fullness()) {
-                        self.ship_contents.insert(ship);
-                        None
-                    } else {
-                        Some(cargo)
-                    }
-                } else {
-                    Some(cargo)
-                }
-            }
-        }
-    }
-    fn remove(&mut self, cargo: GenericCargo) -> Option<GenericCargo> {
-        match cargo.clone() {
-            GenericCargo::Resource { id, value } => {
-                if self
-                    .allowed
-                    .clone()
-                    .map(|(x, _)| x.contains(&id))
-                    .unwrap_or(true)
-                {
-                    let cargo_count: u64 = self
-                        .resource_contents
-                        .iter()
-                        .find(|(key, _)|**key == id)
-                        .map(|(_, num)|*num)
-                        .expect("Failed to find contents entry for resource that is supposed to be allowed!");
-                    let remainder = value.saturating_sub(cargo_count);
-                    *self.resource_contents.get_mut(&id).unwrap() -= value - remainder;
-                    Some(GenericCargo::Resource {
-                        id: id,
-                        value: (value - remainder),
-                    })
-                } else {
-                    None
-                }
-            }
-            GenericCargo::ShipInstance(ship) => {
-                if self.ship_contents.remove(&ship.clone()) {
-                    Some(cargo)
-                } else {
-                    None
-                }
-            }
         }
     }
 }
@@ -1013,19 +814,9 @@ pub struct SharedStockpile {
 }
 
 impl Stockpileness for SharedStockpile {
-    fn get_resource_contents(&self) -> HashMap<Arc<Resource>, u64> {
+    fn collate_contents(&self) -> HashMap<Arc<Resource>, u64> {
         iter::once((
             self.resourcetype.clone(),
-            self.contents.load(atomic::Ordering::SeqCst),
-        ))
-        .collect()
-    }
-    fn get_ship_contents(&self) -> HashSet<Arc<ShipInstance>> {
-        HashSet::new()
-    }
-    fn collate_contents(&self) -> HashMap<CollatedCargo, u64> {
-        iter::once((
-            CollatedCargo::Resource(self.resourcetype.clone()),
             self.contents.load(atomic::Ordering::SeqCst),
         ))
         .collect()
@@ -1037,21 +828,18 @@ impl Stockpileness for SharedStockpile {
             0
         }
     }
-    fn get_shipclass_num(&self, _cargo: Arc<ShipClass>) -> u64 {
-        0
-    }
     fn get_capacity(&self) -> u64 {
         self.capacity
     }
     fn get_fullness(&self) -> u64 {
-        self.contents.load(atomic::Ordering::SeqCst) * self.resourcetype.cargovol
+        self.contents.load(atomic::Ordering::SeqCst)
     }
-    fn get_allowed(&self) -> Option<(Vec<Arc<Resource>>, Vec<Arc<ShipClass>>)> {
-        Some((vec![self.resourcetype.clone()], Vec::new()))
+    fn get_allowed(&self) -> Option<Vec<Arc<Resource>>> {
+        Some(vec![self.resourcetype.clone()])
     }
     fn get_resource_supply(&self, resource: Arc<Resource>) -> u64 {
         if resource == self.resourcetype {
-            self.contents.load(atomic::Ordering::SeqCst) * resource.cargovol
+            self.contents.load(atomic::Ordering::SeqCst)
         } else {
             0
         }
@@ -1059,53 +847,31 @@ impl Stockpileness for SharedStockpile {
     fn get_resource_demand(&self, _resourceid: Arc<Resource>) -> u64 {
         0
     }
-    fn get_shipclass_supply(&self, _shipclass: Arc<ShipClass>) -> u64 {
-        0
-    }
-    fn get_shipclass_demand(&self, _shipclass: Arc<ShipClass>) -> u64 {
-        0
-    }
-    fn insert(&mut self, cargo: GenericCargo) -> Option<GenericCargo> {
-        match cargo.clone() {
-            GenericCargo::Resource { id, value } => {
-                let cargo_vol = id.clone().cargovol;
-                if id.clone() == self.resourcetype {
-                    let count_capacity = self.capacity / cargo_vol;
-                    let remainder = value.saturating_sub(
-                        count_capacity - self.contents.load(atomic::Ordering::SeqCst),
-                    );
-                    self.contents
-                        .fetch_add(value - remainder, atomic::Ordering::SeqCst);
-                    Some(GenericCargo::Resource {
-                        id: id.clone(),
-                        value: remainder,
-                    })
-                } else {
-                    //this will just hand the cargo back to whoever was trying to put it in
-                    Some(cargo)
-                }
-            }
-            _ => Some(cargo),
+    fn insert(&mut self, cargo: Arc<Resource>, quantity: u64) -> u64 {
+        if cargo == self.resourcetype {
+            let old_contents = self.contents.load(atomic::Ordering::SeqCst);
+            let remainder = quantity.saturating_sub(self.capacity - old_contents);
+            self.contents
+                .fetch_add(quantity - remainder, atomic::Ordering::SeqCst);
+            assert!(self.contents.load(atomic::Ordering::SeqCst) <= self.capacity);
+            assert_eq!(
+                self.contents.load(atomic::Ordering::SeqCst) + remainder,
+                old_contents + quantity
+            );
+            remainder
+        } else {
+            quantity
         }
     }
-    fn remove(&mut self, cargo: GenericCargo) -> Option<GenericCargo> {
-        match cargo {
-            GenericCargo::Resource { id, value } => {
-                if id == self.resourcetype {
-                    let remainder =
-                        value.saturating_sub(self.contents.load(atomic::Ordering::SeqCst));
-                    self.contents
-                        .fetch_sub(value - remainder, atomic::Ordering::SeqCst);
-                    Some(GenericCargo::Resource {
-                        id: id,
-                        value: (value - remainder),
-                    })
-                } else {
-                    //we can't get out something the stockpile can't hold
-                    None
-                }
-            }
-            _ => None,
+    fn remove(&mut self, cargo: Arc<Resource>, quantity: u64) -> u64 {
+        if cargo == self.resourcetype {
+            let old_contents = self.contents.load(atomic::Ordering::SeqCst);
+            let remainder = quantity.saturating_sub(old_contents);
+            self.contents
+                .fetch_sub(quantity - remainder, atomic::Ordering::SeqCst);
+            (quantity - remainder)
+        } else {
+            0
         }
     }
 }
@@ -1117,7 +883,7 @@ pub struct HangarClass {
     pub description: String,
     pub visibility: bool,
     pub capacity: u64,                    //total volume the hangar can hold
-    pub target: u64, //volume the hangar wants to hold; this is usually either equal to capacity (for carriers) or zero (for shipyard outputs)
+    pub target: u64, //volume the hangar wants to hold; this is usually equal to capacity
     pub allowed: Vec<ShipClassID>, //which shipclasses this hangar can hold
     pub ideal: HashMap<ShipClassID, u64>, //how many of each ship type the hangar wants
     pub launch_volume: u64, //how much volume the hangar can launch at one time in battle
@@ -1237,7 +1003,7 @@ impl HangarInstance {
             .unwrap()
             .contents
             .iter()
-            .map(|ship| ship.class.cargovol.unwrap())
+            .map(|ship| ship.class.hangarvol.unwrap())
             .sum::<u64>() as f32;
         //we calculate how much of its complement the hangar can launch during a battle a certain number of seconds long
         let launch_mod = ((contents_vol / self.class.launch_volume as f32)
@@ -1273,7 +1039,7 @@ impl HangarInstance {
             .contents
             .iter()
             .filter(|ship| ship.class == shipclass)
-            .map(|_| shipclass.cargovol.unwrap())
+            .map(|_| shipclass.hangarvol.unwrap())
             .sum()
     }
     pub fn get_shipclass_demand(&self, shipclass: Arc<ShipClass>) -> u64 {
@@ -1282,18 +1048,9 @@ impl HangarInstance {
             .ideal
             .get(&ShipClassID::new_from_index(shipclass.id))
             .unwrap_or(&0);
-        ideal_num.saturating_sub(self.get_shipclass_num(shipclass.clone()))
-            * shipclass.cargovol.unwrap()
+        (ideal_num.saturating_sub(self.get_shipclass_num(shipclass.clone())))
+            * shipclass.hangarvol.unwrap()
     }
-}
-
-fn collapse_cargo_maps(vec: &Vec<HashMap<CollatedCargo, u64>>) -> HashMap<CollatedCargo, u64> {
-    vec.iter()
-        .flatten()
-        .fold(HashMap::new(), |mut acc, (cargo, num)| {
-            *acc.entry(cargo.clone()).or_insert(0) += num;
-            acc
-        })
 }
 
 pub trait ResourceProcess {
@@ -1301,7 +1058,6 @@ pub trait ResourceProcess {
     fn get_resource_supply_total(&self, resource: Arc<Resource>) -> u64;
     fn get_resource_demand_total(&self, resource: Arc<Resource>) -> u64;
     fn get_target_total(&self) -> u64;
-    fn collate_outputs(&self) -> HashMap<CollatedCargo, u64>;
     fn get_output_resource_num(&self, cargo: Arc<Resource>) -> u64;
 }
 
@@ -1313,7 +1069,7 @@ pub struct EngineClass {
     pub visibility: bool,
     pub basehealth: Option<u64>,
     pub toughnessscalar: f32,
-    pub inputs: Vec<UnipotentResourceStockpile>,
+    pub inputs: Vec<UnipotentStockpile>,
     pub forbidden_nodeflavors: Vec<Arc<NodeFlavor>>, //the engine won't allow a ship to enter nodes of these flavors
     pub forbidden_edgeflavors: Vec<Arc<EdgeFlavor>>, //the engine won't allow a ship to traverse edges of these flavors
     pub speed: u64, //the number of edges this engine will allow a ship to traverse per turn, followed by the number of turns it must wait before moving again
@@ -1371,7 +1127,7 @@ pub struct EngineInstance {
     basehealth: Option<u64>,
     health: Option<u64>,
     toughnessscalar: f32,
-    inputs: Vec<UnipotentResourceStockpile>,
+    inputs: Vec<UnipotentStockpile>,
     forbidden_nodeflavors: Vec<Arc<NodeFlavor>>, //the engine won't allow a ship to enter nodes of these flavors
     forbidden_edgeflavors: Vec<Arc<EdgeFlavor>>, //the engine won't allow a ship to traverse edges of these flavors
     speed: u64, //the number of edges this engine will allow a ship to traverse per turn, followed by the number of turns it must wait before moving again
@@ -1400,9 +1156,6 @@ impl ResourceProcess for EngineInstance {
     }
     fn get_target_total(&self) -> u64 {
         self.inputs.iter().map(|sp| sp.target).sum()
-    }
-    fn collate_outputs(&self) -> HashMap<CollatedCargo, u64> {
-        HashMap::new()
     }
     fn get_output_resource_num(&self, _cargo: Arc<Resource>) -> u64 {
         0
@@ -1476,7 +1229,7 @@ pub struct RepairerClass {
     pub visiblename: String,
     pub description: String,
     pub visibility: bool,
-    pub inputs: Vec<UnipotentResourceStockpile>,
+    pub inputs: Vec<UnipotentStockpile>,
     pub repair_points: i64,
     pub repair_factor: f32,
     pub engine_repair_points: i64,
@@ -1529,7 +1282,7 @@ impl RepairerClass {
 pub struct RepairerInstance {
     repairerclass: Arc<RepairerClass>,
     visibility: bool,
-    inputs: Vec<UnipotentResourceStockpile>,
+    inputs: Vec<UnipotentStockpile>,
     repair_points: i64,
     repair_factor: f32,
     engine_repair_points: i64,
@@ -1559,9 +1312,6 @@ impl ResourceProcess for RepairerInstance {
     fn get_target_total(&self) -> u64 {
         self.inputs.iter().map(|sp| sp.target).sum()
     }
-    fn collate_outputs(&self) -> HashMap<CollatedCargo, u64> {
-        HashMap::new()
-    }
     fn get_output_resource_num(&self, _cargo: Arc<Resource>) -> u64 {
         0
     }
@@ -1581,8 +1331,8 @@ pub struct FactoryClass {
     pub visiblename: String,
     pub description: String,
     pub visibility: bool,
-    pub inputs: Vec<UnipotentResourceStockpile>, //the data for the factory's asset consumption
-    pub outputs: Vec<UnipotentResourceStockpile>, //the data for the factory's asset production
+    pub inputs: Vec<UnipotentStockpile>, //the data for the factory's asset consumption
+    pub outputs: Vec<UnipotentStockpile>, //the data for the factory's asset production
 }
 
 impl PartialEq for FactoryClass {
@@ -1627,8 +1377,8 @@ pub struct FactoryInstance {
     //this is an actual factory, derived from a factory class
     factoryclass: Arc<FactoryClass>,
     visibility: bool,
-    inputs: Vec<UnipotentResourceStockpile>, //the data for the factory's asset consumption
-    outputs: Vec<UnipotentResourceStockpile>, //the data for the factory's asset production
+    inputs: Vec<UnipotentStockpile>, //the data for the factory's asset consumption
+    outputs: Vec<UnipotentStockpile>, //the data for the factory's asset production
 }
 
 impl ResourceProcess for FactoryInstance {
@@ -1679,15 +1429,6 @@ impl ResourceProcess for FactoryInstance {
     fn get_target_total(&self) -> u64 {
         self.inputs.iter().map(|sp| sp.target).sum::<u64>()
             + self.outputs.iter().map(|sp| sp.target).sum::<u64>()
-    }
-    fn collate_outputs(&self) -> HashMap<CollatedCargo, u64> {
-        collapse_cargo_maps(
-            &self
-                .outputs
-                .iter()
-                .map(|sp| sp.collate_contents())
-                .collect(),
-        )
     }
     fn get_output_resource_num(&self, cargo: Arc<Resource>) -> u64 {
         self.outputs
@@ -1747,7 +1488,7 @@ pub struct ShipyardClass {
     pub visiblename: Option<String>,
     pub description: Option<String>,
     pub visibility: bool,
-    pub inputs: Vec<UnipotentResourceStockpile>,
+    pub inputs: Vec<UnipotentStockpile>,
     pub outputs: HashMap<ShipClassID, u64>,
     pub constructrate: u64,
     pub efficiency: f32,
@@ -1810,7 +1551,7 @@ impl ShipyardClass {
 pub struct ShipyardInstance {
     shipyardclass: Arc<ShipyardClass>,
     visibility: bool,
-    inputs: Vec<UnipotentResourceStockpile>,
+    inputs: Vec<UnipotentStockpile>,
     outputs: HashMap<Arc<ShipClass>, u64>,
     constructpoints: u64,
     constructrate: u64,
@@ -1826,11 +1567,9 @@ impl ResourceProcess for ShipyardInstance {
             FactoryState::Stalled
         }
     }
-
     fn get_resource_supply_total(&self, _resource: Arc<Resource>) -> u64 {
         0
     }
-
     fn get_resource_demand_total(&self, resource: Arc<Resource>) -> u64 {
         self.inputs
             .iter()
@@ -1838,15 +1577,9 @@ impl ResourceProcess for ShipyardInstance {
             .map(|sp| sp.get_resource_demand(resource.clone()))
             .sum()
     }
-
     fn get_target_total(&self) -> u64 {
         self.inputs.iter().map(|sp| sp.target).sum()
     }
-
-    fn collate_outputs(&self) -> HashMap<CollatedCargo, u64> {
-        HashMap::new()
-    }
-
     fn get_output_resource_num(&self, _cargo: Arc<Resource>) -> u64 {
         0
     }
@@ -2023,8 +1756,7 @@ pub struct ShipClass {
     pub basestrength: u64, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
     pub visibility: bool,
     pub hangarvol: Option<u64>,
-    pub cargovol: Option<u64>, //how much cargo space this ship takes up when transported by a cargo ship
-    pub stockpiles: Vec<UnipotentResourceStockpile>,
+    pub stockpiles: Vec<PluripotentStockpile>,
     pub defaultweapons: Option<HashMap<Arc<Resource>, u64>>, //a strikecraft's default weapons, which it always has with it
     pub hangars: Vec<Arc<HangarClass>>,
     pub engines: Vec<Arc<EngineClass>>,
@@ -2152,7 +1884,7 @@ impl ShipClass {
 pub struct ShipInstanceMut {
     pub hull: u64, //how many hitpoints the ship has
     pub visibility: bool,
-    pub stockpiles: Vec<UnipotentResourceStockpile>,
+    pub stockpiles: Vec<PluripotentStockpile>,
     pub efficiency: f32,
     pub hangars: Vec<Arc<HangarInstance>>,
     pub engines: Vec<EngineInstance>,
@@ -2545,51 +2277,36 @@ impl ShipInstance {
                 .sum::<u64>()
     }
     pub fn get_shipclass_num(&self, cargo: Arc<ShipClass>) -> u64 {
-        let mutables = self.mutables.read().unwrap();
-        mutables
-            .stockpiles
+        self.mutables
+            .read()
+            .unwrap()
+            .hangars
             .iter()
-            .map(|sp| sp.get_shipclass_num(cargo.clone()))
+            .map(|hangar| hangar.get_shipclass_num(cargo.clone()))
             .sum::<u64>()
-            + self
-                .mutables
-                .read()
-                .unwrap()
-                .hangars
-                .iter()
-                .map(|hangar| hangar.get_shipclass_num(cargo.clone()))
-                .sum::<u64>()
     }
     pub fn get_shipclass_supply(&self, cargo: Arc<ShipClass>) -> u64 {
-        let mutables = self.mutables.read().unwrap();
-        mutables
-            .stockpiles
+        self.mutables
+            .read()
+            .unwrap()
+            .hangars
             .iter()
-            .map(|sp| sp.get_shipclass_supply(cargo.clone()))
+            .map(|hangar| hangar.get_shipclass_supply(cargo.clone()))
             .sum::<u64>()
-            + mutables
-                .hangars
-                .iter()
-                .map(|hangar| hangar.get_shipclass_supply(cargo.clone()))
-                .sum::<u64>()
             + if self.class == cargo {
-                self.class.cargovol.unwrap()
+                self.class.hangarvol.unwrap()
             } else {
                 0
             }
     }
     pub fn get_shipclass_demand(&self, cargo: Arc<ShipClass>) -> u64 {
-        let mutables = self.mutables.read().unwrap();
-        mutables
-            .stockpiles
+        self.mutables
+            .read()
+            .unwrap()
+            .hangars
             .iter()
-            .map(|sp| sp.get_shipclass_demand(cargo.clone()))
+            .map(|hangar| hangar.get_shipclass_demand(cargo.clone()))
             .sum::<u64>()
-            + mutables
-                .hangars
-                .iter()
-                .map(|hangar| hangar.get_shipclass_demand(cargo.clone()))
-                .sum::<u64>()
     }
     pub fn get_resource_demand_ratio(&self, resource: Arc<Resource>) -> f32 {
         let mutables = self.mutables.read().unwrap();
@@ -2605,11 +2322,15 @@ impl ShipInstance {
     pub fn get_shipclass_demand_ratio(&self, shipclass: Arc<ShipClass>) -> f32 {
         let mutables = self.mutables.read().unwrap();
         let demand_total = mutables
-            .stockpiles
+            .hangars
             .iter()
-            .map(|sp| sp.get_shipclass_demand(shipclass.clone()))
+            .map(|hangar| hangar.get_shipclass_demand(shipclass.clone()))
             .sum::<u64>() as f32;
-        let target_total = mutables.stockpiles.iter().map(|sp| sp.target).sum::<u64>() as f32;
+        let target_total = mutables
+            .hangars
+            .iter()
+            .map(|hangar| hangar.class.target)
+            .sum::<u64>() as f32;
         assert!(demand_total < target_total);
         demand_total / target_total
     }
@@ -2741,10 +2462,7 @@ impl ShipInstance {
                         let supply = root.globalsalience.resourcesalience[mutables.allegiance.id]
                             [resource.id][node.id][1];
                         //let cargo = self.stockpiles.iter().map(|x|)
-                        (demand - supply)
-                            * (self.get_resource_num(resource.clone()) as f32
-                                * resource.cargovol as f32)
-                            * scalar
+                        (demand - supply) * self.get_resource_num(resource.clone()) as f32 * scalar
                     })
                     .sum();
                 let resource_supply_value: f32 = mutables
@@ -2776,7 +2494,7 @@ impl ShipInstance {
                             [shipclassid.index][node.id][1];
                         (demand - supply)
                             * (self.get_shipclass_num(attractive_shipclass.clone()) as f32
-                                * attractive_shipclass.cargovol.unwrap_or(0) as f32)
+                                * attractive_shipclass.hangarvol.unwrap_or(0) as f32)
                             * scalar
                     })
                     .sum();
@@ -3256,10 +2974,7 @@ impl FleetInstance {
                             [self.mutables.read().unwrap().allegiance.id][resource.id][node.id][0];
                         let supply = root.globalsalience.resourcesalience
                             [self.mutables.read().unwrap().allegiance.id][resource.id][node.id][1];
-                        (demand - supply)
-                            * (self.get_resource_num(resource.clone()) as f32
-                                * resource.cargovol as f32)
-                            * scalar
+                        (demand - supply) * self.get_resource_num(resource.clone()) as f32 * scalar
                     })
                     .sum();
                 let resource_supply_value: f32 = ai
@@ -3296,7 +3011,7 @@ impl FleetInstance {
                             [node.id][1];
                         (demand - supply)
                             * (self.get_shipclass_num(attractive_shipclass.clone()) as f32
-                                * attractive_shipclass.cargovol.unwrap_or(0) as f32)
+                                * attractive_shipclass.hangarvol.unwrap_or(0) as f32)
                             * scalar
                     })
                     .sum();

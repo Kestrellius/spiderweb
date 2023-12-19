@@ -3,7 +3,7 @@ use crate::internal;
 
 use serde::{Deserialize, Serialize};
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::iter;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
@@ -211,7 +211,7 @@ impl System {
     fn hydrate(
         self,
         index: usize,
-        nodeidmap: &BTreeMap<String, Arc<internal::Node>>,
+        nodeidmap: &HashMap<String, Arc<internal::Node>>,
     ) -> internal::System {
         let internalsystem = internal::System {
             id: index,
@@ -288,7 +288,7 @@ struct Resource {
     visiblename: String,
     description: String,
     visibility: Option<bool>,
-    cargovol: u64, //how much space a one unit of this resource takes up when transported by a cargo ship
+    unit_vol: u64, //how much space a one unit of this resource takes up when transported by a cargo ship
     valuemult: u64, //how valuable the AI considers one unit of this resource to be
 }
 
@@ -299,7 +299,7 @@ impl Resource {
             visiblename: self.visiblename,
             description: self.description,
             visibility: self.visibility.unwrap_or(true),
-            cargovol: self.cargovol,
+            unit_vol: self.unit_vol,
             valuemult: self.valuemult,
         };
         resource
@@ -307,7 +307,7 @@ impl Resource {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct UnipotentResourceStockpile {
+pub struct UnipotentStockpile {
     visibility: Option<bool>,
     resourcetype: String,
     contents: u64,
@@ -317,12 +317,12 @@ pub struct UnipotentResourceStockpile {
     propagate: Option<bool>,
 }
 
-impl UnipotentResourceStockpile {
+impl UnipotentStockpile {
     fn hydrate(
         self,
         resourceidmap: &HashMap<String, Arc<internal::Resource>>,
-    ) -> internal::UnipotentResourceStockpile {
-        let stockpile = internal::UnipotentResourceStockpile {
+    ) -> internal::UnipotentStockpile {
+        let stockpile = internal::UnipotentStockpile {
             visibility: self.visibility.unwrap_or(true),
             resourcetype: resourceidmap
                 .get(&self.resourcetype)
@@ -341,9 +341,8 @@ impl UnipotentResourceStockpile {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PluripotentStockpile {
     visibility: Option<bool>,
-    resource_contents: HashMap<String, u64>,
-    ship_contents: HashSet<String>,
-    allowed: Option<(Vec<String>, Vec<String>)>,
+    contents: HashMap<String, u64>,
+    allowed: Option<Vec<String>>,
     target: u64,
     capacity: u64,
     propagate: Option<bool>,
@@ -353,12 +352,11 @@ impl PluripotentStockpile {
     fn hydrate(
         mut self,
         resourceidmap: &HashMap<String, Arc<internal::Resource>>,
-        shipclassidmap: &HashMap<String, internal::ShipClassID>,
     ) -> internal::PluripotentStockpile {
         let stockpile = internal::PluripotentStockpile {
             visibility: self.visibility.unwrap_or(true),
-            resource_contents: self
-                .resource_contents
+            contents: self
+                .contents
                 .drain()
                 .map(|(id, num)| {
                     (
@@ -370,19 +368,11 @@ impl PluripotentStockpile {
                     )
                 })
                 .collect(),
-            //NOTE: This just gives a pluripotent stockpile an empty ship_contents because IIRC there's not a way to actually create shipinstances in the json
-            ship_contents: HashSet::new(),
-            allowed: self.allowed.map(|(resources, shipclasses)| {
-                (
-                    resources
-                        .iter()
-                        .map(|id| resourceidmap.get(id).expect("Resource is invalid!").clone())
-                        .collect(),
-                    shipclasses
-                        .iter()
-                        .map(|id| *shipclassidmap.get(id).expect("Shipclass is invalid!"))
-                        .collect(),
-                )
+            allowed: self.allowed.map(|resources| {
+                resources
+                    .iter()
+                    .map(|id| resourceidmap.get(id).expect("Resource is invalid!").clone())
+                    .collect()
             }),
             target: self.target,
             capacity: self.capacity,
@@ -446,7 +436,7 @@ struct EngineClass {
     visibility: Option<bool>,
     basehealth: Option<u64>,
     toughnessscalar: f32,
-    inputs: Vec<UnipotentResourceStockpile>,
+    inputs: Vec<UnipotentStockpile>,
     forbidden_nodeflavors: Option<Vec<String>>,
     forbidden_edgeflavors: Option<Vec<String>>,
     speed: u64,    //number of edges the engine allows a ship to traverse when used
@@ -499,7 +489,7 @@ struct RepairerClass {
     visiblename: String,
     description: String,
     visibility: Option<bool>,
-    inputs: Vec<UnipotentResourceStockpile>,
+    inputs: Vec<UnipotentStockpile>,
     repair_points: i64,
     repair_factor: f32,
     engine_repair_points: i64,
@@ -539,8 +529,8 @@ struct FactoryClass {
     visiblename: String,
     description: String,
     visibility: Option<bool>,
-    inputs: Vec<UnipotentResourceStockpile>, //the data for the factory's asset consumption
-    outputs: Vec<UnipotentResourceStockpile>, //the data for the factory's asset production
+    inputs: Vec<UnipotentStockpile>, //the data for the factory's asset consumption
+    outputs: Vec<UnipotentStockpile>, //the data for the factory's asset production
 }
 
 impl FactoryClass {
@@ -575,7 +565,7 @@ pub struct ShipyardClass {
     visiblename: Option<String>,
     description: Option<String>,
     visibility: Option<bool>,
-    inputs: Vec<UnipotentResourceStockpile>,
+    inputs: Vec<UnipotentStockpile>,
     outputs: HashMap<String, u64>,
     constructrate: u64,
     efficiency: f32,
@@ -654,8 +644,7 @@ struct ShipClass {
     basestrength: u64, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
     visibility: Option<bool>,
     hangarvol: Option<u64>, //how much hangar space this ship takes up when carried by a host
-    cargovol: Option<u64>, //how much cargo space this ship takes up when transported by a cargo ship
-    stockpiles: Option<Vec<UnipotentResourceStockpile>>,
+    stockpiles: Option<Vec<PluripotentStockpile>>,
     defaultweapons: Option<HashMap<String, u64>>, //a strikecraft's default weapons, which it always has with it
     hangars: Option<Vec<String>>,
     engines: Option<Vec<String>>,
@@ -703,7 +692,6 @@ impl ShipClass {
                     .collect()
             }),
             hangarvol: self.hangarvol,
-            cargovol: self.cargovol,
             stockpiles: self
                 .stockpiles
                 .unwrap_or(Vec::new())
@@ -974,7 +962,6 @@ impl Root {
             aiclass: "basicai".to_string(), //aiclass
             defaultweapons: None, //a strikecraft's default weapons, which it always has with it
             hangarvol: None,      //how much hangar space this ship takes up when carried by a host
-            cargovol: None, //how much cargo space this ship takes up when transported by a cargo ship
             factoryclasslist: None,
             shipyardclasslist: None,
             stockpiles: None,
@@ -1055,7 +1042,7 @@ impl Root {
             .collect();
 
         //here we iterate over the json systems to create a map between nodes' json string-ids and internal ids
-        let nodeidmap: BTreeMap<String, Arc<internal::Node>> = self
+        let nodeidmap: HashMap<String, Arc<internal::Node>> = self
             .systems
             .iter()
             .flat_map(|system| system.nodes.iter())
@@ -1093,7 +1080,7 @@ impl Root {
             })
             .collect();
 
-        let systemidmap: BTreeMap<String, Arc<internal::System>> = self
+        let systemidmap: HashMap<String, Arc<internal::System>> = self
             .systems
             .drain(0..)
             .enumerate()

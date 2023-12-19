@@ -43,15 +43,16 @@ GENERAL:
 [x] Build defection logic
 [ ] Implement shipflavors (and maybe fleetflavors?)
 [x] Config struct on root with settings for salience propagation iters
-[ ] Replace current implementation of entity locations with entity-component system or similar
-[ ] Build hangar entry and exit methods
+[x] Replace current implementation of entity locations with entity-component system or similar
+[x] Build hangar entry and exit methods
 [ ] Build balance_stockpiles
 [ ] Build balance_hangars
 [ ] Clean up salience propagation logic
 [ ] Build operation logic
 [ ] Figure out the whole thing with whether demand from a pluripotent stockpile should be divided by the number of relevant resources or whatever
+[ ] Think about whether there should be a check so that hangars don't generate demand for/seek out ships that can't currently fit in them
 [ ] Build out process_turn
-[ ] Gigantic refactor! Switch everything in root over to Arcs.
+[x] Gigantic refactor! Switch everything in root over to Arcs.
     [x] Convert nodeflavors.
     [x] Convert nodes.
     [x] Convert systems.
@@ -70,7 +71,8 @@ GENERAL:
     [x] Convert fleetinstances.
     [x] Convert engagements.
     [x] Deal with hangarinstances.
-[ ] Clean up hydration logic -- which things do or don't return just the internal struct vs. internal struct plus stringid.
+[ ] Put certain methods in "mobility" trait on Arc-Ship/FleetInstance, and similar for node
+[x] Clean up hydration logic -- which things do or don't return just the internal struct vs. internal struct plus stringid.
 [ ] Dessication logic
 [ ] Rehydration logic
 
@@ -85,6 +87,7 @@ LOW-PRIORITY:
 [ ] Build morale system
 [ ] Build pilot system
 [ ] Build intel system
+[ ] Replace shipbuilding system with a more simulationistic one
 [ ] Build parser to convert .blend file to Spiderweb nodemap
 
 QUESTIONS FOR AMARYLLIS:

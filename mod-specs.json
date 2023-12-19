@@ -1080,42 +1080,42 @@
             "id": "steel",
             "visiblename": "Durasteel",
             "description": "A tough alloy of various metals, ubiquitous in construction all across the galaxy.",
-            "cargovol": 10,
+            "unit_vol": 10,
             "valuemult": 1
         },
         {
             "id": "components",
             "visiblename": "Industrial Components",
             "description": "An assortment of standard parts useful in all sorts of construction projects.",
-            "cargovol": 20,
+            "unit_vol": 20,
             "valuemult": 5
         },
         {
             "id": "food",
             "visiblename": "Food Supplies",
             "description": "Foodstuffs consumed by sentient populations of all sorts.",
-            "cargovol": 5,
+            "unit_vol": 5,
             "valuemult": 1
         },
         {
             "id": "personnel",
             "visiblename": "Personnel",
             "description": "Some guys. They're kind of annoying to transport.",
-            "cargovol": 1,
+            "unit_vol": 1,
             "valuemult": 5
         },
         {
             "id": "lightlaser",
             "visiblename": "Light Laser Cannon",
             "description": "A basic laser weapon used by fighters.",
-            "cargovol": 10,
+            "unit_vol": 10,
             "valuemult": 1
         },
         {
             "id": "prottorp",
             "visiblename": "Proton Torpedo",
             "description": "A common but powerful torpedo weapon. Consumable.",
-            "cargovol": 2,
+            "unit_vol": 2,
             "valuemult": 2
         }
     ],
@@ -1330,7 +1330,6 @@
                 "prottorp": 4
             },
             "hangarvol": 20,
-            "cargovol": 10,
             "engines": [
                 "basicengine"
             ],
@@ -1350,7 +1349,6 @@
                 "prottorp": 4
             },
             "hangarvol": 30,
-            "cargovol": 15,
             "engines": [
                 "basicengine"
             ],
