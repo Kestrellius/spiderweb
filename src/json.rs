@@ -1,8 +1,6 @@
 //this is the section of the program that manages the json files defined by the modder
 use crate::internal;
-
 use serde::{Deserialize, Serialize};
-
 use std::collections::{HashMap, HashSet};
 use std::iter;
 use std::sync::atomic::AtomicU64;
@@ -155,8 +153,7 @@ impl Node {
                     .get(&self.flavor)
                     .expect("Node flavor field is not correctly defined!")
                     .clone(),
-                ships: Vec::new(),
-                fleets: Vec::new(),
+                mobs: Vec::new(),
                 factoryinstancelist: self
                     .factorylist
                     .iter()
@@ -691,7 +688,7 @@ impl ShipClass {
                     })
                     .collect()
             }),
-            hangarvol: self.hangarvol,
+            hangarvol: self.hangarvol.unwrap_or(u64::MAX),
             stockpiles: self
                 .stockpiles
                 .unwrap_or(Vec::new())
@@ -1159,11 +1156,10 @@ impl Root {
             shipyardclasses: shipyardclassidmap.values().cloned().collect(),
             shipais: shipaiidmap.values().cloned().collect(),
             shipclasses,
-            shipinstances: Vec::new(),
-            shipinstancecounter: Arc::new(AtomicU64::new(0)),
             fleetclasses: fleetclassidmap.values().cloned().collect(),
+            shipinstances: Vec::new(),
             fleetinstances: Vec::new(),
-            fleetinstancecounter: Arc::new(AtomicU64::new(0)),
+            mobcounter: Arc::new(AtomicU64::new(0)),
             engagements: Vec::new(),
             globalsalience: internal::GlobalSalience {
                 resourcesalience: Vec::new(),

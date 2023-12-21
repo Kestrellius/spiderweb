@@ -71,7 +71,11 @@ GENERAL:
     [x] Convert fleetinstances.
     [x] Convert engagements.
     [x] Deal with hangarinstances.
-[ ] Put certain methods in "mobility" trait on Arc-Ship/FleetInstance, and similar for node
+[x] Put certain methods in "mobility" trait on Arc-Ship/FleetInstance
+[x] Put certain methods in "locality" trait on Arc-Node
+[ ] Make "mobility" fully generic -- allow fleets and hangars to hold fleets
+[ ] Add check_for_battles, balance_hangars, and balance_stockpiles bools on node
+[ ] Build node templating system
 [x] Clean up hydration logic -- which things do or don't return just the internal struct vs. internal struct plus stringid.
 [ ] Dessication logic
 [ ] Rehydration logic

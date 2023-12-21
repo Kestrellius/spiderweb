@@ -1,9 +1,6 @@
-use spiderweb::internal::ShipLocation;
-
+use spiderweb::internal::MobLocation;
 use spiderweb::json;
-
 use std::fs::File;
-
 use std::time::Instant;
 
 fn main() {
@@ -17,12 +14,12 @@ fn main() {
     //dbg!(root.shipinstances.next_index);
     root.create_ship(
         root.shipclasses[0].clone(),
-        ShipLocation::Node(root.nodes[0].clone()),
+        MobLocation::Node(root.nodes[0].clone()),
         root.factions[0].clone(),
     );
-    let ship = &root.shipinstances[0];
+    let _ship = &root.shipinstances[0];
 
-    for i in 0..50 {
+    for _i in 0..50 {
         root.process_turn();
     }
     /*
