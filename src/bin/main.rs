@@ -1,9 +1,11 @@
 use spiderweb::internal::MobLocation;
 use spiderweb::json;
+use std::env;
 use std::fs::File;
 use std::time::Instant;
 
 fn main() {
+    //env::set_var("RUST_BACKTRACE", "1");
     let file = File::open("mod-specs.json").unwrap();
     let start = Instant::now();
     let json_root: json::Root = serde_json::from_reader(file).unwrap();
@@ -11,17 +13,14 @@ fn main() {
     dbg!(duration);
     let mut root = json_root.hydrate();
 
-    //dbg!(root.shipinstances.next_index);
-    root.create_ship(
-        root.shipclasses[0].clone(),
-        MobLocation::Node(root.nodes[0].clone()),
-        root.factions[0].clone(),
-    );
-    let _ship = &root.shipinstances[0];
-
     for _i in 0..50 {
         root.process_turn();
     }
+
+    dbg!(root.nodes.len());
+    dbg!(root.resources.len());
+    dbg!(root.shipclasses.len());
+
     /*
         dbg!(root.nodes);
         dbg!(root.shipinstances);

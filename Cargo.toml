@@ -13,6 +13,7 @@ no-panic = "0.1.26"
 average = "0.14.1"
 rand_distr = "0.4.3"
 rand = "0.8.5"
+rayon = "1.8"
 
 [dependencies.uuid]
 version = "1.1.2"

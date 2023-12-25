@@ -1363,6 +1363,7 @@
             "basehull": 1000,
             "basestrength": 1000,
             "aiclass": "basicai",
+            "hangarvol": 100000,
             "hangars": [
                 "isdhangar"
             ],
@@ -1380,6 +1381,7 @@
             "basehull": 100,
             "basestrength": 150,
             "aiclass": "basicai",
+            "hangarvol": 5000,
             "engines": [
                 "basicengine"
             ],

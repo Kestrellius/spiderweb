@@ -28,9 +28,9 @@ struct SalienceScalars {
     faction_deg_mult: Option<f32>,
     resource_deg_mult: Option<f32>,
     shipclass_deg_mult: Option<f32>,
-    faction_prop_iters: Option<u64>, //number of edges across which this salience will propagate during a turn
-    resource_prop_iters: Option<u64>,
-    shipclass_prop_iters: Option<u64>,
+    faction_prop_iters: Option<usize>, //number of edges across which this salience will propagate during a turn
+    resource_prop_iters: Option<usize>,
+    shipclass_prop_iters: Option<usize>,
 }
 
 impl SalienceScalars {
@@ -153,7 +153,7 @@ impl Node {
                     .get(&self.flavor)
                     .expect("Node flavor field is not correctly defined!")
                     .clone(),
-                mobs: Vec::new(),
+                units: Vec::new(),
                 factoryinstancelist: self
                     .factorylist
                     .iter()
@@ -640,7 +640,7 @@ struct ShipClass {
     basehull: u64,     //how many hull hitpoints this ship has by default
     basestrength: u64, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
     visibility: Option<bool>,
-    hangarvol: Option<u64>, //how much hangar space this ship takes up when carried by a host
+    hangarvol: u64, //how much hangar space this ship takes up when carried by a host
     stockpiles: Option<Vec<PluripotentStockpile>>,
     defaultweapons: Option<HashMap<String, u64>>, //a strikecraft's default weapons, which it always has with it
     hangars: Option<Vec<String>>,
@@ -688,7 +688,7 @@ impl ShipClass {
                     })
                     .collect()
             }),
-            hangarvol: self.hangarvol.unwrap_or(u64::MAX),
+            hangarvol: self.hangarvol,
             stockpiles: self
                 .stockpiles
                 .unwrap_or(Vec::new())
@@ -816,7 +816,7 @@ impl FleetClass {
                 .map(|(stringid, n)| (factions.get(stringid).unwrap().clone(), *n))
                 .collect(),
             defectescapescalar: self.defectescapescalar.unwrap_or(1.0),
-            navthreshold: self.navthreshold,
+            navquorum: self.navthreshold,
             disbandthreshold: self.disbandthreshold,
         };
         fleetclass
@@ -958,7 +958,7 @@ impl Root {
             visibility: Some(false),
             aiclass: "basicai".to_string(), //aiclass
             defaultweapons: None, //a strikecraft's default weapons, which it always has with it
-            hangarvol: None,      //how much hangar space this ship takes up when carried by a host
+            hangarvol: 0,         //how much hangar space this ship takes up when carried by a host
             factoryclasslist: None,
             shipyardclasslist: None,
             stockpiles: None,
@@ -1155,18 +1155,48 @@ impl Root {
             factoryclasses: factoryclassidmap.values().cloned().collect(),
             shipyardclasses: shipyardclassidmap.values().cloned().collect(),
             shipais: shipaiidmap.values().cloned().collect(),
-            shipclasses,
+            shipclasses: shipclasses.clone(),
             fleetclasses: fleetclassidmap.values().cloned().collect(),
-            shipinstances: Vec::new(),
-            fleetinstances: Vec::new(),
-            mobcounter: Arc::new(AtomicU64::new(0)),
-            engagements: Vec::new(),
+            shipinstances: RwLock::new(Vec::new()),
+            fleetinstances: RwLock::new(Vec::new()),
+            unitcounter: Arc::new(AtomicU64::new(0)),
+            engagements: RwLock::new(Vec::new()),
             globalsalience: internal::GlobalSalience {
-                resourcesalience: Vec::new(),
-                shipclasssalience: Vec::new(),
-                factionsalience: Vec::new(),
+                factionsalience: RwLock::new(
+                    factions
+                        .iter()
+                        .map(|_| {
+                            factions
+                                .iter()
+                                .map(|_| nodeidmap.iter().map(|_| [0.0; 2]).collect())
+                                .collect()
+                        })
+                        .collect(),
+                ),
+                resourcesalience: RwLock::new(
+                    factions
+                        .iter()
+                        .map(|_| {
+                            resourceidmap
+                                .iter()
+                                .map(|_| nodeidmap.iter().map(|_| [0.0; 2]).collect())
+                                .collect()
+                        })
+                        .collect(),
+                ),
+                shipclasssalience: RwLock::new(
+                    factions
+                        .iter()
+                        .map(|_| {
+                            shipclasses
+                                .iter()
+                                .map(|_| nodeidmap.iter().map(|_| [0.0; 2]).collect())
+                                .collect()
+                        })
+                        .collect(),
+                ),
             },
-            turn: 0_u64,
+            turn: Arc::new(AtomicU64::new(0)),
         }
     }
 }
