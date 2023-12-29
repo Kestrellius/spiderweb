@@ -3010,20 +3010,18 @@ impl Mobility for Arc<FleetInstance> {
         //by checking strength of failed ships, and then all daughters
         //we don't just call get_strength on the fleet itself
         //if we did, the fleet's strength modifiers would be counted only toward its total
-        match failed_ships
+        let failed_strength = failed_ships
             .iter()
             .map(|ship| ship.get_strength(root.config.battlescalars.avg_duration) as f32)
-            .sum::<f32>()
-            / daughters
-                .iter()
-                .map(|daughter| {
-                    daughter.get_strength(root.config.battlescalars.avg_duration) as f32
-                })
-                .sum::<f32>()
-            < (1.0 - self.class.navquorum)
-        {
-            true => passed_ships,
-            false => Vec::new(),
+            .sum::<f32>();
+        let total_strength = daughters
+            .iter()
+            .map(|daughter| daughter.get_strength(root.config.battlescalars.avg_duration) as f32)
+            .sum::<f32>();
+        if (failed_strength / total_strength) < (1.0 - self.class.navquorum) {
+            passed_ships
+        } else {
+            Vec::new()
         }
     }
     fn process_engines(&self, root: &Root, destination: Arc<Node>) {
@@ -4840,6 +4838,7 @@ impl Root {
             .collect()
     }
     pub fn process_turn(&mut self) {
+        let start0 = Instant::now();
         //increment turn counter
         let turn = self.turn.fetch_add(1, atomic::Ordering::Relaxed);
         println!("It is now turn {}.", turn);
@@ -4917,6 +4916,7 @@ impl Root {
 
         //move ships, one edge at a time
         //running battle checks and stockpile balancing with each traversal
+        let start = Instant::now();
         let shipinstances = self.shipinstances.read().unwrap().clone();
         shipinstances.iter().for_each(|shipinstance| {
             if let Some(destination) = shipinstance.maneuver(self) {
@@ -4932,6 +4932,7 @@ impl Root {
                 }
             }
         });
+        dbg!(start.elapsed());
 
         //move fleets, one edge at a time
         //running battle checks and stockpile balancing with each traversal
@@ -4944,17 +4945,18 @@ impl Root {
 
         //NOTE: I don't remember what this is for
         //I don't *think* it's doing anything that actually matters, but Chesterton's Fence?
-        self.nodes.iter().for_each(|node| {
-            let mut threat_list: Vec<(Arc<Faction>, f32)> = node
-                .mutables
-                .read()
-                .unwrap()
-                .threat
-                .iter()
-                .map(|(faction, v)| (faction.clone(), *v))
-                .collect();
-            threat_list.sort_by_key(|(faction, _)| faction.clone());
-        });
+        //self.nodes.iter().for_each(|node| {
+        //    let mut threat_list: Vec<(Arc<Faction>, f32)> = node
+        //        .mutables
+        //        .read()
+        //        .unwrap()
+        //        .threat
+        //        .iter()
+        //        .map(|(faction, v)| (faction.clone(), *v))
+        //        .collect();
+        //    threat_list.sort_by_key(|(faction, _)| faction.clone());
+        //});
+        dbg!(start0.elapsed());
     }
 }
 
