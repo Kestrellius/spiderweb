@@ -113,7 +113,7 @@ trait Locality {
     fn plan_ships(
         &self,
         shipclasses: &Vec<Arc<ShipClass>>,
-    ) -> Vec<(Arc<ShipClass>, MobLocation, Arc<Faction>)>;
+    ) -> Vec<(Arc<ShipClass>, UnitLocation, Arc<Faction>)>;
 }
 
 impl Locality for Arc<Node> {
@@ -127,7 +127,7 @@ impl Locality for Arc<Node> {
     fn plan_ships(
         &self,
         shipclasses: &Vec<Arc<ShipClass>>,
-    ) -> Vec<(Arc<ShipClass>, MobLocation, Arc<Faction>)> {
+    ) -> Vec<(Arc<ShipClass>, UnitLocation, Arc<Faction>)> {
         let mut mutables = self.mutables.write().unwrap();
         let efficiency = mutables.efficiency;
         let allegiance = mutables.allegiance.clone();
@@ -142,7 +142,7 @@ impl Locality for Arc<Node> {
                     .map(|ship_plan| {
                         (
                             ship_plan.clone(),
-                            MobLocation::Node(self.clone()),
+                            UnitLocation::Node(self.clone()),
                             allegiance.clone(),
                         )
                     })
@@ -1638,55 +1638,57 @@ impl Hash for ShipAI {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub enum MobLocation {
+pub enum UnitLocation {
     Node(Arc<Node>),
     Fleet(Arc<FleetInstance>),
     Hangar(Arc<HangarInstance>),
 }
 
-impl MobLocation {
+impl UnitLocation {
     fn check_insert(&self, unit: Unit) -> bool {
         match self {
-            MobLocation::Node(_node) => true,
-            MobLocation::Fleet(_fleet) => true,
-            MobLocation::Hangar(hangar) => {
+            UnitLocation::Node(_node) => true,
+            UnitLocation::Fleet(_fleet) => true,
+            UnitLocation::Hangar(hangar) => {
                 unit.get_volume() <= hangar.class.capacity - hangar.get_fullness()
             }
         }
     }
     fn check_remove(&self, unit: Unit) -> bool {
         match self {
-            MobLocation::Node(node) => node.mutables.read().unwrap().units.contains(&unit),
-            MobLocation::Fleet(fleet) => fleet.get_daughters().contains(&unit),
-            MobLocation::Hangar(hangar) => hangar.mutables.read().unwrap().contents.contains(&unit),
+            UnitLocation::Node(node) => node.mutables.read().unwrap().units.contains(&unit),
+            UnitLocation::Fleet(fleet) => fleet.get_daughters().contains(&unit),
+            UnitLocation::Hangar(hangar) => {
+                hangar.mutables.read().unwrap().contents.contains(&unit)
+            }
         }
     }
     fn insert_unit(&self, unit: Unit) {
         match self {
-            MobLocation::Node(node) => node.mutables.write().unwrap().units.push(unit.clone()),
-            MobLocation::Fleet(fleet) => {
+            UnitLocation::Node(node) => node.mutables.write().unwrap().units.push(unit.clone()),
+            UnitLocation::Fleet(fleet) => {
                 fleet.mutables.write().unwrap().daughters.push(unit.clone())
             }
-            MobLocation::Hangar(hangar) => {
+            UnitLocation::Hangar(hangar) => {
                 hangar.mutables.write().unwrap().contents.push(unit.clone())
             }
         }
     }
     fn remove_unit(&self, unit: Unit) {
         match self {
-            MobLocation::Node(node) => node
+            UnitLocation::Node(node) => node
                 .mutables
                 .write()
                 .unwrap()
                 .units
                 .retain(|content| content != &unit),
-            MobLocation::Fleet(fleet) => fleet
+            UnitLocation::Fleet(fleet) => fleet
                 .mutables
                 .write()
                 .unwrap()
                 .daughters
                 .retain(|content| content != &unit),
-            MobLocation::Hangar(hangar) => hangar
+            UnitLocation::Hangar(hangar) => hangar
                 .mutables
                 .write()
                 .unwrap()
@@ -1702,38 +1704,38 @@ pub trait Mobility {
     fn get_fleet(&self) -> Option<Arc<FleetInstance>>;
     fn get_id(&self) -> u64;
     fn is_ship(&self) -> bool;
-    fn get_location(&self) -> MobLocation;
+    fn get_location(&self) -> UnitLocation;
     fn check_location_coherency(&self);
     fn is_in_node(&self) -> bool {
         match self.get_location() {
-            MobLocation::Node(_) => true,
+            UnitLocation::Node(_) => true,
             _ => false,
         }
     }
     fn is_in_fleet(&self) -> bool {
         match self.get_location() {
-            MobLocation::Fleet(_) => true,
+            UnitLocation::Fleet(_) => true,
             _ => false,
         }
     }
     fn is_in_hangar(&self) -> bool {
         match self.get_location() {
-            MobLocation::Hangar(_) => true,
+            UnitLocation::Hangar(_) => true,
             _ => false,
         }
     }
     fn get_mother_node(&self) -> Arc<Node> {
         match self.get_location() {
-            MobLocation::Node(node) => node,
-            MobLocation::Fleet(fleet) => fleet.get_mother_node(),
-            MobLocation::Hangar(hangar) => hangar.mother.get_mother_node(),
+            UnitLocation::Node(node) => node,
+            UnitLocation::Fleet(fleet) => fleet.get_mother_node(),
+            UnitLocation::Hangar(hangar) => hangar.mother.get_mother_node(),
         }
     }
     fn get_mother_fleet(&self) -> Option<Arc<FleetInstance>> {
         match self.get_location() {
-            MobLocation::Node(_) => None,
-            MobLocation::Fleet(fleet) => Some(fleet),
-            MobLocation::Hangar(hangar) => hangar.mother.get_mother_fleet(),
+            UnitLocation::Node(_) => None,
+            UnitLocation::Fleet(fleet) => Some(fleet),
+            UnitLocation::Hangar(hangar) => hangar.mother.get_mother_fleet(),
         }
     }
     fn get_allegiance(&self) -> Arc<Faction>;
@@ -1751,16 +1753,16 @@ pub trait Mobility {
     fn get_shipclass_demand(&self, shipclass: Arc<ShipClass>) -> u64;
     fn get_shipclass_demand_ratio(&self, shipclass: Arc<ShipClass>) -> (u64, u64);
     fn change_allegiance(&self, new_faction: Arc<Faction>);
-    fn acyclicity_check(&self, location: MobLocation) -> bool {
+    fn acyclicity_check(&self, location: UnitLocation) -> bool {
         match location.clone() {
-            MobLocation::Fleet(fleet) => {
+            UnitLocation::Fleet(fleet) => {
                 if fleet.get_id() == self.get_id() {
                     false
                 } else {
                     self.acyclicity_check(fleet.get_location())
                 }
             }
-            MobLocation::Hangar(hangar) => {
+            UnitLocation::Hangar(hangar) => {
                 let carrier = hangar.mother.clone();
                 if carrier.get_id() == self.get_id() {
                     false
@@ -1771,7 +1773,7 @@ pub trait Mobility {
             _ => true,
         }
     }
-    fn transfer(&self, destination: MobLocation) -> bool;
+    fn transfer(&self, destination: UnitLocation) -> bool;
     fn destinations_check(
         &self,
         root: &Root,
@@ -1866,7 +1868,7 @@ impl ShipClass {
     //we generate those in a later step with build_hangars
     fn instantiate(
         class: Arc<Self>,
-        location: MobLocation,
+        location: UnitLocation,
         faction: Arc<Faction>,
         root: &Root,
     ) -> ShipInstance {
@@ -1946,7 +1948,7 @@ pub struct ShipInstanceMut {
     pub repairers: Vec<RepairerInstance>,
     pub factoryinstancelist: Vec<FactoryInstance>,
     pub shipyardinstancelist: Vec<ShipyardInstance>,
-    pub location: MobLocation, //where the ship is -- a node if it's unaffiliated, a fleet if it's in one
+    pub location: UnitLocation, //where the ship is -- a node if it's unaffiliated, a fleet if it's in one
     pub allegiance: Arc<Faction>, //which faction this ship belongs to
     pub objectives: Vec<ObjectiveFlavor>,
     pub aiclass: Arc<ShipAI>,
@@ -2002,13 +2004,13 @@ impl Mobility for Arc<ShipInstance> {
     fn is_ship(&self) -> bool {
         true
     }
-    fn get_location(&self) -> MobLocation {
+    fn get_location(&self) -> UnitLocation {
         self.mutables.read().unwrap().location.clone()
     }
     fn check_location_coherency(&self) {
         let mother = self.get_location();
         let sisters: Vec<_> = match mother.clone() {
-            MobLocation::Node(node) => node
+            UnitLocation::Node(node) => node
                 .mutables
                 .read()
                 .unwrap()
@@ -2016,7 +2018,7 @@ impl Mobility for Arc<ShipInstance> {
                 .iter()
                 .cloned()
                 .collect(),
-            MobLocation::Fleet(fleet) => fleet
+            UnitLocation::Fleet(fleet) => fleet
                 .mutables
                 .read()
                 .unwrap()
@@ -2024,7 +2026,7 @@ impl Mobility for Arc<ShipInstance> {
                 .iter()
                 .cloned()
                 .collect(),
-            MobLocation::Hangar(hangar) => hangar
+            UnitLocation::Hangar(hangar) => hangar
                 .mutables
                 .read()
                 .unwrap()
@@ -2214,7 +2216,7 @@ impl Mobility for Arc<ShipInstance> {
             .for_each(|daughter| daughter.change_allegiance(new_faction.clone()));
     }
     //NOTE: Figure out if making new boxes here will actually work. If not, trait transferability on unit time, probably.
-    fn transfer(&self, destination: MobLocation) -> bool {
+    fn transfer(&self, destination: UnitLocation) -> bool {
         let source = self.get_location();
         if source.check_remove(self.new_unit())
             && destination.check_insert(self.new_unit())
@@ -2430,7 +2432,7 @@ impl Mobility for Arc<ShipInstance> {
     }
     fn traverse(&self, root: &Root, destination: Arc<Node>) -> Option<Arc<Node>> {
         self.process_engines(root, destination.clone());
-        self.transfer(MobLocation::Node(destination.clone()));
+        self.transfer(UnitLocation::Node(destination.clone()));
         Some(destination)
     }
     //this moves a ship across one edge so long as it has a functioning engine, draining fuel from the engines it uses
@@ -2525,12 +2527,12 @@ impl Mobility for Arc<ShipInstance> {
                         Some(vec![destination])
                     }
                     None => {
-                        self.transfer(MobLocation::Node(location.clone()));
+                        self.transfer(UnitLocation::Node(location.clone()));
                         Some(vec![location])
                     }
                 }
             } else {
-                self.transfer(MobLocation::Node(location.clone()));
+                self.transfer(UnitLocation::Node(location.clone()));
                 Some(vec![location])
             }
         } else {
@@ -2605,7 +2607,7 @@ impl ShipInstance {
     pub fn plan_ships(
         &self,
         shipclasses: &Vec<Arc<ShipClass>>,
-    ) -> Vec<(Arc<ShipClass>, MobLocation, Arc<Faction>)> {
+    ) -> Vec<(Arc<ShipClass>, UnitLocation, Arc<Faction>)> {
         let mut mutables = self.mutables.write().unwrap();
         let efficiency = mutables.efficiency;
         let location = mutables.location.clone();
@@ -2692,7 +2694,7 @@ impl FleetClass {
             idealstrength: class.get_ideal_strength(root),
             mutables: RwLock::new(FleetInstanceMut {
                 visibility: class.visibility,
-                location: MobLocation::Node(location),
+                location: UnitLocation::Node(location),
                 daughters: Vec::new(),
                 allegiance: faction,
                 objectives: Vec::new(),
@@ -2714,7 +2716,7 @@ pub struct NavAI {
 #[derive(Debug, Clone)]
 pub struct FleetInstanceMut {
     visibility: bool,
-    location: MobLocation,
+    location: UnitLocation,
     daughters: Vec<Unit>,
     allegiance: Arc<Faction>,
     objectives: Vec<ObjectiveFlavor>,
@@ -2772,13 +2774,13 @@ impl Mobility for Arc<FleetInstance> {
     fn is_ship(&self) -> bool {
         false
     }
-    fn get_location(&self) -> MobLocation {
+    fn get_location(&self) -> UnitLocation {
         self.mutables.read().unwrap().location.clone()
     }
     fn check_location_coherency(&self) {
         let mother = self.get_location();
         let sisters: Vec<_> = match mother.clone() {
-            MobLocation::Node(node) => node
+            UnitLocation::Node(node) => node
                 .mutables
                 .read()
                 .unwrap()
@@ -2786,7 +2788,7 @@ impl Mobility for Arc<FleetInstance> {
                 .iter()
                 .cloned()
                 .collect(),
-            MobLocation::Fleet(fleet) => fleet
+            UnitLocation::Fleet(fleet) => fleet
                 .mutables
                 .read()
                 .unwrap()
@@ -2794,7 +2796,7 @@ impl Mobility for Arc<FleetInstance> {
                 .iter()
                 .cloned()
                 .collect(),
-            MobLocation::Hangar(hangar) => hangar
+            UnitLocation::Hangar(hangar) => hangar
                 .mutables
                 .read()
                 .unwrap()
@@ -2950,12 +2952,12 @@ impl Mobility for Arc<FleetInstance> {
             .iter()
             .for_each(|daughter| daughter.change_allegiance(new_faction.clone()));
     }
-    fn transfer(&self, destination: MobLocation) -> bool {
+    fn transfer(&self, destination: UnitLocation) -> bool {
         match self.mutables.read().unwrap().location.clone() {
-            MobLocation::Node(node) => {
+            UnitLocation::Node(node) => {
                 //NOTE: Make sure cloning destination here clones the arc rather than cloning the thing inside the arc
                 match destination.clone() {
-                    MobLocation::Node(destnode) => {
+                    UnitLocation::Node(destnode) => {
                         node.mutables
                             .write()
                             .unwrap()
@@ -2970,12 +2972,12 @@ impl Mobility for Arc<FleetInstance> {
                             .push(self.new_unit());
                         true
                     }
-                    MobLocation::Fleet(_) => false,
-                    MobLocation::Hangar(_) => false,
+                    UnitLocation::Fleet(_) => false,
+                    UnitLocation::Hangar(_) => false,
                 }
             }
-            MobLocation::Fleet(_) => false,
-            MobLocation::Hangar(_) => false,
+            UnitLocation::Fleet(_) => false,
+            UnitLocation::Hangar(_) => false,
         }
     }
     fn destinations_check(
@@ -3149,10 +3151,10 @@ impl Mobility for Arc<FleetInstance> {
                 .filter(|daughter| !valid.contains(daughter))
                 .collect::<Vec<_>>();
             left_behind.iter().for_each(|expelled| {
-                expelled.transfer(MobLocation::Node(self.get_mother_node()));
+                expelled.transfer(UnitLocation::Node(self.get_mother_node()));
             });
             self.process_engines(root, destination.clone());
-            self.transfer(MobLocation::Node(destination.clone()));
+            self.transfer(UnitLocation::Node(destination.clone()));
             Some(destination)
         } else {
             None
@@ -3295,7 +3297,7 @@ impl Mobility for Unit {
             Unit::Fleet(fleet) => fleet.is_ship(),
         }
     }
-    fn get_location(&self) -> MobLocation {
+    fn get_location(&self) -> UnitLocation {
         match self {
             Unit::Ship(ship) => ship.get_location(),
             Unit::Fleet(fleet) => fleet.get_location(),
@@ -3397,7 +3399,7 @@ impl Mobility for Unit {
             Unit::Fleet(fleet) => fleet.change_allegiance(new_faction),
         }
     }
-    fn transfer(&self, destination: MobLocation) -> bool {
+    fn transfer(&self, destination: UnitLocation) -> bool {
         match self {
             Unit::Ship(ship) => ship.transfer(destination),
             Unit::Fleet(fleet) => fleet.transfer(destination),
@@ -3679,7 +3681,7 @@ pub struct Engagement {
     location: Arc<Node>,
     duration: u64,
     victor: Vec<Arc<Faction>>,
-    ship_status: HashMap<Arc<ShipInstance>, (u64, Vec<u64>, MobLocation)>,
+    ship_status: HashMap<Arc<ShipInstance>, (u64, Vec<u64>, UnitLocation)>,
     fleet_status: HashMap<Arc<FleetInstance>, Arc<Node>>,
 }
 
@@ -3689,7 +3691,7 @@ impl Engagement {
             self.location.mutables.write().unwrap().allegiance = self.aggressor.clone()
         };
         for (fleet, l) in &self.fleet_status {
-            fleet.transfer(MobLocation::Node(l.clone()));
+            fleet.transfer(UnitLocation::Node(l.clone()));
         }
         for (ship, (damage, engine_damage, location)) in &self.ship_status {
             ship.transfer(location.clone());
@@ -4073,7 +4075,7 @@ impl Root {
     pub fn create_ship(
         &self,
         class: Arc<ShipClass>,
-        location: MobLocation,
+        location: UnitLocation,
         faction: Arc<Faction>,
     ) -> Arc<ShipInstance> {
         //we call the shipclass instantiate method, and feed it the parameters it wants
@@ -4466,7 +4468,7 @@ impl Root {
             .clamp(0.0, 1.0);
 
         //NOTE: Maybe have the lethality scaling over battle duration be logarithmic? Maybe modder-specified?
-        let ship_status: HashMap<Arc<ShipInstance>, (u64, Vec<u64>, MobLocation)> = {
+        let ship_status: HashMap<Arc<ShipInstance>, (u64, Vec<u64>, UnitLocation)> = {
             all_ships
                 .iter()
                 .map(|ship| {
@@ -4477,7 +4479,7 @@ impl Root {
                             .clamp(0.0, 10.0);
                     if !victor.contains(&ship.get_allegiance()) {
                         let new_location = if ship.is_in_node() {
-                            MobLocation::Node(
+                            UnitLocation::Node(
                                 ship.navigate(self, neighbors)
                                     .unwrap_or(data.location.clone()),
                             )
@@ -4545,7 +4547,7 @@ impl Root {
                         {
                             ship.mutables.read().unwrap().location.clone()
                         } else {
-                            MobLocation::Node(data.location.clone())
+                            UnitLocation::Node(data.location.clone())
                         };
                         //we do basically the same thing for winning ships
                         //except that the strength ratio is reversed
@@ -4641,7 +4643,7 @@ impl Root {
             fleet
                 .get_daughters()
                 .iter()
-                .all(|daughter| daughter.transfer(MobLocation::Node(fleet.get_mother_node())));
+                .all(|daughter| daughter.transfer(UnitLocation::Node(fleet.get_mother_node())));
         }
         let remaining: Vec<Arc<FleetInstance>> = self
             .fleetinstances
@@ -4874,7 +4876,7 @@ impl Root {
             .for_each(|ship| ship.process_shipyards());
 
         //plan ship creation
-        let ship_plan_list: Vec<(Arc<ShipClass>, MobLocation, Arc<Faction>)> = self
+        let ship_plan_list: Vec<(Arc<ShipClass>, UnitLocation, Arc<Faction>)> = self
             .nodes
             .iter()
             .map(|node| node.clone().plan_ships(&self.shipclasses))

@@ -1,4 +1,4 @@
-use spiderweb::internal::MobLocation;
+use spiderweb::internal::UnitLocation;
 use spiderweb::json;
 use std::env;
 use std::fs::File;

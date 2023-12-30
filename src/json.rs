@@ -1,5 +1,7 @@
 //this is the section of the program that manages the json files defined by the modder
 use crate::internal;
+use dyn_clone::DynClone;
+use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::iter;
@@ -113,6 +115,24 @@ impl NodeFlavor {
     }
 }
 
+#[typetag::serde(tag = "type")]
+trait Nodity: DynClone {
+    fn get_id(&self) -> String;
+    fn is_orphan(&self, nodetemplates: &Vec<NodeTemplate>) -> bool;
+    fn hydrate(
+        &self,
+        index: usize,
+        nodetemplates: &Vec<NodeTemplate>,
+        nodeflavoridmap: &HashMap<String, Arc<internal::NodeFlavor>>,
+        factions: &HashMap<String, Arc<internal::Faction>>,
+        factoryclassidmap: &HashMap<String, Arc<internal::FactoryClass>>,
+        shipyardclassidmap: &HashMap<String, Arc<internal::ShipyardClass>>,
+        shipclasses: &Vec<Arc<internal::ShipClass>>,
+    ) -> internal::Node;
+}
+
+dyn_clone::clone_trait_object!(Nodity);
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct Node {
     id: String,
@@ -130,10 +150,18 @@ struct Node {
     efficiency: Option<f32>, //efficiency of any production facilities in this node; changes over time based on faction ownership
 }
 
-impl Node {
+#[typetag::serde]
+impl Nodity for Node {
+    fn get_id(&self) -> String {
+        self.id.clone()
+    }
+    fn is_orphan(&self, nodetemplates: &Vec<NodeTemplate>) -> bool {
+        self.orphan.unwrap_or(false)
+    }
     fn hydrate(
-        self,
+        &self,
         index: usize,
+        nodetemplates: &Vec<NodeTemplate>,
         nodeflavoridmap: &HashMap<String, Arc<internal::NodeFlavor>>,
         factions: &HashMap<String, Arc<internal::Faction>>,
         factoryclassidmap: &HashMap<String, Arc<internal::FactoryClass>>,
@@ -142,11 +170,11 @@ impl Node {
     ) -> internal::Node {
         let node = internal::Node {
             id: index,
-            visiblename: self.visiblename,
+            visiblename: self.visiblename.clone(),
             position: self.position.unwrap_or([0, 0, 0]),
-            description: self.description,
-            environment: self.environment,
-            bitmap: self.bitmap,
+            description: self.description.clone(),
+            environment: self.environment.clone(),
+            bitmap: self.bitmap.clone(),
             mutables: RwLock::new(internal::NodeMut {
                 visibility: self.visibility.unwrap_or(true),
                 flavor: nodeflavoridmap
@@ -195,13 +223,181 @@ impl Node {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct NodeTemplate {
+    id: String,
+    description: String,
+    visibility: Option<bool>,
+    flavor: Vec<(String, u64)>, //type of location this node is -- planet, asteroid field, hyperspace transit zone
+    factorylist: HashMap<String, (f32, u64, u64)>, //a list of the factories this node has, in the form of FactoryClass IDs
+    shipyardlist: HashMap<String, (f32, u64, u64)>,
+    environment: Vec<(String, u64)>, //name of the FRED environment to use for missions set in this node
+    bitmap: Option<Vec<((String, f32), u64)>>,
+    orphan: Option<bool>, //an orphaned node does not get all-to-all edges automatically built with the other nodes in its system
+    allegiance: Vec<(String, u64)>, //faction that currently holds the node
+    efficiency: Option<f32>, //efficiency of any production facilities in this node; changes over time based on faction ownership
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct TemplatedNode {
+    id: String,
+    visiblename: String,
+    position: Option<[i64; 3]>,
+    template: String,
+}
+
+#[typetag::serde]
+impl Nodity for TemplatedNode {
+    fn get_id(&self) -> String {
+        self.id.clone()
+    }
+    fn is_orphan(&self, nodetemplates: &Vec<NodeTemplate>) -> bool {
+        nodetemplates
+            .iter()
+            .find(|t| t.id == self.template)
+            .unwrap()
+            .orphan
+            .unwrap_or(false)
+    }
+    fn hydrate(
+        &self,
+        index: usize,
+        nodetemplates: &Vec<NodeTemplate>,
+        nodeflavoridmap: &HashMap<String, Arc<internal::NodeFlavor>>,
+        factions: &HashMap<String, Arc<internal::Faction>>,
+        factoryclassidmap: &HashMap<String, Arc<internal::FactoryClass>>,
+        shipyardclassidmap: &HashMap<String, Arc<internal::ShipyardClass>>,
+        shipclasses: &Vec<Arc<internal::ShipClass>>,
+    ) -> internal::Node {
+        let template = nodetemplates
+            .iter()
+            .find(|t| t.id == self.template)
+            .unwrap()
+            .clone();
+        let node = internal::Node {
+            id: index,
+            visiblename: self.visiblename.clone(),
+            position: self.position.unwrap_or([0, 0, 0]),
+            description: template.description,
+            environment: {
+                let mut rng = thread_rng();
+                template
+                    .environment
+                    .choose_weighted(&mut rng, |(_, prob)| prob.clone())
+                    .unwrap()
+                    .0
+                    .clone()
+            },
+            bitmap: {
+                let mut rng = thread_rng();
+                template.bitmap.map(|bitmaps| {
+                    bitmaps
+                        .choose_weighted(&mut rng, |(_, prob)| prob.clone())
+                        .unwrap()
+                        .0
+                        .clone()
+                })
+            },
+            mutables: RwLock::new(internal::NodeMut {
+                visibility: template.visibility.unwrap_or(true),
+                flavor: {
+                    let mut rng = thread_rng();
+                    nodeflavoridmap
+                        .get(
+                            &template
+                                .flavor
+                                .choose_weighted(&mut rng, |(_, prob)| prob.clone())
+                                .unwrap()
+                                .0
+                                .clone(),
+                        )
+                        .expect("Node flavor field is not correctly defined!")
+                        .clone()
+                },
+                units: Vec::new(),
+                factoryinstancelist: template
+                    .factorylist
+                    .iter()
+                    .map(|(stringid, (factor, min, max))| {
+                        let attempt_range = (*min..=*max).collect::<Vec<_>>();
+                        let attempt_count = attempt_range.choose(&mut thread_rng()).unwrap();
+                        (0..=*attempt_count)
+                            .collect::<Vec<_>>()
+                            .iter()
+                            .filter(|_| rand::random::<f32>() > *factor)
+                            .map(|_| {
+                                internal::FactoryClass::instantiate(
+                                    factoryclassidmap
+                                        .get(stringid)
+                                        .expect(&format!(
+                                            "Factory class '{}' does not exist.",
+                                            stringid
+                                        ))
+                                        .clone(),
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .flatten()
+                    .collect(),
+                shipyardinstancelist: template
+                    .shipyardlist
+                    .iter()
+                    .map(|(stringid, (factor, min, max))| {
+                        let attempt_range = (*min..=*max).collect::<Vec<_>>();
+                        let attempt_count = attempt_range.choose(&mut thread_rng()).unwrap();
+                        (0..=*attempt_count)
+                            .collect::<Vec<_>>()
+                            .iter()
+                            .filter(|_| rand::random::<f32>() > *factor)
+                            .map(|_| {
+                                internal::ShipyardClass::instantiate(
+                                    shipyardclassidmap
+                                        .get(stringid)
+                                        .expect(&format!(
+                                            "Factory class '{}' does not exist.",
+                                            stringid
+                                        ))
+                                        .clone(),
+                                    shipclasses,
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .flatten()
+                    .collect(),
+                allegiance: {
+                    let mut rng = thread_rng();
+                    factions
+                        .get(
+                            &template
+                                .allegiance
+                                .choose_weighted(&mut rng, |(_, prob)| prob.clone())
+                                .unwrap()
+                                .0,
+                        )
+                        .expect("Allegiance field is not correctly defined!")
+                        .clone()
+                },
+                efficiency: template.efficiency.unwrap_or(1.0),
+                threat: factions
+                    .values()
+                    .map(|faction| (faction.clone(), 0_f32))
+                    .collect(),
+                already_balanced: false,
+            }),
+        };
+        node
+    }
+}
+
+#[derive(Serialize, Deserialize)]
 struct System {
     id: String,
     visiblename: String,
     description: String,
     visibility: Option<bool>,
-    nodes: Vec<Node>,
+    nodes: Vec<Box<dyn Nodity>>,
 }
 
 impl System {
@@ -218,7 +414,7 @@ impl System {
             nodes: self
                 .nodes
                 .iter()
-                .map(|node| nodeidmap.get(&node.id).unwrap().clone())
+                .map(|node| nodeidmap.get(&node.get_id()).unwrap().clone())
                 .collect(),
         };
         internalsystem
@@ -823,10 +1019,11 @@ impl FleetClass {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)] //structure for modder-defined json
+#[derive(Serialize, Deserialize)] //structure for modder-defined json
 pub struct Root {
     config: Config,
     nodeflavors: Vec<NodeFlavor>,
+    nodetemplates: Vec<NodeTemplate>,
     systems: Vec<System>,
     edgeflavors: Vec<EdgeFlavor>,
     edges: Vec<(String, String, String)>,
@@ -1045,17 +1242,16 @@ impl Root {
             .flat_map(|system| system.nodes.iter())
             .enumerate()
             .map(|(i, node)| {
-                (
-                    node.id.clone(),
-                    Arc::new(node.clone().hydrate(
-                        i,
-                        &nodeflavoridmap,
-                        &factions,
-                        &factoryclassidmap,
-                        &shipyardclassidmap,
-                        &shipclasses,
-                    )),
-                )
+                let nodehydration = node.hydrate(
+                    i,
+                    &self.nodetemplates,
+                    &nodeflavoridmap,
+                    &factions,
+                    &factoryclassidmap,
+                    &shipyardclassidmap,
+                    &shipclasses,
+                );
+                (node.get_id().clone(), Arc::new(nodehydration))
             })
             .collect();
 
@@ -1085,14 +1281,18 @@ impl Root {
                 let mut nodestringids: Vec<String> = Vec::new();
                 for node in &system.nodes {
                     //we check whether the node is orphaned, and if it is we don't build any edges for it
-                    if node.orphan != Some(true) {
+                    if !node.is_orphan(&self.nodetemplates) {
                         //we get the node's id from the id map
                         //we iterate over the nodeids, ensure that there aren't any duplicates, and push each pair of nodeids into edges
                         for rhs in &nodestringids {
-                            let nodeid = nodeidmap.get(&node.id).unwrap();
+                            let nodeid = nodeidmap.get(&node.get_id()).unwrap();
                             let rhsid = nodeidmap.get(rhs).unwrap();
-                            if system.nodes.iter().find(|n| n.id == *rhs).unwrap().orphan
-                                != Some(true)
+                            if !system
+                                .nodes
+                                .iter()
+                                .find(|n| n.get_id() == *rhs)
+                                .unwrap()
+                                .is_orphan(&self.nodetemplates)
                             {
                                 assert_ne!(nodeid, rhsid, "Same node ID appears twice.");
                                 edges.insert(
@@ -1108,7 +1308,7 @@ impl Root {
                             }
                         }
                     }
-                    nodestringids.push(node.id.clone());
+                    nodestringids.push(node.get_id().clone());
                 }
                 (system.id.clone(), Arc::new(system.hydrate(i, &nodeidmap)))
             })
