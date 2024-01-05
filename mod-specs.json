@@ -51,6 +51,35 @@
             "description": "A field of non-natural debris, resulting from the destruction of a vessel or space station."
         }
     ],
+    "nodetemplates": [
+        {
+            "id": "default",
+            "visiblename": "node",
+            "description": "A node.",
+            "visibility": true,
+            "flavor": [
+                [
+                    "htz",
+                    1
+                ]
+            ],
+            "factorylist": {},
+            "shipyardlist": {},
+            "environment": [
+                [
+                    "blankenv",
+                    1
+                ]
+            ],
+            "orphan": false,
+            "allegiance": [
+                [
+                    "empire",
+                    1
+                ]
+            ]
+        }
+    ],
     "systems": [
         {
             "id": "coruscant",
@@ -59,6 +88,7 @@
             "nodes": [
                 {
                     "id": "coruscanthtz",
+                    "template": "default",
                     "visiblename": "Coruscant Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -71,6 +101,7 @@
                 },
                 {
                     "id": "coruscantplanet",
+                    "template": "default",
                     "visiblename": "Coruscant",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -87,6 +118,7 @@
                 },
                 {
                     "id": "coruscantsun",
+                    "template": "default",
                     "visiblename": "Coruscant (Star)",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -95,71 +127,6 @@
                     "shipyardlist": [],
                     "environment": "blankenv",
                     "orphan": true,
-                    "allegiance": "empire",
-                    "efficiency": 2.5
-                },
-                {
-                    "id": "coruscant2",
-                    "visiblename": "Coruscant2",
-                    "distance": 3,
-                    "description": "I can't be bothered",
-                    "flavor": "planet",
-                    "factorylist": [
-                        "population"
-                    ],
-                    "shipyardlist": [
-                        "tieshipyard"
-                    ],
-                    "environment": "blankenv",
-                    "allegiance": "empire",
-                    "efficiency": 2.5
-                },
-                {
-                    "id": "coruscant3",
-                    "visiblename": "Coruscant3",
-                    "distance": 3,
-                    "description": "I can't be bothered",
-                    "flavor": "planet",
-                    "factorylist": [
-                        "population"
-                    ],
-                    "shipyardlist": [
-                        "tieshipyard"
-                    ],
-                    "environment": "blankenv",
-                    "allegiance": "empire",
-                    "efficiency": 2.5
-                },
-                {
-                    "id": "coruscant4",
-                    "visiblename": "Coruscant4",
-                    "distance": 3,
-                    "description": "I can't be bothered",
-                    "flavor": "planet",
-                    "factorylist": [
-                        "population"
-                    ],
-                    "shipyardlist": [
-                        "tieshipyard"
-                    ],
-                    "environment": "blankenv",
-                    "orphan": true,
-                    "allegiance": "empire",
-                    "efficiency": 2.5
-                },
-                {
-                    "id": "coruscant5",
-                    "visiblename": "Coruscant5",
-                    "distance": 3,
-                    "description": "I can't be bothered",
-                    "flavor": "planet",
-                    "factorylist": [
-                        "population"
-                    ],
-                    "shipyardlist": [
-                        "tieshipyard"
-                    ],
-                    "environment": "blankenv",
                     "allegiance": "empire",
                     "efficiency": 2.5
                 }
@@ -172,6 +139,7 @@
             "nodes": [
                 {
                     "id": "kuathtz",
+                    "template": "default",
                     "visiblename": "Kuat Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -184,6 +152,7 @@
                 },
                 {
                     "id": "kuatplanet",
+                    "template": "default",
                     "visiblename": "Kuat",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -209,6 +178,7 @@
             "nodes": [
                 {
                     "id": "anaxeshtz",
+                    "template": "default",
                     "visiblename": "Anaxes Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -221,6 +191,7 @@
                 },
                 {
                     "id": "anaxesplanet",
+                    "template": "default",
                     "visiblename": "Anaxes",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -245,6 +216,7 @@
             "nodes": [
                 {
                     "id": "chandrilahtz",
+                    "template": "default",
                     "visiblename": "Chandrila Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -257,6 +229,7 @@
                 },
                 {
                     "id": "chandrilaplanet",
+                    "template": "default",
                     "visiblename": "Chandrila",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -279,6 +252,7 @@
             "nodes": [
                 {
                     "id": "empresstetahtz",
+                    "template": "default",
                     "visiblename": "Empress Teta Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -291,6 +265,7 @@
                 },
                 {
                     "id": "empresstetaplanet",
+                    "template": "default",
                     "visiblename": "Empress Teta",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -314,6 +289,7 @@
             "nodes": [
                 {
                     "id": "caridahtz",
+                    "template": "default",
                     "visiblename": "Carida Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -326,6 +302,7 @@
                 },
                 {
                     "id": "caridaplanet",
+                    "template": "default",
                     "visiblename": "Carida",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -347,6 +324,7 @@
             "nodes": [
                 {
                     "id": "corelliahtz",
+                    "template": "default",
                     "visiblename": "Corellia Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -359,6 +337,7 @@
                 },
                 {
                     "id": "corelliaplanet",
+                    "template": "default",
                     "visiblename": "Corellia",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -383,6 +362,7 @@
             "nodes": [
                 {
                     "id": "durohtz",
+                    "template": "default",
                     "visiblename": "Duro Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -395,6 +375,7 @@
                 },
                 {
                     "id": "duroplanet",
+                    "template": "default",
                     "visiblename": "Duro",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -419,6 +400,7 @@
             "nodes": [
                 {
                     "id": "vulpterhtz",
+                    "template": "default",
                     "visiblename": "Vulpter Hyperspace Transit Zone",
                     "system": "Vulpter",
                     "distance": 3,
@@ -432,6 +414,7 @@
                 },
                 {
                     "id": "vulpterplanet",
+                    "template": "default",
                     "visiblename": "Vulpter",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -453,6 +436,7 @@
             "nodes": [
                 {
                     "id": "alderaanhtz",
+                    "template": "default",
                     "visiblename": "Alderaan Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -465,6 +449,7 @@
                 },
                 {
                     "id": "alderaanplanet",
+                    "template": "default",
                     "visiblename": "Alderaan",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -487,6 +472,7 @@
             "nodes": [
                 {
                     "id": "yavinhtz",
+                    "template": "default",
                     "visiblename": "Yavin Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -499,6 +485,7 @@
                 },
                 {
                     "id": "yavinplanet",
+                    "template": "default",
                     "visiblename": "Yavin",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -511,6 +498,7 @@
                 },
                 {
                     "id": "yavin4",
+                    "template": "default",
                     "visiblename": "Yavin 4",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -530,6 +518,7 @@
             "nodes": [
                 {
                     "id": "tatooinehtz",
+                    "template": "default",
                     "visiblename": "Tatooine Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -542,6 +531,7 @@
                 },
                 {
                     "id": "tatooineplanet",
+                    "template": "default",
                     "visiblename": "Tatooine",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -563,6 +553,7 @@
             "nodes": [
                 {
                     "id": "hothhtz",
+                    "template": "default",
                     "visiblename": "Hoth Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -575,6 +566,7 @@
                 },
                 {
                     "id": "hothplanet",
+                    "template": "default",
                     "visiblename": "Hoth",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -587,6 +579,7 @@
                 },
                 {
                     "id": "hothasteroids",
+                    "template": "default",
                     "visiblename": "Hoth Asteroid Field",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -606,6 +599,7 @@
             "nodes": [
                 {
                     "id": "bilbringihtz",
+                    "template": "default",
                     "visiblename": "Bilbringi Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -618,6 +612,7 @@
                 },
                 {
                     "id": "bilbringiplanet",
+                    "template": "default",
                     "visiblename": "Bilbringi",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -640,6 +635,7 @@
             "nodes": [
                 {
                     "id": "bespinhtz",
+                    "template": "default",
                     "visiblename": "Bespin Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -653,6 +649,7 @@
                 },
                 {
                     "id": "bespinplanet",
+                    "template": "default",
                     "visiblename": "Bespin",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -675,6 +672,7 @@
             "nodes": [
                 {
                     "id": "endorhtz",
+                    "template": "default",
                     "visiblename": "Endor Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -687,6 +685,7 @@
                 },
                 {
                     "id": "endorplanet",
+                    "template": "default",
                     "visiblename": "Endor",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -706,6 +705,7 @@
             "nodes": [
                 {
                     "id": "moncalahtz",
+                    "template": "default",
                     "visiblename": "Mon Cala Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -718,6 +718,7 @@
                 },
                 {
                     "id": "moncalaplanet",
+                    "template": "default",
                     "visiblename": "Mon Cala",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -743,6 +744,7 @@
             "nodes": [
                 {
                     "id": "rothanahtz",
+                    "template": "default",
                     "visiblename": "Rothana Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -755,6 +757,7 @@
                 },
                 {
                     "id": "rothanaplanet",
+                    "template": "default",
                     "visiblename": "Rothana",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -780,6 +783,7 @@
             "nodes": [
                 {
                     "id": "sullusthtz",
+                    "template": "default",
                     "visiblename": "Sullust Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -792,6 +796,7 @@
                 },
                 {
                     "id": "sullustplanet",
+                    "template": "default",
                     "visiblename": "Sullust",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -816,6 +821,7 @@
             "nodes": [
                 {
                     "id": "bothawuihtz",
+                    "template": "default",
                     "visiblename": "Bothawui Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -828,6 +834,7 @@
                 },
                 {
                     "id": "bothawuiplanet",
+                    "template": "default",
                     "visiblename": "Bothawui",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -851,6 +858,7 @@
             "nodes": [
                 {
                     "id": "dantooinehtz",
+                    "template": "default",
                     "visiblename": "Dantooine Hyperspace Transit Zone",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -863,6 +871,7 @@
                 },
                 {
                     "id": "dantooineplanet",
+                    "template": "default",
                     "visiblename": "Dantooine",
                     "distance": 3,
                     "description": "I can't be bothered",
@@ -1399,7 +1408,7 @@
             "resource_attract": {}
         }
     ],
-    "fleetclasses": [
+    "squadronclasses": [
         {
             "id": "impmedfleet",
             "visiblename": "Medium Imperial Fleet",
@@ -1408,7 +1417,7 @@
                 1.0,
                 100
             ],
-            "fleetconfig": {
+            "squadronconfig": {
                 "isd": 4
             },
             "idealstrength": 6980,

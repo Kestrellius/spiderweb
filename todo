@@ -17,7 +17,7 @@ GENERAL:
 [x] We can have suns as orphaned, linkless nodes for environment-bitmap purposes; this should be cheap -- have an "exclude from system" field on json nodes, so that a sun can be in a system but not linked to the other nodes. Also probably useful for other purposes. (Need to figure out the orphan checking)
 [ ] Figure out the whole issue of whether and how we check for supply from input stockpiles (and demand from output stockpiles?).
 [ ] Test whether stockpiles set to not propagate work the way they're supposed to.
-[ ] Replace the threat field on Node with the factions field on Global Salience.
+[x] Replace the threat field on Node with the factions field on Global Salience.
 [x] Figure out issues surrounding engine mechanics -- the relationship between once-per-turn events and once-per-move events
 [x] A list of ship keys is stored in hangar.contents, but ships in a hangar have their location data set to the carrier holding them. This is redundant. We should probably abandon the notion of the contents field and stick to ship.location, but given that ships can have multiple hangars, we'll need a way to specify, which probably means unique hangar keys and hangars being stored in a table in root...
 [x] When entities are stored in a table, we don't (AFAIK) have a way to get the key associated with an entity if all we have is the entity itself. This means that any time we need the entity's key for a method on an entity, it can't actually be a method -- it has to be an associated function. This seems non-ideal. (Associated functions are fine, per Amaryllis.)
@@ -47,10 +47,10 @@ GENERAL:
 [x] Build hangar entry and exit methods
 [ ] Build balance_stockpiles
 [ ] Build balance_hangars
-[ ] Clean up salience propagation logic
+[x] Clean up salience propagation logic
 [ ] Build operation logic
 [ ] Figure out the whole thing with whether demand from a pluripotent stockpile should be divided by the number of relevant resources or whatever
-[ ] Think about whether there should be a check so that hangars don't generate demand for/seek out ships that can't currently fit in them
+[ ] Think about whether there should be a check so that hangars don't generate demand for/seek out units that can't currently fit in them
 [x] Create check in transfer to make sure mobs can't be inside themselves
 [ ] Build out process_turn
 [x] Gigantic refactor! Switch everything in root over to Arcs.
@@ -75,13 +75,17 @@ GENERAL:
 [x] Put certain methods in "mobility" trait on Arc-Ship/FleetInstance
 [x] Put certain methods in "locality" trait on Arc-Node
 [x] Make "mobility" fully generic -- allow fleets and hangars to hold fleets
-[ ] Replace root's shipinstances and fleetinstances with units
-[ ] Refactor internal_battle and related to clean it up, take advantage of mob genericity, and allow multi-coalition engagements
-[ ] Interdictor stat on ships
-[ ] Rename "fleets" to "squadrons"
+[x] "Propagates" bool on factions, resources, shipclasses, fleetclasses; check for this and don't do salience prop calcs for things that don't have it as true
+[x] Replace root's shipinstances and fleetinstances with units (decided not to do this for now)
+[x] Build "unitclass"; replace shipclass salience with unitclass salience
+[x] Refactor internal_battle and related to clean it up, take advantage of unit genericity, and allow multi-coalition engagements
+[ ] Make try_defect fully generic?
+[x] Change squadron supply so that it gets the volume of the squadron as it actually exists, rather than ideal volume
+[x] Interdictor stat on ships
+[x] Rename "fleets" to "squadrons"
 [ ] Build edge-length system
-    [ ] Add check_for_battles, balance_hangars, and balance_stockpiles bools on node
-    [ ] Build node templating system
+    [x] Add check_for_battles, balance_hangars, and balance_stockpiles bools on node
+    [x] Build node templating system
 [ ] Figure out mechanics for ground assaults/ship or station capture
     [ ] Flag for nodes that can only be captured via 'special missions', which have certain conditions -- "special capture requirements", Option<Mission>?
 [ ] Add inter-node weapons
@@ -90,6 +94,10 @@ GENERAL:
 [x] Clean up hydration logic -- which things do or don't return just the internal struct vs. internal struct plus stringid.
 [ ] Dessication logic
 [ ] Rehydration logic
+[ ] Optimize salience propagation logic
+    [ ] Exclude all-to-all system edges from propagation
+    [ ] Store salience source node data so we can prune the logic for unit movement
+    [ ] Move propagation logic to GPU
 
 LONGER-TERM:
 [ ] Build system for transmitting data to FSO
@@ -98,6 +106,7 @@ LONGER-TERM:
 
 LOW-PRIORITY:
 [ ] Have relations between factions in a coalition fighting together affect strength score
+[ ] Allow factions that have no presence in the node where a battle is taking place to send reinforcements in if they want
 [ ] Build system for ships deciding to leave fleet, and add fleet-misalignment-tolerance scalar to shipclass
 [ ] Build high-level nonlocal fleet system
 [ ] Build morale system
@@ -123,3 +132,5 @@ QUESTIONS FOR AMARYLLIS:
 [x] Doing "adding a specific thing to a collection we're getting from somewhere else" in a sane fashion
 [x] Making the get_ai thing work correctly without creating overlapping ids
 [x] Look over The System-Edge-Building Situation(TM)
+[x] Figure out what to do about fleet ideal volume
+[x] Probably there's a cleaner way to do the coalition wars gathering? (There isn't. Or at least Amaryllis didn't immediately come up with one.)

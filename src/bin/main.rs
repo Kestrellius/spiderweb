@@ -1,6 +1,4 @@
-use spiderweb::internal::UnitLocation;
 use spiderweb::json;
-use std::env;
 use std::fs::File;
 use std::time::Instant;
 

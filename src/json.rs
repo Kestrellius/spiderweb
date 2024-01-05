@@ -1,11 +1,10 @@
 //this is the section of the program that manages the json files defined by the modder
 use crate::internal;
-use dyn_clone::DynClone;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::iter;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{self, AtomicU64, AtomicUsize};
 use std::sync::{Arc, RwLock};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,10 +28,10 @@ impl Config {
 struct SalienceScalars {
     faction_deg_mult: Option<f32>,
     resource_deg_mult: Option<f32>,
-    shipclass_deg_mult: Option<f32>,
+    unitclass_deg_mult: Option<f32>,
     faction_prop_iters: Option<usize>, //number of edges across which this salience will propagate during a turn
     resource_prop_iters: Option<usize>,
-    shipclass_prop_iters: Option<usize>,
+    unitclass_prop_iters: Option<usize>,
 }
 
 impl SalienceScalars {
@@ -40,10 +39,10 @@ impl SalienceScalars {
         internal::SalienceScalars {
             faction_deg_mult: self.faction_deg_mult.unwrap_or(0.5),
             resource_deg_mult: self.resource_deg_mult.unwrap_or(0.5),
-            shipclass_deg_mult: self.shipclass_deg_mult.unwrap_or(0.5),
+            unitclass_deg_mult: self.unitclass_deg_mult.unwrap_or(0.5),
             faction_prop_iters: self.faction_prop_iters.unwrap_or(5),
             resource_prop_iters: self.resource_prop_iters.unwrap_or(5),
-            shipclass_prop_iters: self.shipclass_prop_iters.unwrap_or(5),
+            unitclass_prop_iters: self.unitclass_prop_iters.unwrap_or(5),
         }
     }
 }
@@ -115,119 +114,12 @@ impl NodeFlavor {
     }
 }
 
-#[typetag::serde(tag = "type")]
-trait Nodity: DynClone {
-    fn get_id(&self) -> String;
-    fn is_orphan(&self, nodetemplates: &Vec<NodeTemplate>) -> bool;
-    fn hydrate(
-        &self,
-        index: usize,
-        nodetemplates: &Vec<NodeTemplate>,
-        nodeflavoridmap: &HashMap<String, Arc<internal::NodeFlavor>>,
-        factions: &HashMap<String, Arc<internal::Faction>>,
-        factoryclassidmap: &HashMap<String, Arc<internal::FactoryClass>>,
-        shipyardclassidmap: &HashMap<String, Arc<internal::ShipyardClass>>,
-        shipclasses: &Vec<Arc<internal::ShipClass>>,
-    ) -> internal::Node;
-}
-
-dyn_clone::clone_trait_object!(Nodity);
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct Node {
-    id: String,
-    visiblename: String,        //location name as shown to player
-    position: Option<[i64; 3]>, //node's position in 3d space; this is used for autogenerating skyboxes and determining reinforcement delay between nodes
-    description: String,
-    visibility: Option<bool>,
-    flavor: String, //type of location this node is -- planet, asteroid field, hyperspace transit zone
-    factorylist: Vec<String>, //a list of the factories this node has, in the form of FactoryClass IDs
-    shipyardlist: Vec<String>,
-    environment: String, //name of the FRED environment to use for missions set in this node
-    bitmap: Option<(String, f32)>,
-    orphan: Option<bool>, //an orphaned node does not get all-to-all edges automatically built with the other nodes in its system
-    allegiance: String,   //faction that currently holds the node
-    efficiency: Option<f32>, //efficiency of any production facilities in this node; changes over time based on faction ownership
-}
-
-#[typetag::serde]
-impl Nodity for Node {
-    fn get_id(&self) -> String {
-        self.id.clone()
-    }
-    fn is_orphan(&self, nodetemplates: &Vec<NodeTemplate>) -> bool {
-        self.orphan.unwrap_or(false)
-    }
-    fn hydrate(
-        &self,
-        index: usize,
-        nodetemplates: &Vec<NodeTemplate>,
-        nodeflavoridmap: &HashMap<String, Arc<internal::NodeFlavor>>,
-        factions: &HashMap<String, Arc<internal::Faction>>,
-        factoryclassidmap: &HashMap<String, Arc<internal::FactoryClass>>,
-        shipyardclassidmap: &HashMap<String, Arc<internal::ShipyardClass>>,
-        shipclasses: &Vec<Arc<internal::ShipClass>>,
-    ) -> internal::Node {
-        let node = internal::Node {
-            id: index,
-            visiblename: self.visiblename.clone(),
-            position: self.position.unwrap_or([0, 0, 0]),
-            description: self.description.clone(),
-            environment: self.environment.clone(),
-            bitmap: self.bitmap.clone(),
-            mutables: RwLock::new(internal::NodeMut {
-                visibility: self.visibility.unwrap_or(true),
-                flavor: nodeflavoridmap
-                    .get(&self.flavor)
-                    .expect("Node flavor field is not correctly defined!")
-                    .clone(),
-                units: Vec::new(),
-                factoryinstancelist: self
-                    .factorylist
-                    .iter()
-                    .map(|stringid| {
-                        internal::FactoryClass::instantiate(
-                            factoryclassidmap
-                                .get(stringid)
-                                .expect(&format!("Factory class '{}' does not exist.", stringid))
-                                .clone(),
-                        )
-                    })
-                    .collect(),
-                shipyardinstancelist: self
-                    .shipyardlist
-                    .iter()
-                    .map(|stringid| {
-                        internal::ShipyardClass::instantiate(
-                            shipyardclassidmap
-                                .get(stringid)
-                                .expect(&format!("Shipyard class '{}' does not exist.", stringid))
-                                .clone(),
-                            shipclasses,
-                        )
-                    })
-                    .collect(),
-                allegiance: factions
-                    .get(&self.allegiance)
-                    .expect("Allegiance field is not correctly defined!")
-                    .clone(),
-                efficiency: self.efficiency.unwrap_or(1.0),
-                threat: factions
-                    .values()
-                    .map(|faction| (faction.clone(), 0_f32))
-                    .collect(),
-                already_balanced: false,
-            }),
-        };
-        node
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct NodeTemplate {
     id: String,
+    visiblename: String,
     description: String,
-    visibility: Option<bool>,
+    visibility: bool,
     flavor: Vec<(String, u64)>, //type of location this node is -- planet, asteroid field, hyperspace transit zone
     factorylist: HashMap<String, (f32, u64, u64)>, //a list of the factories this node has, in the form of FactoryClass IDs
     shipyardlist: HashMap<String, (f32, u64, u64)>,
@@ -236,28 +128,44 @@ struct NodeTemplate {
     orphan: Option<bool>, //an orphaned node does not get all-to-all edges automatically built with the other nodes in its system
     allegiance: Vec<(String, u64)>, //faction that currently holds the node
     efficiency: Option<f32>, //efficiency of any production facilities in this node; changes over time based on faction ownership
+    balance_stockpiles: Option<bool>,
+    balance_hangars: Option<bool>,
+    check_for_battles: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct TemplatedNode {
+struct Node {
     id: String,
-    visiblename: String,
-    position: Option<[i64; 3]>,
     template: String,
+    visiblename: Option<String>, //location name as shown to player
+    position: Option<[i64; 3]>, //node's position in 3d space; this is used for autogenerating skyboxes and determining reinforcement delay between nodes
+    description: Option<String>,
+    visibility: Option<bool>,
+    flavor: Option<String>, //type of location this node is -- planet, asteroid field, hyperspace transit zone
+    factorylist: Option<Vec<String>>, //a list of the factories this node has, in the form of FactoryClass IDs
+    shipyardlist: Option<Vec<String>>,
+    environment: Option<String>, //name of the FRED environment to use for missions set in this node
+    bitmap: Option<(String, f32)>,
+    orphan: Option<bool>, //an orphaned node does not get all-to-all edges automatically built with the other nodes in its system
+    allegiance: Option<String>, //faction that currently holds the node
+    efficiency: Option<f32>, //efficiency of any production facilities in this node; changes over time based on faction ownership
+    balance_stockpiles: Option<bool>,
+    balance_hangars: Option<bool>,
+    check_for_battles: Option<bool>,
 }
 
-#[typetag::serde]
-impl Nodity for TemplatedNode {
-    fn get_id(&self) -> String {
-        self.id.clone()
-    }
+impl Node {
     fn is_orphan(&self, nodetemplates: &Vec<NodeTemplate>) -> bool {
-        nodetemplates
-            .iter()
-            .find(|t| t.id == self.template)
-            .unwrap()
-            .orphan
-            .unwrap_or(false)
+        match self.orphan {
+            Some(val) => val,
+            None => nodetemplates
+                .iter()
+                .find(|t| t.id == self.template)
+                .unwrap()
+                .clone()
+                .orphan
+                .unwrap_or(false),
+        }
     }
     fn hydrate(
         &self,
@@ -274,117 +182,171 @@ impl Nodity for TemplatedNode {
             .find(|t| t.id == self.template)
             .unwrap()
             .clone();
-        let node = internal::Node {
-            id: index,
-            visiblename: self.visiblename.clone(),
-            position: self.position.unwrap_or([0, 0, 0]),
-            description: template.description,
-            environment: {
+        let faction = factions
+            .get(&self.allegiance.clone().unwrap_or({
                 let mut rng = thread_rng();
                 template
-                    .environment
+                    .allegiance
                     .choose_weighted(&mut rng, |(_, prob)| prob.clone())
                     .unwrap()
                     .0
                     .clone()
-            },
-            bitmap: {
-                let mut rng = thread_rng();
-                template.bitmap.map(|bitmaps| {
-                    bitmaps
+            }))
+            .expect("Allegiance field is not correctly defined!")
+            .clone();
+        let node = internal::Node {
+            id: index,
+            visiblename: self
+                .visiblename
+                .clone()
+                .unwrap_or(template.visiblename)
+                .clone(),
+            position: self.position.unwrap_or([0, 0, 0]),
+            description: self
+                .description
+                .clone()
+                .unwrap_or(template.description)
+                .clone(),
+            environment: self
+                .environment
+                .clone()
+                .unwrap_or({
+                    let mut rng = thread_rng();
+                    template
+                        .environment
                         .choose_weighted(&mut rng, |(_, prob)| prob.clone())
                         .unwrap()
                         .0
                         .clone()
                 })
+                .clone(),
+            bitmap: match &self.bitmap {
+                Some(bm) => Some(bm.clone()),
+                None => {
+                    let mut rng = thread_rng();
+                    template.bitmap.map(|bitmaps| {
+                        bitmaps
+                            .choose_weighted(&mut rng, |(_, prob)| prob.clone())
+                            .unwrap()
+                            .0
+                            .clone()
+                    })
+                }
             },
             mutables: RwLock::new(internal::NodeMut {
-                visibility: template.visibility.unwrap_or(true),
-                flavor: {
-                    let mut rng = thread_rng();
-                    nodeflavoridmap
-                        .get(
-                            &template
-                                .flavor
-                                .choose_weighted(&mut rng, |(_, prob)| prob.clone())
-                                .unwrap()
-                                .0
-                                .clone(),
-                        )
-                        .expect("Node flavor field is not correctly defined!")
-                        .clone()
-                },
+                visibility: self.visibility.unwrap_or(template.visibility),
+                flavor: nodeflavoridmap
+                    .get(&self.flavor.clone().unwrap_or({
+                        let mut rng = thread_rng();
+                        template
+                            .flavor
+                            .choose_weighted(&mut rng, |(_, prob)| prob.clone())
+                            .unwrap()
+                            .0
+                            .clone()
+                    }))
+                    .expect("Node flavor field is not correctly defined!")
+                    .clone(),
                 units: Vec::new(),
-                factoryinstancelist: template
-                    .factorylist
-                    .iter()
-                    .map(|(stringid, (factor, min, max))| {
-                        let attempt_range = (*min..=*max).collect::<Vec<_>>();
-                        let attempt_count = attempt_range.choose(&mut thread_rng()).unwrap();
-                        (0..=*attempt_count)
-                            .collect::<Vec<_>>()
-                            .iter()
-                            .filter(|_| rand::random::<f32>() > *factor)
-                            .map(|_| {
-                                internal::FactoryClass::instantiate(
-                                    factoryclassidmap
-                                        .get(stringid)
-                                        .expect(&format!(
-                                            "Factory class '{}' does not exist.",
-                                            stringid
-                                        ))
-                                        .clone(),
-                                )
-                            })
-                            .collect::<Vec<_>>()
-                    })
-                    .flatten()
-                    .collect(),
-                shipyardinstancelist: template
-                    .shipyardlist
-                    .iter()
-                    .map(|(stringid, (factor, min, max))| {
-                        let attempt_range = (*min..=*max).collect::<Vec<_>>();
-                        let attempt_count = attempt_range.choose(&mut thread_rng()).unwrap();
-                        (0..=*attempt_count)
-                            .collect::<Vec<_>>()
-                            .iter()
-                            .filter(|_| rand::random::<f32>() > *factor)
-                            .map(|_| {
-                                internal::ShipyardClass::instantiate(
-                                    shipyardclassidmap
-                                        .get(stringid)
-                                        .expect(&format!(
-                                            "Factory class '{}' does not exist.",
-                                            stringid
-                                        ))
-                                        .clone(),
-                                    shipclasses,
-                                )
-                            })
-                            .collect::<Vec<_>>()
-                    })
-                    .flatten()
-                    .collect(),
-                allegiance: {
-                    let mut rng = thread_rng();
-                    factions
-                        .get(
-                            &template
-                                .allegiance
-                                .choose_weighted(&mut rng, |(_, prob)| prob.clone())
-                                .unwrap()
-                                .0,
-                        )
-                        .expect("Allegiance field is not correctly defined!")
-                        .clone()
+                factoryinstancelist: match &self.factorylist {
+                    Some(list) => list
+                        .iter()
+                        .map(|stringid| {
+                            internal::FactoryClass::instantiate(
+                                factoryclassidmap
+                                    .get(stringid)
+                                    .expect(&format!(
+                                        "Factory class '{}' does not exist.",
+                                        stringid
+                                    ))
+                                    .clone(),
+                            )
+                        })
+                        .collect(),
+                    None => template
+                        .factorylist
+                        .iter()
+                        .map(|(stringid, (factor, min, max))| {
+                            let attempt_range = (*min..=*max).collect::<Vec<_>>();
+                            let attempt_count = attempt_range.choose(&mut thread_rng()).unwrap();
+                            (0..=*attempt_count)
+                                .collect::<Vec<_>>()
+                                .iter()
+                                .filter(|_| rand::random::<f32>() > *factor)
+                                .map(|_| {
+                                    internal::FactoryClass::instantiate(
+                                        factoryclassidmap
+                                            .get(stringid)
+                                            .expect(&format!(
+                                                "Factory class '{}' does not exist.",
+                                                stringid
+                                            ))
+                                            .clone(),
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .flatten()
+                        .collect(),
                 },
-                efficiency: template.efficiency.unwrap_or(1.0),
-                threat: factions
-                    .values()
-                    .map(|faction| (faction.clone(), 0_f32))
-                    .collect(),
-                already_balanced: false,
+                shipyardinstancelist: match &self.shipyardlist {
+                    Some(list) => list
+                        .iter()
+                        .map(|stringid| {
+                            internal::ShipyardClass::instantiate(
+                                shipyardclassidmap
+                                    .get(stringid)
+                                    .expect(&format!(
+                                        "Shipyard class '{}' does not exist.",
+                                        stringid
+                                    ))
+                                    .clone(),
+                                shipclasses,
+                            )
+                        })
+                        .collect(),
+                    None => template
+                        .shipyardlist
+                        .iter()
+                        .map(|(stringid, (factor, min, max))| {
+                            let attempt_range = (*min..=*max).collect::<Vec<_>>();
+                            let attempt_count = attempt_range.choose(&mut thread_rng()).unwrap();
+                            (0..=*attempt_count)
+                                .collect::<Vec<_>>()
+                                .iter()
+                                .filter(|_| rand::random::<f32>() > *factor)
+                                .map(|_| {
+                                    internal::ShipyardClass::instantiate(
+                                        shipyardclassidmap
+                                            .get(stringid)
+                                            .expect(&format!(
+                                                "Factory class '{}' does not exist.",
+                                                stringid
+                                            ))
+                                            .clone(),
+                                        shipclasses,
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .flatten()
+                        .collect(),
+                },
+                allegiance: faction.clone(),
+                efficiency: self
+                    .efficiency
+                    .unwrap_or(template.efficiency.unwrap_or(faction.efficiencydefault)),
+                balance_stockpiles: self
+                    .balance_stockpiles
+                    .unwrap_or(template.balance_stockpiles.unwrap_or(true)),
+                balance_hangars: self
+                    .balance_hangars
+                    .unwrap_or(template.balance_hangars.unwrap_or(true)),
+                check_for_battles: self
+                    .check_for_battles
+                    .unwrap_or(template.check_for_battles.unwrap_or(true)),
+                stockpiles_balanced: false,
+                hangars_balanced: false,
             }),
         };
         node
@@ -397,7 +359,7 @@ struct System {
     visiblename: String,
     description: String,
     visibility: Option<bool>,
-    nodes: Vec<Box<dyn Nodity>>,
+    nodes: Vec<Node>,
 }
 
 impl System {
@@ -414,7 +376,7 @@ impl System {
             nodes: self
                 .nodes
                 .iter()
-                .map(|node| nodeidmap.get(&node.get_id()).unwrap().clone())
+                .map(|node| nodeidmap.get(&node.id).unwrap().clone())
                 .collect(),
         };
         internalsystem
@@ -444,6 +406,7 @@ struct Faction {
     visiblename: String, //faction name as shown to player
     description: String,
     visibility: Option<bool>,
+    propagates: Option<bool>,
     efficiencydefault: f32, //starting value for production facility efficiency
     efficiencytarget: f32, //end value for efficiency, toward which efficiency changes over time in a node held by this faction
     efficiencydelta: f32,  //rate at which efficiency changes
@@ -462,6 +425,7 @@ impl Faction {
             visiblename: self.visiblename,
             description: self.description,
             visibility: self.visibility.unwrap_or(true),
+            propagates: self.propagates.unwrap_or(true),
             efficiencydefault: self.efficiencydefault,
             efficiencytarget: self.efficiencytarget,
             efficiencydelta: self.efficiencydelta,
@@ -481,6 +445,7 @@ struct Resource {
     visiblename: String,
     description: String,
     visibility: Option<bool>,
+    propagates: Option<bool>,
     unit_vol: u64, //how much space a one unit of this resource takes up when transported by a cargo ship
     valuemult: u64, //how valuable the AI considers one unit of this resource to be
 }
@@ -492,6 +457,7 @@ impl Resource {
             visiblename: self.visiblename,
             description: self.description,
             visibility: self.visibility.unwrap_or(true),
+            propagates: self.propagates.unwrap_or(true),
             unit_vol: self.unit_vol,
             valuemult: self.valuemult,
         };
@@ -595,6 +561,7 @@ impl HangarClass {
         mut self,
         index: usize,
         shipclassidmap: &HashMap<String, internal::ShipClassID>,
+        squadronclassidmap: &HashMap<String, internal::SquadronClassID>,
     ) -> internal::HangarClass {
         let hangarclass = internal::HangarClass {
             id: index,
@@ -606,12 +573,31 @@ impl HangarClass {
             allowed: self
                 .allowed
                 .drain(0..)
-                .map(|x| *shipclassidmap.get(&x).unwrap())
+                .map(|x| {
+                    if let Some(shipclassid) = shipclassidmap.get(&x) {
+                        internal::UnitClassID::ShipClass(*shipclassid)
+                    } else {
+                        internal::UnitClassID::SquadronClass(*squadronclassidmap.get(&x).unwrap())
+                    }
+                })
                 .collect(),
             ideal: self
                 .ideal
                 .drain()
-                .map(|(k, v)| (*shipclassidmap.get(&k).unwrap(), v))
+                .map(|(k, v)| {
+                    (
+                        {
+                            if let Some(shipclassid) = shipclassidmap.get(&k) {
+                                internal::UnitClassID::ShipClass(*shipclassid)
+                            } else {
+                                internal::UnitClassID::SquadronClass(
+                                    *squadronclassidmap.get(&k).unwrap(),
+                                )
+                            }
+                        },
+                        v,
+                    )
+                })
                 .collect(),
             launch_volume: self.launch_volume,
             launch_interval: self.launch_interval,
@@ -816,7 +802,12 @@ impl ShipAI {
             ship_cargo_attract: self
                 .ship_cargo_attract
                 .iter()
-                .map(|(stringid, v)| (*shipclassidmap.get(stringid).unwrap(), *v))
+                .map(|(stringid, v)| {
+                    (
+                        internal::UnitClassID::ShipClass(*shipclassidmap.get(stringid).unwrap()),
+                        *v,
+                    )
+                })
                 .collect(),
             resource_attract: self
                 .resource_attract
@@ -836,6 +827,7 @@ struct ShipClass {
     basehull: u64,     //how many hull hitpoints this ship has by default
     basestrength: u64, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
     visibility: Option<bool>,
+    propagates: Option<bool>,
     hangarvol: u64, //how much hangar space this ship takes up when carried by a host
     stockpiles: Option<Vec<PluripotentStockpile>>,
     defaultweapons: Option<HashMap<String, u64>>, //a strikecraft's default weapons, which it always has with it
@@ -849,11 +841,12 @@ struct ShipClass {
     toughnessscalar: Option<f32>,
     battleescapescalar: Option<f32>,
     defectescapescalar: Option<f32>,
+    interdictionscalar: Option<f32>,
 }
 
 impl ShipClass {
     fn hydrate(
-        self,
+        &self,
         shipclassidmap: &HashMap<String, internal::ShipClassID>,
         resourceidmap: &HashMap<String, Arc<internal::Resource>>,
         hangarclassidmap: &HashMap<String, Arc<internal::HangarClass>>,
@@ -866,12 +859,13 @@ impl ShipClass {
     ) -> internal::ShipClass {
         let shipclass = internal::ShipClass {
             id: shipclassidmap.get(&self.id).unwrap().index,
-            visiblename: self.visiblename,
-            description: self.description,
+            visiblename: self.visiblename.clone(),
+            description: self.description.clone(),
             basehull: self.basehull,
             basestrength: self.basestrength,
             visibility: self.visibility.unwrap_or(true),
-            defaultweapons: self.defaultweapons.map(|map| {
+            propagates: self.propagates.unwrap_or(true),
+            defaultweapons: self.defaultweapons.clone().map(|map| {
                 map.iter()
                     .map(|(id, n)| {
                         (
@@ -887,12 +881,14 @@ impl ShipClass {
             hangarvol: self.hangarvol,
             stockpiles: self
                 .stockpiles
+                .clone()
                 .unwrap_or(Vec::new())
                 .iter()
                 .map(|stockpile| stockpile.clone().hydrate(&resourceidmap))
                 .collect(),
             hangars: self
                 .hangars
+                .clone()
                 .unwrap_or(Vec::new())
                 .iter()
                 .map(|id| {
@@ -904,6 +900,7 @@ impl ShipClass {
                 .collect(),
             engines: self
                 .engines
+                .clone()
                 .unwrap_or(Vec::new())
                 .iter()
                 .map(|id| {
@@ -915,6 +912,7 @@ impl ShipClass {
                 .collect(),
             repairers: self
                 .repairers
+                .clone()
                 .unwrap_or(Vec::new())
                 .iter()
                 .map(|id| {
@@ -926,6 +924,7 @@ impl ShipClass {
                 .collect(),
             factoryclasslist: self
                 .factoryclasslist
+                .clone()
                 .unwrap_or(Vec::new())
                 .iter()
                 .map(|id| {
@@ -937,6 +936,7 @@ impl ShipClass {
                 .collect(),
             shipyardclasslist: self
                 .shipyardclasslist
+                .clone()
                 .unwrap_or(Vec::new())
                 .iter()
                 .map(|id| {
@@ -949,6 +949,7 @@ impl ShipClass {
             aiclass: shipaiidmap.get(&self.aiclass).unwrap().clone(),
             defectchance: self
                 .defectchance
+                .clone()
                 .unwrap_or(HashMap::new())
                 .iter()
                 .map(|(k, v)| (factions.get(k).unwrap().clone(), *v))
@@ -956,57 +957,86 @@ impl ShipClass {
             toughnessscalar: self.toughnessscalar.unwrap_or(1.0),
             battleescapescalar: self.battleescapescalar.unwrap_or(1.0),
             defectescapescalar: self.defectescapescalar.unwrap_or(1.0),
+            interdictionscalar: self.interdictionscalar.unwrap_or(1.0),
         };
         shipclass
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct FleetClass {
+struct SquadronClass {
     id: String,
     visiblename: String,
     description: String,
     visibility: Option<bool>,
+    propagates: Option<bool>,
     strengthmod: (f32, u64),
-    fleetconfig: HashMap<String, u64>,
+    squadronconfig: HashMap<String, u64>,
     defectchance: Option<HashMap<String, (f32, f32)>>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
     defectescapescalar: Option<f32>,
     navthreshold: f32,
     disbandthreshold: f32,
 }
 
-impl FleetClass {
+impl SquadronClass {
+    fn get_target(
+        &self,
+        shipclasses: &Vec<ShipClass>,
+        squadronclasses: &Vec<SquadronClass>,
+    ) -> u64 {
+        self.squadronconfig
+            .iter()
+            .map(|(stringid, _)| {
+                if let Some(shipclass) = shipclasses.iter().find(|sc| sc.id == *stringid) {
+                    shipclass.hangarvol
+                } else {
+                    squadronclasses
+                        .iter()
+                        .find(|fc| fc.id == *stringid)
+                        .unwrap()
+                        .get_target(shipclasses, squadronclasses)
+                }
+            })
+            .sum()
+    }
     fn hydrate(
-        self,
+        &self,
         index: usize,
         shipclassidmap: &HashMap<String, internal::ShipClassID>,
-        shipclasses: &Vec<Arc<internal::ShipClass>>,
+        squadronclassidmap: &HashMap<String, internal::SquadronClassID>,
         factions: &HashMap<String, Arc<internal::Faction>>,
-    ) -> internal::FleetClass {
-        let fleetclass = internal::FleetClass {
+        shipclasses: &Vec<ShipClass>,
+        squadronclasses: &Vec<SquadronClass>,
+    ) -> internal::SquadronClass {
+        let squadronclass = internal::SquadronClass {
             id: index,
-            visiblename: self.visiblename,
-            description: self.description,
+            visiblename: self.visiblename.clone(),
+            description: self.description.clone(),
             visibility: self.visibility.unwrap_or(true),
-            strengthmod: self.strengthmod,
-            fleetconfig: self
-                .fleetconfig
+            propagates: self.propagates.unwrap_or(true),
+            strengthmod: self.strengthmod.clone(),
+            squadronconfig: self
+                .squadronconfig
                 .iter()
                 .map(|(stringid, n)| {
                     (
-                        shipclasses
-                            .iter()
-                            .find(|shipclass| {
-                                shipclass.id == shipclassidmap.get(stringid).unwrap().index
-                            })
-                            .unwrap()
-                            .clone(),
+                        {
+                            if let Some(shipclassid) = shipclassidmap.get(&stringid.clone()) {
+                                internal::UnitClassID::ShipClass(*shipclassid)
+                            } else {
+                                internal::UnitClassID::SquadronClass(
+                                    *squadronclassidmap.get(&stringid.clone()).unwrap(),
+                                )
+                            }
+                        },
                         *n,
                     )
                 })
                 .collect(),
+            target: self.get_target(shipclasses, squadronclasses),
             defectchance: self
                 .defectchance
+                .clone()
                 .unwrap_or(HashMap::new())
                 .iter()
                 .map(|(stringid, n)| (factions.get(stringid).unwrap().clone(), *n))
@@ -1015,7 +1045,7 @@ impl FleetClass {
             navquorum: self.navthreshold,
             disbandthreshold: self.disbandthreshold,
         };
-        fleetclass
+        squadronclass
     }
 }
 
@@ -1037,12 +1067,14 @@ pub struct Root {
     shipyardclasses: Vec<ShipyardClass>,
     shipais: Vec<ShipAI>,
     shipclasses: Vec<ShipClass>,
-    fleetclasses: Vec<FleetClass>,
+    squadronclasses: Vec<SquadronClass>,
 }
 
 impl Root {
     //hydration method
     pub fn hydrate(mut self) -> internal::Root {
+        let unitclasscounter = Arc::new(AtomicUsize::new(0));
+
         let config = self.config.hydrate();
 
         let nodeflavoridmap: HashMap<String, Arc<internal::NodeFlavor>> = self
@@ -1153,6 +1185,7 @@ impl Root {
             basehull: 1,     //how many hull hitpoints this ship has by default
             basestrength: 0, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
             visibility: Some(false),
+            propagates: Some(false),
             aiclass: "basicai".to_string(), //aiclass
             defaultweapons: None, //a strikecraft's default weapons, which it always has with it
             hangarvol: 0,         //how much hangar space this ship takes up when carried by a host
@@ -1166,20 +1199,35 @@ impl Root {
             toughnessscalar: None,
             battleescapescalar: None,
             defectescapescalar: None,
+            interdictionscalar: None,
         };
 
         //here we create the shipclassidmap, put the dummy ship class inside it, and then insert all the actual ship classes
         let shipclassidmap: HashMap<String, internal::ShipClassID> =
             iter::once(&generic_demand_ship)
                 .chain(self.shipclasses.iter())
-                .enumerate()
-                .map(|(i, shipclass)| {
+                .map(|shipclass| {
                     (
                         shipclass.id.clone(),
-                        internal::ShipClassID::new_from_index(i),
+                        internal::ShipClassID::new_from_index(
+                            unitclasscounter.fetch_add(1, atomic::Ordering::Relaxed),
+                        ),
                     )
                 })
                 .collect();
+
+        let squadronclassidmap: HashMap<String, internal::SquadronClassID> = self
+            .squadronclasses
+            .iter()
+            .map(|squadronclass| {
+                (
+                    squadronclass.id.clone(),
+                    internal::SquadronClassID::new_from_index(
+                        unitclasscounter.fetch_add(1, atomic::Ordering::Relaxed),
+                    ),
+                )
+            })
+            .collect();
 
         let hangarclassidmap: HashMap<String, Arc<internal::HangarClass>> = self
             .hangarclasses
@@ -1188,7 +1236,7 @@ impl Root {
             .map(|(i, hangarclass)| {
                 (
                     hangarclass.id.clone(),
-                    Arc::new(hangarclass.hydrate(i, &shipclassidmap)),
+                    Arc::new(hangarclass.hydrate(i, &shipclassidmap, &squadronclassidmap)),
                 )
             })
             .collect();
@@ -1218,8 +1266,8 @@ impl Root {
             .collect();
 
         //we hydrate shipclasses, starting with the generic demand ship
-        let shipclasses: Vec<Arc<internal::ShipClass>> = iter::once(generic_demand_ship)
-            .chain(self.shipclasses.drain(0..))
+        let shipclasses: Vec<Arc<internal::ShipClass>> = iter::once(&generic_demand_ship)
+            .chain(self.shipclasses.iter())
             .map(|shipclass| {
                 Arc::new(shipclass.hydrate(
                     &shipclassidmap,
@@ -1251,7 +1299,7 @@ impl Root {
                     &shipyardclassidmap,
                     &shipclasses,
                 );
-                (node.get_id().clone(), Arc::new(nodehydration))
+                (node.id.clone(), Arc::new(nodehydration))
             })
             .collect();
 
@@ -1285,12 +1333,12 @@ impl Root {
                         //we get the node's id from the id map
                         //we iterate over the nodeids, ensure that there aren't any duplicates, and push each pair of nodeids into edges
                         for rhs in &nodestringids {
-                            let nodeid = nodeidmap.get(&node.get_id()).unwrap();
+                            let nodeid = nodeidmap.get(&node.id).unwrap();
                             let rhsid = nodeidmap.get(rhs).unwrap();
                             if !system
                                 .nodes
                                 .iter()
-                                .find(|n| n.get_id() == *rhs)
+                                .find(|n| n.id == *rhs)
                                 .unwrap()
                                 .is_orphan(&self.nodetemplates)
                             {
@@ -1308,7 +1356,7 @@ impl Root {
                             }
                         }
                     }
-                    nodestringids.push(node.get_id().clone());
+                    nodestringids.push(node.id.clone());
                 }
                 (system.id.clone(), Arc::new(system.hydrate(i, &nodeidmap)))
             })
@@ -1325,14 +1373,21 @@ impl Root {
                 acc
             });
 
-        let fleetclassidmap: HashMap<String, Arc<internal::FleetClass>> = self
-            .fleetclasses
-            .drain(0..)
+        let squadronclasses: HashMap<String, Arc<internal::SquadronClass>> = self
+            .squadronclasses
+            .iter()
             .enumerate()
-            .map(|(i, fleetclass)| {
+            .map(|(i, squadronclass)| {
                 (
-                    fleetclass.id.clone(),
-                    Arc::new(fleetclass.hydrate(i, &shipclassidmap, &shipclasses, &factions)),
+                    squadronclass.id.clone(),
+                    Arc::new(squadronclass.hydrate(
+                        i,
+                        &shipclassidmap,
+                        &squadronclassidmap,
+                        &factions,
+                        &self.shipclasses,
+                        &self.squadronclasses,
+                    )),
                 )
             })
             .collect();
@@ -1356,9 +1411,9 @@ impl Root {
             shipyardclasses: shipyardclassidmap.values().cloned().collect(),
             shipais: shipaiidmap.values().cloned().collect(),
             shipclasses: shipclasses.clone(),
-            fleetclasses: fleetclassidmap.values().cloned().collect(),
+            squadronclasses: squadronclasses.values().cloned().collect(),
             shipinstances: RwLock::new(Vec::new()),
-            fleetinstances: RwLock::new(Vec::new()),
+            squadroninstances: RwLock::new(Vec::new()),
             unitcounter: Arc::new(AtomicU64::new(0)),
             engagements: RwLock::new(Vec::new()),
             globalsalience: internal::GlobalSalience {
@@ -1384,7 +1439,7 @@ impl Root {
                         })
                         .collect(),
                 ),
-                shipclasssalience: RwLock::new(
+                unitclasssalience: RwLock::new(
                     factions
                         .iter()
                         .map(|_| {
