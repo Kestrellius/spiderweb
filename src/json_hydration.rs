@@ -2,7 +2,6 @@
 use crate::internal;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Result, Value};
 use std::collections::{HashMap, HashSet};
 use std::iter;
 use std::sync::atomic::{self, AtomicU64, AtomicUsize};
@@ -389,6 +388,7 @@ pub struct EdgeFlavor {
     id: String,
     visiblename: String,
     description: String,
+    propagates: bool,
 }
 
 impl EdgeFlavor {
@@ -397,6 +397,7 @@ impl EdgeFlavor {
             id: index,
             visiblename: self.visiblename,
             description: self.description,
+            propagates: self.propagates,
         }
     }
 }
@@ -1112,6 +1113,8 @@ pub struct Root {
     nodetemplates: Vec<NodeTemplate>,
     systems: Vec<System>,
     edgeflavors: Vec<EdgeFlavor>,
+    pure_internal_edgeflavor: String,
+    semi_internal_edgeflavor: String,
     edges: Vec<(String, String, String)>,
     factions: Vec<Faction>,
     wars: Vec<(String, String)>,
@@ -1411,17 +1414,24 @@ impl Root {
                                 .find(|n| n.id == *rhs)
                                 .unwrap()
                                 .is_orphan(&self.nodetemplates)
+                                && !(self.edges.iter().any(|(nodeid1, nodeid2, _)| {
+                                    (nodeid1 == &node.id && nodeid2 == rhs) || (nodeid2 == &node.id && nodeid1 == rhs)
+                                }))
                             {
+                                let flavor = if self.edges.iter().any(|(nodeid1, nodeid2, _)| {
+                                    nodeid1 == &node.id
+                                        || nodeid1 == rhs
+                                        || nodeid2 == &node.id
+                                        || nodeid2 == rhs
+                                }) {
+                                    edgeflavoridmap.get(&self.semi_internal_edgeflavor).expect("Specified semi_internal_edgeflavor is not a valid edgeflavor id!").clone()
+                                } else {
+                                    edgeflavoridmap.get(&self.pure_internal_edgeflavor).expect("Specified pure_internal_edgeflavor is not a valid edgeflavor id!").clone()
+                                };
                                 assert_ne!(nodeid, rhsid, "Same node ID appears twice.");
                                 edges.insert(
                                     (nodeid.min(rhsid).clone(), nodeid.max(rhsid).clone()),
-                                    //NOTE: this is a little tortured; it works, but there might be a better way to handle it
-                                    edgeflavoridmap
-                                        .iter()
-                                        .map(|(_, edgeflavor)| edgeflavor)
-                                        .find(|edgeflavor| edgeflavor.id == 0)
-                                        .unwrap()
-                                        .clone(),
+                                    flavor,
                                 );
                             }
                         }

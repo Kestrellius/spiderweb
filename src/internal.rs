@@ -372,6 +372,7 @@ pub struct EdgeFlavor {
     pub id: usize,
     pub visiblename: String,
     pub description: String,
+    pub propagates: bool,
 }
 
 impl PartialEq for EdgeFlavor {
@@ -2957,7 +2958,7 @@ impl SquadronClass {
                 daughters: Vec::new(),
                 allegiance: faction,
                 objectives: Vec::new(),
-                phantom: true,
+                ghost: true,
             }),
         }
     }
@@ -2979,7 +2980,7 @@ pub struct SquadronInstanceMut {
     daughters: Vec<Unit>,
     allegiance: Arc<Faction>,
     objectives: Vec<Objective>,
-    phantom: bool,
+    ghost: bool,
 }
 
 #[derive(Debug)]
@@ -4074,6 +4075,7 @@ pub struct Engagement {
 
 impl Engagement {
     pub fn battle_cleanup(&self, root: &Root) {
+        println!("{}", self.visiblename);
         self.location.mutables.write().unwrap().allegiance = self.victors.0.clone();
         self.unit_status.iter().for_each(|(_, faction_map)| {
             faction_map.iter().for_each(|(_, unit_map)| {
@@ -4687,7 +4689,7 @@ impl Root {
             .filter(|squadron| {
                 ((squadron.get_strength(self.config.battlescalars.avg_duration) as f32)
                     < (squadron.idealstrength as f32 * squadron.class.disbandthreshold))
-                    && !squadron.mutables.read().unwrap().phantom
+                    && !squadron.mutables.read().unwrap().ghost
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -4703,7 +4705,7 @@ impl Root {
             .unwrap()
             .iter()
             .filter(|squadron| {
-                squadron.mutables.read().unwrap().phantom || !squadron.get_daughters().is_empty()
+                squadron.mutables.read().unwrap().ghost || !squadron.get_daughters().is_empty()
             })
             .cloned()
             .collect();
@@ -4786,7 +4788,7 @@ impl Root {
             //this way we can process each salience source separately, avoiding compounding
             (0..n_iters).fold(node_salience_state, |mut state, _| {
                 //println!("Completed {} iterations of salience propagation.", n_iter);
-                self.edges.iter().for_each(|((a, b), _)| {
+                self.edges.iter().filter(|(_, flavor)| flavor.propagates).for_each(|((a, b), _)| {
                     //we get the degradation scalar for each of the two nodes in the edge
                     let deg_a = node_degradations[a.id];
                     let deg_b = node_degradations[b.id];

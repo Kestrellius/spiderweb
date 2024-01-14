@@ -97,7 +97,7 @@ GENERAL:
 [ ] Dessication logic
 [ ] Rehydration logic
 [ ] Optimize salience propagation logic
-    [ ] Exclude all-to-all system edges from propagation
+    [x] Exclude all-to-all system edges from propagation
     [ ] Store salience source node data so we can prune the logic for unit movement
     [ ] Move propagation logic to GPU
 
