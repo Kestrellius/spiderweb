@@ -699,17 +699,13 @@ impl Stockpileness for PluripotentStockpile {
         *self.contents.get(&cargo).unwrap_or(&0)
     }
     fn get_capacity(&self) -> u64 {
-        self.capacity.clone()
+        self.capacity
     }
     fn get_fullness(&self) -> u64 {
         self.contents.iter().map(|(_, value)| value).sum::<u64>()
     }
-    //NOTE: Partially dummied out currently; waiting on removal of ship-carrying ability from stockpiles
     fn get_allowed(&self) -> Option<Vec<Arc<Resource>>> {
-        match &self.allowed {
-            Some(resource_allowed) => Some(resource_allowed.clone()),
-            None => None,
-        }
+        self.allowed.clone()
     }
     //unlike other places, here in pluripotent stockpiles we don't take target into account when calculating supply
     //thus, items in pluripotent stockpiles always emit supply, even if the stockpile still wants more
@@ -717,11 +713,15 @@ impl Stockpileness for PluripotentStockpile {
         self.get_resource_num(resource.clone())
     }
     fn get_resource_demand(&self, resource: Arc<Resource>) -> u64 {
+        let resource_vec = vec![resource.clone()];
         if self
             .get_allowed()
-            .unwrap_or(vec![resource.clone()])
+            .unwrap_or(resource_vec.clone())
             .contains(&resource.clone())
         {
+            //NOTE: This will cause incorrect behavior in the case of stockpiles with allowed set to none.
+            //Since what's happening there is that all resources are allowed, we need to divide the target-minus-fullness value
+            //by the total number of resources in the game, but it's not obvious what the best way to get that information is.
             self.target.saturating_sub(self.get_fullness())
         } else {
             0
@@ -1134,7 +1134,7 @@ impl EngineInstance {
         destinations: &Vec<Arc<Node>>,
     ) -> Option<(Vec<Arc<Node>>, u64)> {
         if (self.health != Some(0))
-            && (root.turn.load(atomic::Ordering::Relaxed) - self.last_move_turn > self.cooldown)
+            && ((root.turn.load(atomic::Ordering::Relaxed) - self.last_move_turn) > self.cooldown)
             && (self.get_state() == FactoryState::Active)
         {
             let viable = destinations
@@ -1159,7 +1159,7 @@ impl EngineInstance {
         destination: Arc<Node>,
     ) -> Option<u64> {
         if (self.health != Some(0))
-            && (root.turn.load(atomic::Ordering::Relaxed) - self.last_move_turn > self.cooldown)
+            && ((root.turn.load(atomic::Ordering::Relaxed) - self.last_move_turn) > self.cooldown)
             && (self.get_state() == FactoryState::Active)
             && (self.nav_check(root, location, destination))
         {
@@ -1742,7 +1742,9 @@ pub trait Mobility {
     fn get_strength_post_engagement(&self, damage: u64) -> u64;
     fn get_volume(&self) -> u64;
     fn get_ai(&self) -> NavAI;
+    fn get_navthreshold(&self) -> f32;
     fn get_objectives(&self) -> Vec<Objective>;
+    fn get_defection_data(&self) -> (HashMap<Arc<Faction>, (f32, f32)>, f32);
     fn get_resource_supply(&self, resource: Arc<Resource>) -> u64;
     fn get_resource_demand(&self, resource: Arc<Resource>) -> u64;
     fn get_resource_demand_ratio(&self, resource: Arc<Resource>) -> (u64, u64);
@@ -1784,9 +1786,179 @@ pub trait Mobility {
     //Since granddaughters won't leave their mothers to accompany a squadron that leaves them beihnd, this version just checks the immediate daughters.
     fn get_traversal_checked_daughters(&self, root: &Root, destination: Arc<Node>) -> Vec<Unit>;
     fn process_engines(&self, root: &Root, destination: Arc<Node>);
-    fn navigate(&self, root: &Root, destinations: &Vec<Arc<Node>>) -> Option<Arc<Node>>;
+    fn get_node_nav_attractiveness(&self, root: &Root, node: Arc<Node>) -> NotNan<f32> {
+        let location: Arc<Node> = self.get_mother_node();
+        let allegiance = self.get_allegiance();
+        let ai = self.get_ai();
+        //this checks how much value the node holds with regards to resources the subject ship is seeking
+        let resource_demand_value: f32 = ai
+            .resource_attract
+            .iter()
+            .map(|(resource, scalar)| {
+                let demand = root.globalsalience.resourcesalience.read().unwrap()
+                    [self.get_allegiance().id][resource.id][node.id][0];
+                let supply = root.globalsalience.resourcesalience.read().unwrap()
+                    [self.get_allegiance().id][resource.id][node.id][1];
+                //let cargo = self.stockpiles.iter().map(|x|)
+                (demand - supply) * self.get_resource_supply(resource.clone()) as f32 * scalar
+            })
+            .sum();
+        let resource_supply_value: f32 = ai
+            .resource_attract
+            .iter()
+            .map(|(resource, scalar)| {
+                //we index into the salience map by resource and then by node
+                //to determine how much supply there is in this node for each resource the subject ship wants
+                //NOTE: Previously, we got demand by indexing by nodeid, not position.
+                //I believe using the ship's current position to calculate demand
+                //will eliminate a pathology and produce more correct gradient-following behavior.
+                let demand = root.globalsalience.resourcesalience.read().unwrap()[allegiance.id]
+                    [resource.id][node.id][0];
+                let supply = root.globalsalience.resourcesalience.read().unwrap()[allegiance.id]
+                    [resource.id][node.id][1];
+                let (demand_total, target_total) = self.get_resource_demand_ratio(resource.clone());
+                supply * demand * (demand_total as f32 / target_total as f32) * scalar
+            })
+            .sum();
+        let unitclass_demand_value: f32 = ai
+            .ship_cargo_attract
+            .iter()
+            .map(|(unitclassid, scalar)| {
+                let attractive_unitclass = match unitclassid {
+                    UnitClassID::ShipClass(shipclassid) => UnitClass::ShipClass(
+                        root.shipclasses
+                            .iter()
+                            .find(|shipclass| shipclass.id == shipclassid.index)
+                            .unwrap()
+                            .clone(),
+                    ),
+                    UnitClassID::SquadronClass(squadronclassid) => UnitClass::SquadronClass(
+                        root.squadronclasses
+                            .iter()
+                            .find(|squadronclass| squadronclass.id == squadronclassid.index)
+                            .unwrap()
+                            .clone(),
+                    ),
+                };
+                let demand = root.globalsalience.unitclasssalience.read().unwrap()[allegiance.id]
+                    [unitclassid.get_index()][node.id][0];
+                let supply = root.globalsalience.unitclasssalience.read().unwrap()[allegiance.id]
+                    [unitclassid.get_index()][node.id][1];
+                (demand - supply)
+                    * (self.get_unitclass_num(attractive_unitclass.clone()) as f32
+                        * attractive_unitclass.get_ideal_volume() as f32)
+                    * scalar
+            })
+            .sum();
+        //this checks how much value the node holds with regards to shipclasses the subject ship is seeking (to carry as cargo)
+        let unitclass_supply_value: f32 = ai
+            .ship_cargo_attract
+            .iter()
+            .map(|(unitclassid, scalar)| {
+                //we index into the salience map by resource and then by node
+                //to determine how much supply there is in this node for each resource the subject ship wants
+                //NOTE: Previously, we got demand by indexing by nodeid, not location.
+                //I believe using the ship's current position to calculate demand
+                //will eliminate a pathology and produce more correct gradient-following behavior.
+                let attractive_unitclass = match unitclassid {
+                    UnitClassID::ShipClass(shipclassid) => UnitClass::ShipClass(
+                        root.shipclasses
+                            .iter()
+                            .find(|shipclass| shipclass.id == shipclassid.index)
+                            .unwrap()
+                            .clone(),
+                    ),
+                    UnitClassID::SquadronClass(squadronclassid) => UnitClass::SquadronClass(
+                        root.squadronclasses
+                            .iter()
+                            .find(|squadronclass| squadronclass.id == squadronclassid.index)
+                            .unwrap()
+                            .clone(),
+                    ),
+                };
+                let demand = root.globalsalience.unitclasssalience.read().unwrap()[allegiance.id]
+                    [unitclassid.get_index()][location.id][0];
+                let supply = root.globalsalience.unitclasssalience.read().unwrap()[allegiance.id]
+                    [unitclassid.get_index()][node.id][1];
+                let (demand_total, target_total) =
+                    self.get_unitclass_demand_ratio(attractive_unitclass.clone());
+                supply * demand * (demand_total as f32 / target_total as f32) * scalar
+            })
+            .sum();
+        //this checks how much demand there is in the node for ships of the subject ship's class
+        let ship_value_specific: f32 = root.globalsalience.unitclasssalience.read().unwrap()
+            [allegiance.id][self.get_unitclass().get_id()][node.id][0]
+            * ai.ship_attract_specific;
+        //oh, THIS is why we needed the placeholder ship class
+        //this checks how much demand there is in the node for ships in general
+        let ship_value_generic: f32 = root.globalsalience.unitclasssalience.read().unwrap()
+            [allegiance.id][0][node.id][0]
+            * ai.ship_attract_generic;
+
+        NotNan::new(
+            resource_demand_value
+                + resource_supply_value
+                + unitclass_demand_value
+                + unitclass_supply_value
+                + ship_value_specific
+                + ship_value_generic,
+        )
+        .unwrap()
+    }
+    fn navigate(
+        //used for ships which are operating independently
+        //this method determines which of the current node's neighbors is most desirable
+        &self,
+        root: &Root,
+        destinations: &Vec<Arc<Node>>,
+    ) -> Option<Arc<Node>> {
+        let location = self.get_mother_node();
+        //we iterate over the destinations to determine which neighbor is most desirable
+        let neighbor_values: Vec<(Arc<Node>, NotNan<f32>)> = destinations
+            .iter()
+            //we go through all the different kinds of desirable salience values each node might have and add them up
+            //then return the node with the highest value
+            .map(|node| {
+                //this checks how much value the node holds with regards to resources the subject ship is seeking
+                (
+                    node.clone(),
+                    self.get_node_nav_attractiveness(root, node.clone()),
+                )
+            })
+            .collect();
+        let null_pair = (location.clone(), NotNan::new(0.0).unwrap());
+        let best_neighbor = neighbor_values
+            .iter()
+            .max_by_key(|(_, val)| val)
+            .unwrap_or(&null_pair);
+        if best_neighbor.1
+            > self.get_node_nav_attractiveness(root, location) * self.get_navthreshold()
+        {
+            Some(best_neighbor.0.clone())
+        } else {
+            None
+        }
+    }
     fn traverse(&self, root: &Root, destination: Arc<Node>) -> Option<Arc<Node>>;
-    fn maneuver(&self, root: &Root) -> Option<Arc<Node>>;
+    fn maneuver(&self, root: &Root) -> Option<Arc<Node>> {
+        let neighbors = root
+            .neighbors
+            .get(&self.get_mother_node())
+            .unwrap_or(&Vec::new())
+            .clone();
+        if let Some(destinations) = self.destinations_check(root, &neighbors) {
+            let destination_option = self.navigate(root, &destinations);
+            match destination_option.clone() {
+                Some(destination) => {
+                    self.traverse(root, destination.clone());
+                }
+                None => {}
+            }
+            destination_option
+        } else {
+            None
+        }
+    }
     fn calculate_damage(
         &self,
         root: &Root,
@@ -1798,8 +1970,105 @@ pub trait Mobility {
     ) -> (u64, Vec<u64>);
     fn damage(&self, damage: u64, engine_damage: &Vec<u64>);
     fn repair(&self, per_engagement: bool);
-    fn try_defect(&self, root: &Root) -> Option<Vec<Arc<Node>>>;
+    //Checks whether the unit will defect this turn; if it will, makes the unit defect and returns the node the ship is in afterward
+    //so that that node can be checked for engagements
+    fn try_defect(&self, root: &Root) -> Option<Vec<Arc<Node>>> {
+        let location = self.get_mother_node();
+        let allegiance = self.get_allegiance();
+        let (defectchance, defectescapescalar) = self.get_defection_data();
+        //NOTE: Test whether this gives us numbers that make sense.
+        let local_threat_ratio: f32 = defectchance
+            .iter()
+            .map(|(faction, _)| {
+                root.globalsalience.factionsalience.read().unwrap()[allegiance.id][faction.id]
+                    [location.id][0]
+            })
+            .sum();
+        //if defectchance only contains data for one faction
+        //then either it's the faction it's currently part of, in which case we have no data on its chance of joining other factions
+        //or it's not, in which case we have no data on its chance of defecting from its current faction
+        //so either way we treat it as incapable of defecting
+        let defect_probability = if defectchance.len() > 1 {
+            ((local_threat_ratio * defectchance
+                .get(&allegiance)
+                .unwrap_or(&(0.0, 0.0))
+                .0)
+                //NOTE: I *think* that clamp will resolve things properly if we end up dividing by zero -- it'll set the probability to 1 -- but it's hard to be sure
+                /self.get_morale_scalar())
+            .clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let mut rng = thread_rng();
+        let defects = rng.gen_bool(defect_probability as f64);
+        if defects {
+            let interdiction: f32 = location
+                .mutables
+                .read()
+                .unwrap()
+                .units
+                .iter()
+                .filter(|unit| unit.get_allegiance() == allegiance)
+                .filter(|unit| unit.get_id() != self.get_id())
+                .map(|unit| unit.get_interdiction_scalar())
+                .product();
+            let new_faction_probabilities: Vec<(Arc<Faction>, f32)> = defectchance
+                .iter()
+                .map(|(faction, (_, defect_to))| {
+                    (
+                        faction.clone(),
+                        (defect_to
+                            * root.globalsalience.factionsalience.read().unwrap()[faction.id]
+                                [faction.id][location.id][0]),
+                    )
+                })
+                .collect();
+            let new_faction: Arc<Faction> = new_faction_probabilities
+                .choose_weighted(&mut rng, |(_, prob)| prob.clone())
+                .unwrap()
+                .0
+                .clone();
+            self.change_allegiance(new_faction.clone());
+            //NOTE: This should take more things into account probably
+            let escapes = rng.gen_bool((defectescapescalar / interdiction).clamp(0.0, 1.0) as f64);
+            if escapes {
+                let destinations_option =
+                    self.destinations_check(root, root.neighbors.get(&location).unwrap());
+                match destinations_option.clone() {
+                    Some(destinations) => {
+                        let destination = destinations
+                            .iter()
+                            .max_by_key(|node| {
+                                root.globalsalience.factionsalience.read().unwrap()[new_faction.id]
+                                    [new_faction.id][node.id][0]
+                                    as i64
+                            })
+                            .unwrap()
+                            .clone();
+                        self.traverse(root, destination.clone());
+                        Some(vec![location, destination])
+                    }
+                    None => {
+                        self.transfer(UnitLocation::Node(location.clone()));
+                        Some(vec![location])
+                    }
+                }
+            } else {
+                self.transfer(UnitLocation::Node(location.clone()));
+                Some(vec![location])
+            }
+        } else {
+            None
+        }
+    }
     fn kill(&self);
+}
+
+#[derive(Debug, Clone)]
+pub struct ShipFlavor {
+    pub id: usize,
+    pub visiblename: String,
+    pub description: String,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -1818,6 +2087,7 @@ pub struct ShipClass {
     pub id: usize,
     pub visiblename: String,
     pub description: String,
+    pub shipflavor: Arc<ShipFlavor>,
     pub basehull: u64,     //how many hull hitpoints this ship has by default
     pub basestrength: u64, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
     pub visibility: bool,
@@ -1831,6 +2101,9 @@ pub struct ShipClass {
     pub factoryclasslist: Vec<Arc<FactoryClass>>,
     pub shipyardclasslist: Vec<Arc<ShipyardClass>>,
     pub aiclass: Arc<ShipAI>,
+    pub navthreshold: f32, //the value of an adjacent node must exceed (the value of the current node times navthreshold) in order for the ship to decide to move
+    pub deploys_self: bool, //if false, ship will not go on deployments
+    pub deploys_daughters: bool, // if false, ship will not send its daughters on deployments
     pub defectchance: HashMap<Arc<Faction>, (f32, f32)>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
     pub toughnessscalar: f32, //is used as a divisor for damage values taken by this ship in battle; a value of 2.0 will halve damage
     pub battleescapescalar: f32, //is added to toughnessscalar in battles where this ship is on the losing side, trying to escape
@@ -2171,6 +2444,9 @@ impl Mobility for Arc<ShipInstance> {
             resource_attract: ai.resource_attract.clone(),
         }
     }
+    fn get_navthreshold(&self) -> f32 {
+        self.class.navthreshold.clone()
+    }
     fn get_objectives(&self) -> Vec<Objective> {
         self.mutables
             .read()
@@ -2179,6 +2455,12 @@ impl Mobility for Arc<ShipInstance> {
             .iter()
             .cloned()
             .collect()
+    }
+    fn get_defection_data(&self) -> (HashMap<Arc<Faction>, (f32, f32)>, f32) {
+        (
+            self.class.defectchance.clone(),
+            self.class.defectescapescalar,
+        )
     }
     fn get_resource_supply(&self, resource: Arc<Resource>) -> u64 {
         let mutables = self.mutables.read().unwrap();
@@ -2230,8 +2512,12 @@ impl Mobility for Arc<ShipInstance> {
             .iter()
             .map(|sp| sp.get_resource_demand(resource.clone()))
             .sum::<u64>();
-        let target_total = mutables.stockpiles.iter().map(|sp| sp.target).sum::<u64>();
-        assert!(demand_total < target_total);
+        let target_sum = mutables.stockpiles.iter().map(|sp| sp.target).sum::<u64>();
+        assert!(demand_total <= target_sum);
+        let target_total = match target_sum {
+            0 => 1,
+            _ => target_sum,
+        };
         (demand_total, target_total)
     }
     fn get_unitclass_num(&self, unitclass: UnitClass) -> u64 {
@@ -2273,12 +2559,16 @@ impl Mobility for Arc<ShipInstance> {
             .iter()
             .map(|hangar| hangar.get_unitclass_demand(unitclass.clone()))
             .sum::<u64>();
-        let target_total = mutables
+        let target_sum = mutables
             .hangars
             .iter()
             .map(|hangar| hangar.class.target)
             .sum::<u64>();
-        assert!(demand_total < target_total);
+        assert!(demand_total <= target_sum);
+        let target_total = match target_sum {
+            0 => 1,
+            _ => target_sum,
+        };
         (demand_total, target_total)
     }
     fn change_allegiance(&self, new_faction: Arc<Faction>) {
@@ -2387,179 +2677,10 @@ impl Mobility for Arc<ShipInstance> {
             }
         }
     }
-    fn navigate(
-        //used for ships which are operating independently
-        //this method determines which of the current node's neighbors is most desirable
-        &self,
-        root: &Root,
-        destinations: &Vec<Arc<Node>>,
-    ) -> Option<Arc<Node>> {
-        let location: Arc<Node> = self.get_mother_node();
-        let mutables = self.mutables.read().unwrap();
-        //we iterate over the destinations to determine which neighbor is most desirable
-        destinations
-            .iter()
-            //we go through all the different kinds of desirable salience values each node might have and add them up
-            //then return the node with the highest value
-            .max_by_key(|node| {
-                //this checks how much value the node holds with regards to resources the subject ship is seeking
-                let resource_demand_value: f32 = mutables
-                    .aiclass
-                    .resource_attract
-                    .iter()
-                    .map(|(resource, scalar)| {
-                        let demand = root.globalsalience.resourcesalience.read().unwrap()
-                            [mutables.allegiance.id][resource.id][node.id][0];
-                        let supply = root.globalsalience.resourcesalience.read().unwrap()
-                            [mutables.allegiance.id][resource.id][node.id][1];
-                        //let cargo = self.stockpiles.iter().map(|x|)
-                        (demand - supply)
-                            * self.get_resource_supply(resource.clone()) as f32
-                            * scalar
-                    })
-                    .sum();
-                let resource_supply_value: f32 = mutables
-                    .aiclass
-                    .resource_attract
-                    .iter()
-                    .map(|(resource, scalar)| {
-                        //we index into the salience map by resource and then by node
-                        //to determine how much supply there is in this node for each resource the subject ship wants
-                        //NOTE: Previously, we got demand by indexing by nodeid, not position.
-                        //I believe using the ship's current position to calculate demand
-                        //will eliminate a pathology and produce more correct gradient-following behavior.
-                        let demand = root.globalsalience.resourcesalience.read().unwrap()
-                            [mutables.allegiance.id][resource.id][node.id][0];
-                        let supply = root.globalsalience.resourcesalience.read().unwrap()
-                            [mutables.allegiance.id][resource.id][node.id][1];
-                        let (demand_total, target_total) =
-                            self.get_resource_demand_ratio(resource.clone());
-                        supply * demand * (demand_total as f32 / target_total as f32) * scalar
-                    })
-                    .sum();
-                let unitclass_demand_value: f32 = mutables
-                    .aiclass
-                    .ship_cargo_attract
-                    .iter()
-                    .map(|(unitclassid, scalar)| {
-                        let attractive_unitclass = match unitclassid {
-                            UnitClassID::ShipClass(shipclassid) => UnitClass::ShipClass(
-                                root.shipclasses
-                                    .iter()
-                                    .find(|shipclass| shipclass.id == shipclassid.index)
-                                    .unwrap()
-                                    .clone(),
-                            ),
-                            UnitClassID::SquadronClass(squadronclassid) => {
-                                UnitClass::SquadronClass(
-                                    root.squadronclasses
-                                        .iter()
-                                        .find(|squadronclass| {
-                                            squadronclass.id == squadronclassid.index
-                                        })
-                                        .unwrap()
-                                        .clone(),
-                                )
-                            }
-                        };
-                        let demand = root.globalsalience.unitclasssalience.read().unwrap()
-                            [mutables.allegiance.id][unitclassid.get_index()][node.id][0];
-                        let supply = root.globalsalience.unitclasssalience.read().unwrap()
-                            [mutables.allegiance.id][unitclassid.get_index()][node.id][1];
-                        (demand - supply)
-                            * (self.get_unitclass_num(attractive_unitclass.clone()) as f32
-                                * attractive_unitclass.get_ideal_volume() as f32)
-                            * scalar
-                    })
-                    .sum();
-                //this checks how much value the node holds with regards to shipclasses the subject ship is seeking (to carry as cargo)
-                let unitclass_supply_value: f32 = mutables
-                    .aiclass
-                    .ship_cargo_attract
-                    .iter()
-                    .map(|(unitclassid, scalar)| {
-                        //we index into the salience map by resource and then by node
-                        //to determine how much supply there is in this node for each resource the subject ship wants
-                        //NOTE: Previously, we got demand by indexing by nodeid, not location.
-                        //I believe using the ship's current position to calculate demand
-                        //will eliminate a pathology and produce more correct gradient-following behavior.
-                        let attractive_unitclass = match unitclassid {
-                            UnitClassID::ShipClass(shipclassid) => UnitClass::ShipClass(
-                                root.shipclasses
-                                    .iter()
-                                    .find(|shipclass| shipclass.id == shipclassid.index)
-                                    .unwrap()
-                                    .clone(),
-                            ),
-                            UnitClassID::SquadronClass(squadronclassid) => {
-                                UnitClass::SquadronClass(
-                                    root.squadronclasses
-                                        .iter()
-                                        .find(|squadronclass| {
-                                            squadronclass.id == squadronclassid.index
-                                        })
-                                        .unwrap()
-                                        .clone(),
-                                )
-                            }
-                        };
-                        let demand = root.globalsalience.unitclasssalience.read().unwrap()
-                            [mutables.allegiance.id][unitclassid.get_index()][location.id][0];
-                        let supply = root.globalsalience.unitclasssalience.read().unwrap()
-                            [mutables.allegiance.id][unitclassid.get_index()][node.id][1];
-                        let (demand_total, target_total) =
-                            self.get_unitclass_demand_ratio(attractive_unitclass.clone());
-                        supply * demand * (demand_total as f32 / target_total as f32) * scalar
-                    })
-                    .sum();
-                //this checks how much demand there is in the node for ships of the subject ship's class
-                let ship_value_specific: f32 =
-                    root.globalsalience.unitclasssalience.read().unwrap()[mutables.allegiance.id]
-                        [self.class.id][node.id][0]
-                        * mutables.aiclass.ship_attract_specific;
-                //oh, THIS is why we needed the placeholder ship class
-                //this checks how much demand there is in the node for ships in general
-                let ship_value_generic: f32 = root.globalsalience.unitclasssalience.read().unwrap()
-                    [mutables.allegiance.id][0][node.id][0]
-                    * mutables.aiclass.ship_attract_generic;
-
-                NotNan::new(
-                    resource_demand_value
-                        + resource_supply_value
-                        + unitclass_demand_value
-                        + unitclass_supply_value
-                        + ship_value_specific
-                        + ship_value_generic,
-                )
-                .unwrap()
-            })
-            .cloned()
-        //if this doesn't work for some reason, we return None
-    }
     fn traverse(&self, root: &Root, destination: Arc<Node>) -> Option<Arc<Node>> {
         self.process_engines(root, destination.clone());
         self.transfer(UnitLocation::Node(destination.clone()));
         Some(destination)
-    }
-    //this moves a ship across one edge so long as it has a functioning engine, draining fuel from the engines it uses
-    //in turn processing, we'll need to repeat traversal as long as it continues returning true
-    fn maneuver(&self, root: &Root) -> Option<Arc<Node>> {
-        let location = self.get_mother_node();
-        let empty = Vec::new();
-        let neighbors = root.neighbors.get(&location).unwrap_or(&empty);
-        match self.destinations_check(root, &neighbors) {
-            Some(destinations) => {
-                let destination_option = self.navigate(root, &destinations);
-                match destination_option.clone() {
-                    Some(destination) => {
-                        self.traverse(root, destination);
-                    }
-                    None => {}
-                }
-                destination_option
-            }
-            None => None,
-        }
     }
     fn calculate_damage(
         &self,
@@ -2636,7 +2757,7 @@ impl Mobility for Arc<ShipInstance> {
     }
     fn damage(&self, damage: u64, engine_damage: &Vec<u64>) {
         let mut mutables = self.mutables.write().unwrap();
-        mutables.hull.saturating_sub(damage);
+        mutables.hull = mutables.hull.saturating_sub(damage);
         engine_damage
             .iter()
             .zip(
@@ -2652,7 +2773,7 @@ impl Mobility for Arc<ShipInstance> {
     fn repair(&self, per_engagement: bool) {
         let mut mutables: RwLockWriteGuard<ShipInstanceMut> = self.mutables.write().unwrap();
         let current_hull = mutables.hull;
-        if current_hull < self.class.basehull
+        if current_hull < self.class.basehull && current_hull > 0
             || mutables.engines.iter().any(|e| e.health < e.basehealth)
         {
             let [(hull_repair_points, hull_repair_factor), (engine_repair_points, engine_repair_factor)]: [(i64, f32); 2] = mutables
@@ -2687,101 +2808,6 @@ impl Mobility for Arc<ShipInstance> {
                         + (e.basehealth.unwrap() as f32 * engine_repair_factor) as i64)
                         .clamp(0, e.basehealth.unwrap() as i64) as u64;
                 })
-        }
-    }
-    //Checks whether the shipinstance will defect this turn; if it will, makes the ship defect and returns the node the ship is in afterward
-    //so that that node can be checked for engagements
-    fn try_defect(&self, root: &Root) -> Option<Vec<Arc<Node>>> {
-        let location = self.get_mother_node();
-        let mut mutables = self.mutables.write().unwrap();
-        //NOTE: Test whether this gives us numbers that make sense.
-        let local_threat_ratio: f32 = self
-            .class
-            .defectchance
-            .iter()
-            .map(|(faction, _)| {
-                root.globalsalience.factionsalience.read().unwrap()[mutables.allegiance.id]
-                    [faction.id][location.id][0]
-            })
-            .sum();
-        //if defectchance only contains data for one faction
-        //then either it's the faction it's currently part of, in which case we have no data on its chance of joining other factions
-        //or it's not, in which case we have no data on its chance of defecting from its current faction
-        //so either way we treat it as incapable of defecting
-        let defect_probability = if self.class.defectchance.len() > 1 {
-            ((local_threat_ratio * self.class.defectchance
-                .get(&mutables.allegiance)
-                .unwrap_or(&(0.0, 0.0))
-                .0)
-                //NOTE: I *think* that clamp will resolve things properly if we end up dividing by zero -- it'll set the probability to 1 -- but it's hard to be sure
-                /self.get_morale_scalar())
-            .clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        let mut rng = thread_rng();
-        let defects = rng.gen_bool(defect_probability as f64);
-        if defects {
-            let interdiction: f32 = location
-                .mutables
-                .read()
-                .unwrap()
-                .units
-                .iter()
-                .filter(|unit| unit.get_allegiance() == mutables.allegiance)
-                .filter(|unit| unit.get_id() != self.id)
-                .map(|unit| unit.get_interdiction_scalar())
-                .product();
-            let new_faction_probabilities: Vec<(Arc<Faction>, f32)> = self
-                .class
-                .defectchance
-                .iter()
-                .map(|(faction, (_, defect_to))| {
-                    (
-                        faction.clone(),
-                        (defect_to
-                            * root.globalsalience.factionsalience.read().unwrap()[faction.id]
-                                [faction.id][location.id][0]),
-                    )
-                })
-                .collect();
-            let new_faction: Arc<Faction> = new_faction_probabilities
-                .choose_weighted(&mut rng, |(_, prob)| prob.clone())
-                .unwrap()
-                .0
-                .clone();
-            mutables.allegiance = new_faction.clone();
-            //NOTE: This should take more things into account probably
-            let escapes =
-                rng.gen_bool((self.class.defectescapescalar / interdiction).clamp(0.0, 1.0) as f64);
-            if escapes {
-                let destinations_option =
-                    self.destinations_check(root, root.neighbors.get(&location).unwrap());
-                match destinations_option.clone() {
-                    Some(destinations) => {
-                        let destination = destinations
-                            .iter()
-                            .max_by_key(|node| {
-                                root.globalsalience.factionsalience.read().unwrap()[new_faction.id]
-                                    [new_faction.id][node.id][0]
-                                    as i64
-                            })
-                            .unwrap()
-                            .clone();
-                        self.traverse(root, destination.clone());
-                        Some(vec![destination])
-                    }
-                    None => {
-                        self.transfer(UnitLocation::Node(location.clone()));
-                        Some(vec![location])
-                    }
-                }
-            } else {
-                self.transfer(UnitLocation::Node(location.clone()));
-                Some(vec![location])
-            }
-        } else {
-            None
         }
     }
     fn kill(&self) {
@@ -2836,6 +2862,13 @@ impl ShipInstance {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct SquadronFlavor {
+    pub id: usize,
+    pub visiblename: String,
+    pub description: String,
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct SquadronClassID {
     pub index: usize,
@@ -2852,15 +2885,19 @@ pub struct SquadronClass {
     pub id: usize,
     pub visiblename: String,
     pub description: String,
+    pub squadronflavor: Arc<SquadronFlavor>,
     pub visibility: bool,
     pub propagates: bool,
     pub strengthmod: (f32, u64),
     pub squadronconfig: HashMap<UnitClassID, u64>,
     pub target: u64,
-    pub defectchance: HashMap<Arc<Faction>, (f32, f32)>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
-    pub defectescapescalar: f32,
+    pub navthreshold: f32, //the value of an adjacent node must exceed (the value of the current node times navthreshold) in order for the ship to decide to move
     pub navquorum: f32,
     pub disbandthreshold: f32,
+    pub deploys_self: bool,      //if false, ship will not go on deployments
+    pub deploys_daughters: bool, // if false, ship will not send its daughters on deployments
+    pub defectchance: HashMap<Arc<Faction>, (f32, f32)>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
+    pub defectescapescalar: f32,
 }
 
 impl PartialEq for SquadronClass {
@@ -3127,6 +3164,15 @@ impl Mobility for Arc<SquadronInstance> {
             },
         )
     }
+    fn get_navthreshold(&self) -> f32 {
+        self.class.navthreshold.clone()
+    }
+    fn get_defection_data(&self) -> (HashMap<Arc<Faction>, (f32, f32)>, f32) {
+        (
+            self.class.defectchance.clone(),
+            self.class.defectescapescalar,
+        )
+    }
     fn get_objectives(&self) -> Vec<Objective> {
         self.mutables
             .read()
@@ -3289,147 +3335,6 @@ impl Mobility for Arc<SquadronInstance> {
             .iter()
             .for_each(|daughter| daughter.process_engines(root, destination.clone()));
     }
-    fn navigate(&self, root: &Root, destinations: &Vec<Arc<Node>>) -> Option<Arc<Node>> {
-        //we iterate over the destinations to determine which neighbor is most desirable
-        destinations
-            .iter()
-            //we go through all the different kinds of desirable salience values each node might have and add them up
-            //then return the node with the highest value
-            .max_by_key(|node| {
-                let ai = self.get_ai();
-                //this checks how much value the node holds with regards to resources the subject ship is seeking
-                let resource_demand_value: f32 = ai
-                    .resource_attract
-                    .iter()
-                    .map(|(resource, scalar)| {
-                        let demand = root.globalsalience.resourcesalience.read().unwrap()
-                            [self.mutables.read().unwrap().allegiance.id][resource.id][node.id][0];
-                        let supply = root.globalsalience.resourcesalience.read().unwrap()
-                            [self.mutables.read().unwrap().allegiance.id][resource.id][node.id][1];
-                        (demand - supply)
-                            * self.get_resource_supply(resource.clone()) as f32
-                            * scalar
-                    })
-                    .sum();
-                let resource_supply_value: f32 = ai
-                    .resource_attract
-                    .iter()
-                    .map(|(resource, scalar)| {
-                        //we index into the salience map by resource and then by node
-                        //to determine how much supply there is in this node for each resource the subject ship wants
-                        //NOTE: Previously, we got demand by indexing by nodeid, not position.
-                        //I believe using the ship's current position to calculate demand
-                        //will eliminate a pathology and produce more correct gradient-following behavior.
-                        let demand = root.globalsalience.resourcesalience.read().unwrap()
-                            [self.mutables.read().unwrap().allegiance.id][resource.id]
-                            [self.get_mother_node().id][0];
-                        let supply = root.globalsalience.resourcesalience.read().unwrap()
-                            [self.mutables.read().unwrap().allegiance.id][resource.id][node.id][1];
-                        let (demand_total, target_total) =
-                            self.get_resource_demand_ratio(resource.clone());
-                        supply * demand * (demand_total as f32 / target_total as f32) * scalar
-                    })
-                    .sum();
-                let unitclass_demand_value: f32 = ai
-                    .ship_cargo_attract
-                    .iter()
-                    .map(|(unitclassid, scalar)| {
-                        let attractive_unitclass = match unitclassid {
-                            UnitClassID::ShipClass(shipclassid) => UnitClass::ShipClass(
-                                root.shipclasses
-                                    .iter()
-                                    .find(|shipclass| shipclass.id == shipclassid.index)
-                                    .unwrap()
-                                    .clone(),
-                            ),
-                            UnitClassID::SquadronClass(squadronclassid) => {
-                                UnitClass::SquadronClass(
-                                    root.squadronclasses
-                                        .iter()
-                                        .find(|squadronclass| {
-                                            squadronclass.id == squadronclassid.index
-                                        })
-                                        .unwrap()
-                                        .clone(),
-                                )
-                            }
-                        };
-                        let demand = root.globalsalience.unitclasssalience.read().unwrap()
-                            [self.mutables.read().unwrap().allegiance.id][unitclassid.get_index()]
-                            [node.id][0];
-                        let supply = root.globalsalience.unitclasssalience.read().unwrap()
-                            [self.mutables.read().unwrap().allegiance.id][unitclassid.get_index()]
-                            [node.id][1];
-                        (demand - supply)
-                            * (self.get_unitclass_num(attractive_unitclass.clone()) as f32
-                                * attractive_unitclass.get_ideal_volume() as f32)
-                            * scalar
-                    })
-                    .sum();
-                //this checks how much value the node holds with regards to shipclasses the subject ship is seeking (to carry as cargo)
-                let unitclass_supply_value: f32 = ai
-                    .ship_cargo_attract
-                    .iter()
-                    .map(|(unitclassid, scalar)| {
-                        let attractive_unitclass = match unitclassid {
-                            UnitClassID::ShipClass(shipclassid) => UnitClass::ShipClass(
-                                root.shipclasses
-                                    .iter()
-                                    .find(|shipclass| shipclass.id == shipclassid.index)
-                                    .unwrap()
-                                    .clone(),
-                            ),
-                            UnitClassID::SquadronClass(squadronclassid) => {
-                                UnitClass::SquadronClass(
-                                    root.squadronclasses
-                                        .iter()
-                                        .find(|squadronclass| {
-                                            squadronclass.id == squadronclassid.index
-                                        })
-                                        .unwrap()
-                                        .clone(),
-                                )
-                            }
-                        };
-                        //we index into the salience map by resource and then by node
-                        //to determine how much supply there is in this node for each resource the subject ship wants
-                        //NOTE: Previously, we got demand by indexing by nodeid, not location.
-                        //I believe using the ship's current position to calculate demand
-                        //will eliminate a pathology and produce more correct gradient-following behavior.
-                        //NOTE: We're indexing into a vec by shipclass id here. Make sure that works properly.
-                        let demand = root.globalsalience.unitclasssalience.read().unwrap()
-                            [self.mutables.read().unwrap().allegiance.id][unitclassid.get_index()]
-                            [self.get_mother_node().id][0];
-                        let supply = root.globalsalience.unitclasssalience.read().unwrap()
-                            [self.mutables.read().unwrap().allegiance.id][unitclassid.get_index()]
-                            [node.id][1];
-                        let (demand_total, target_total) =
-                            self.get_unitclass_demand_ratio(attractive_unitclass.clone());
-                        supply * demand * (demand_total as f32 / target_total as f32) * scalar
-                    })
-                    .sum();
-                //NOTE: Here in the squadron implementation, I have removed the component that determines how much demand there is for ships of this ship's class.
-                //In theory we could implement this by adding up the demand for the ships of the daughters' various classes, scaled according to their individual
-                //ship_attract_specifics, but right now I'm not going to bother.
-
-                //this checks how much demand there is in the node for ships in general
-                let ship_value_generic: f32 = root.globalsalience.unitclasssalience.read().unwrap()
-                    [self.mutables.read().unwrap().allegiance.id][0][node.id][0]
-                    * ai.ship_attract_generic;
-
-                NotNan::new(
-                    resource_demand_value
-                        + resource_supply_value
-                        + unitclass_demand_value
-                        + unitclass_supply_value
-                        //+ ship_value_specific
-                        + ship_value_generic,
-                )
-                .unwrap()
-            })
-            .cloned()
-        //if this doesn't work for some reason, we return None
-    }
     fn traverse(&self, root: &Root, destination: Arc<Node>) -> Option<Arc<Node>> {
         let daughters = self.get_daughters();
         let valid = self.get_traversal_checked_daughters(root, destination.clone());
@@ -3448,25 +3353,6 @@ impl Mobility for Arc<SquadronInstance> {
             None
         }
     }
-    fn maneuver(&self, root: &Root) -> Option<Arc<Node>> {
-        let neighbors = root
-            .neighbors
-            .get(&self.get_mother_node())
-            .unwrap_or(&Vec::new())
-            .clone();
-        if let Some(destinations) = self.destinations_check(root, &neighbors) {
-            let destination_option = self.navigate(root, &destinations);
-            match destination_option.clone() {
-                Some(destination) => {
-                    self.traverse(root, destination.clone());
-                }
-                None => {}
-            }
-            destination_option
-        } else {
-            None
-        }
-    }
     fn calculate_damage(
         &self,
         _root: &Root,
@@ -3480,95 +3366,6 @@ impl Mobility for Arc<SquadronInstance> {
     }
     fn damage(&self, _damage: u64, _engine_damage: &Vec<u64>) {}
     fn repair(&self, _per_engagement: bool) {}
-    //Checks whether the squadroninstance will defect this turn; if it will, makes the ship defect and returns the node the ship is in afterward
-    //so that that node can be checked for engagements
-    fn try_defect(&self, root: &Root) -> Option<Vec<Arc<Node>>> {
-        //if defectchance only contains data for one faction
-        //then either it's the faction it's currently part of, in which case we have no data on its chance of joining other factions
-        //or it's not, in which case we have no data on its chance of defecting from its current faction
-        //so either way we treat it as incapable of defecting
-        //NOTE: Test whether this gives us numbers that make sense.
-        let current_allegiance = self.mutables.read().unwrap().allegiance.clone();
-        let location = self.get_mother_node();
-        let local_threat_ratio: f32 = self
-            .class
-            .defectchance
-            .iter()
-            .map(|(faction, _)| {
-                root.globalsalience.factionsalience.read().unwrap()[current_allegiance.id]
-                    [faction.id][self.get_mother_node().id][0]
-            })
-            .sum();
-        let defect_probability = if self.class.defectchance.len() > 1 {
-            ((local_threat_ratio * self.class.defectchance
-                .get(&current_allegiance)
-                .unwrap_or(&(0.0, 0.0))
-                .0)
-                //NOTE: I *think* that clamp will resolve things properly if we end up dividing by zero -- it'll set the probability to 1 -- but it's hard to be sure
-                /self.get_morale_scalar())
-            .clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        let mut rng = thread_rng();
-        let defects = rng.gen_bool(defect_probability as f64);
-        if defects {
-            let interdiction: f32 = location
-                .mutables
-                .read()
-                .unwrap()
-                .units
-                .iter()
-                .filter(|unit| unit.get_allegiance() == current_allegiance)
-                .filter(|unit| unit.get_id() != self.id)
-                .map(|unit| unit.get_interdiction_scalar())
-                .product();
-            let new_faction_probabilities: Vec<(Arc<Faction>, f32)> = self
-                .class
-                .defectchance
-                .iter()
-                .map(|(faction, (_, defect_to))| {
-                    (
-                        faction.clone(),
-                        (defect_to
-                            * root.globalsalience.factionsalience.read().unwrap()[faction.id]
-                                [faction.id][self.get_mother_node().id][0]),
-                    )
-                })
-                .collect();
-            let new_faction: Arc<Faction> = new_faction_probabilities
-                .choose_weighted(&mut rng, |(_, prob)| prob.clone())
-                .unwrap()
-                .0
-                .clone();
-            self.change_allegiance(new_faction.clone());
-            let escapes =
-                rng.gen_bool((self.class.defectescapescalar / interdiction).clamp(0.0, 1.0) as f64);
-            if escapes {
-                let neighbors = root.neighbors.get(&location).unwrap().clone();
-                let destinations_option = self.destinations_check(root, &neighbors);
-                match destinations_option {
-                    Some(destinations) => {
-                        let destination = destinations
-                            .iter()
-                            .max_by_key(|node| {
-                                root.globalsalience.factionsalience.read().unwrap()[new_faction.id]
-                                    [new_faction.id][node.id][0]
-                                    as i64
-                            })
-                            .unwrap();
-                        self.traverse(root, destination.clone());
-                        Some(vec![location, destination.clone()])
-                    }
-                    None => Some(vec![location]),
-                }
-            } else {
-                Some(vec![location])
-            }
-        } else {
-            None
-        }
-    }
     fn kill(&self) {
         self.get_daughters()
             .iter()
@@ -3624,6 +3421,12 @@ pub enum UnitClass {
 }
 
 impl UnitClass {
+    fn get_id(&self) -> usize {
+        match self {
+            UnitClass::ShipClass(sc) => sc.id,
+            UnitClass::SquadronClass(fc) => fc.id,
+        }
+    }
     fn get_ideal_strength(&self, root: &Root) -> u64 {
         match self {
             UnitClass::ShipClass(sc) => sc.get_ideal_strength(root),
@@ -3756,10 +3559,22 @@ impl Mobility for Unit {
             Unit::Squadron(squadron) => squadron.get_ai(),
         }
     }
+    fn get_navthreshold(&self) -> f32 {
+        match self {
+            Unit::Ship(ship) => ship.get_navthreshold(),
+            Unit::Squadron(squadron) => squadron.get_navthreshold(),
+        }
+    }
     fn get_objectives(&self) -> Vec<Objective> {
         match self {
             Unit::Ship(ship) => ship.get_objectives(),
             Unit::Squadron(squadron) => squadron.get_objectives(),
+        }
+    }
+    fn get_defection_data(&self) -> (HashMap<Arc<Faction>, (f32, f32)>, f32) {
+        match self {
+            Unit::Ship(ship) => ship.get_defection_data(),
+            Unit::Squadron(squadron) => squadron.get_defection_data(),
         }
     }
     fn get_resource_supply(&self, resource: Arc<Resource>) -> u64 {
@@ -3838,22 +3653,10 @@ impl Mobility for Unit {
             Unit::Squadron(squadron) => squadron.process_engines(root, destination),
         }
     }
-    fn navigate(&self, root: &Root, destinations: &Vec<Arc<Node>>) -> Option<Arc<Node>> {
-        match self {
-            Unit::Ship(ship) => ship.navigate(root, destinations),
-            Unit::Squadron(squadron) => squadron.navigate(root, destinations),
-        }
-    }
     fn traverse(&self, root: &Root, destination: Arc<Node>) -> Option<Arc<Node>> {
         match self {
             Unit::Ship(ship) => ship.traverse(root, destination),
             Unit::Squadron(squadron) => squadron.traverse(root, destination),
-        }
-    }
-    fn maneuver(&self, root: &Root) -> Option<Arc<Node>> {
-        match self {
-            Unit::Ship(ship) => ship.maneuver(root),
-            Unit::Squadron(squadron) => squadron.maneuver(root),
         }
     }
     fn calculate_damage(
@@ -3894,12 +3697,6 @@ impl Mobility for Unit {
         match self {
             Unit::Ship(ship) => ship.repair(per_engagement),
             Unit::Squadron(squadron) => squadron.repair(per_engagement),
-        }
-    }
-    fn try_defect(&self, root: &Root) -> Option<Vec<Arc<Node>>> {
-        match self {
-            Unit::Ship(ship) => ship.try_defect(root),
-            Unit::Squadron(squadron) => squadron.try_defect(root),
         }
     }
     fn kill(&self) {
@@ -4563,6 +4360,8 @@ pub struct Root {
     pub factoryclasses: Vec<Arc<FactoryClass>>,
     pub shipyardclasses: Vec<Arc<ShipyardClass>>,
     pub shipais: Vec<Arc<ShipAI>>,
+    pub shipflavors: Vec<Arc<ShipFlavor>>,
+    pub squadronflavors: Vec<Arc<SquadronFlavor>>,
     pub shipclasses: Vec<Arc<ShipClass>>,
     pub squadronclasses: Vec<Arc<SquadronClass>>,
     pub shipinstances: RwLock<Vec<Arc<ShipInstance>>>,
@@ -4850,6 +4649,27 @@ impl Root {
             .filter(|ship| ship.mutables.read().unwrap().hull == 0)
             .cloned()
             .collect();
+        dead.iter()
+            .for_each(|ship| match &ship.mutables.read().unwrap().location {
+                UnitLocation::Node(node) => node
+                    .mutables
+                    .write()
+                    .unwrap()
+                    .units
+                    .retain(|unit| unit.get_id() != ship.id),
+                UnitLocation::Squadron(squadron) => squadron
+                    .mutables
+                    .write()
+                    .unwrap()
+                    .daughters
+                    .retain(|unit| unit.get_id() != ship.id),
+                UnitLocation::Hangar(hangar) => hangar
+                    .mutables
+                    .write()
+                    .unwrap()
+                    .contents
+                    .retain(|unit| unit.get_id() != ship.id),
+            });
         dead.iter().for_each(|ship| {
             ship.clone().kill();
         });
@@ -4893,7 +4713,6 @@ impl Root {
             .retain(|squadron| remaining.contains(squadron));
     }
     //oh god
-    //NOTE: I removed the "+ Copy" from this so that it can use Arc<ShipClass>es or the like. Not sure if that's a problem.
     pub fn calculate_values<S: Salience<P> + Clone, P: Polarity>(
         //we need a salience, which is the type of resource or shipclass or whatever we're calculating values for
         //and the faction for which we're calculating values
@@ -4997,25 +4816,28 @@ impl Root {
             .map(|subjectfaction| {
                 self.factions
                     .par_iter()
-                    .filter(|faction| faction.propagates)
                     .map(|objectfaction| {
-                        let supply = self.calculate_values::<Arc<Faction>, polarity::Supply>(
-                            objectfaction.clone(),
-                            subjectfaction.clone(),
-                            self.config.saliencescalars.faction_deg_mult,
-                            self.config.saliencescalars.faction_prop_iters,
-                        );
-                        let demand = self.calculate_values::<Arc<Faction>, polarity::Demand>(
-                            objectfaction.clone(),
-                            subjectfaction.clone(),
-                            self.config.saliencescalars.faction_deg_mult,
-                            self.config.saliencescalars.faction_prop_iters,
-                        );
-                        supply
-                            .iter()
-                            .zip(demand.iter())
-                            .map(|(s, d)| [*s, *d])
-                            .collect()
+                        if objectfaction.propagates {
+                            let supply = self.calculate_values::<Arc<Faction>, polarity::Supply>(
+                                objectfaction.clone(),
+                                subjectfaction.clone(),
+                                self.config.saliencescalars.faction_deg_mult,
+                                self.config.saliencescalars.faction_prop_iters,
+                            );
+                            let demand = self.calculate_values::<Arc<Faction>, polarity::Demand>(
+                                objectfaction.clone(),
+                                subjectfaction.clone(),
+                                self.config.saliencescalars.faction_deg_mult,
+                                self.config.saliencescalars.faction_prop_iters,
+                            );
+                            supply
+                                .iter()
+                                .zip(demand.iter())
+                                .map(|(s, d)| [*s, *d])
+                                .collect()
+                        } else {
+                            self.nodes.iter().map(|_| [0.0; 2]).collect()
+                        }
                     })
                     .collect()
             })
@@ -5027,25 +4849,28 @@ impl Root {
             .map(|faction| {
                 self.resources
                     .par_iter()
-                    .filter(|resource| resource.propagates)
                     .map(|resource| {
-                        let supply = self.calculate_values::<Arc<Resource>, polarity::Supply>(
-                            resource.clone(),
-                            faction.clone(),
-                            self.config.saliencescalars.resource_deg_mult,
-                            self.config.saliencescalars.resource_prop_iters,
-                        );
-                        let demand = self.calculate_values::<Arc<Resource>, polarity::Demand>(
-                            resource.clone(),
-                            faction.clone(),
-                            self.config.saliencescalars.resource_deg_mult,
-                            self.config.saliencescalars.resource_prop_iters,
-                        );
-                        supply
-                            .iter()
-                            .zip(demand.iter())
-                            .map(|(s, d)| [*s, *d])
-                            .collect()
+                        if resource.propagates {
+                            let supply = self.calculate_values::<Arc<Resource>, polarity::Supply>(
+                                resource.clone(),
+                                faction.clone(),
+                                self.config.saliencescalars.resource_deg_mult,
+                                self.config.saliencescalars.resource_prop_iters,
+                            );
+                            let demand = self.calculate_values::<Arc<Resource>, polarity::Demand>(
+                                resource.clone(),
+                                faction.clone(),
+                                self.config.saliencescalars.resource_deg_mult,
+                                self.config.saliencescalars.resource_prop_iters,
+                            );
+                            supply
+                                .iter()
+                                .zip(demand.iter())
+                                .map(|(s, d)| [*s, *d])
+                                .collect()
+                        } else {
+                            self.nodes.iter().map(|_| [0.0; 2]).collect()
+                        }
                     })
                     .collect()
             })
@@ -5057,56 +4882,58 @@ impl Root {
             .map(|faction| {
                 self.shipclasses
                     .par_iter()
-                    .filter(|shipclass| shipclass.propagates)
                     .map(|shipclass| {
-                        let supply = self.calculate_values::<UnitClass, polarity::Supply>(
-                            ShipClass::get_unitclass(shipclass.clone()),
-                            faction.clone(),
-                            self.config.saliencescalars.unitclass_deg_mult,
-                            self.config.saliencescalars.unitclass_prop_iters,
-                        );
-                        let demand = self.calculate_values::<UnitClass, polarity::Demand>(
-                            ShipClass::get_unitclass(shipclass.clone()),
-                            faction.clone(),
-                            self.config.saliencescalars.unitclass_deg_mult,
-                            self.config.saliencescalars.unitclass_prop_iters,
-                        );
-                        supply
-                            .iter()
-                            .zip(demand.iter())
-                            .map(|(s, d)| [*s, *d])
-                            .collect()
+                        if shipclass.propagates {
+                            let supply = self.calculate_values::<UnitClass, polarity::Supply>(
+                                ShipClass::get_unitclass(shipclass.clone()),
+                                faction.clone(),
+                                self.config.saliencescalars.unitclass_deg_mult,
+                                self.config.saliencescalars.unitclass_prop_iters,
+                            );
+                            let demand = self.calculate_values::<UnitClass, polarity::Demand>(
+                                ShipClass::get_unitclass(shipclass.clone()),
+                                faction.clone(),
+                                self.config.saliencescalars.unitclass_deg_mult,
+                                self.config.saliencescalars.unitclass_prop_iters,
+                            );
+                            supply
+                                .iter()
+                                .zip(demand.iter())
+                                .map(|(s, d)| [*s, *d])
+                                .collect()
+                        } else {
+                            self.nodes.iter().map(|_| [0.0; 2]).collect()
+                        }
                     })
-                    .chain(
-                        self.squadronclasses
-                            .par_iter()
-                            .filter(|squadronclass| squadronclass.propagates)
-                            .map(|squadronclass| {
-                                let supply = self.calculate_values::<UnitClass, polarity::Supply>(
-                                    SquadronClass::get_unitclass(squadronclass.clone()),
-                                    faction.clone(),
-                                    self.config.saliencescalars.unitclass_deg_mult,
-                                    self.config.saliencescalars.unitclass_prop_iters,
-                                );
-                                let demand = self.calculate_values::<UnitClass, polarity::Demand>(
-                                    SquadronClass::get_unitclass(squadronclass.clone()),
-                                    faction.clone(),
-                                    self.config.saliencescalars.unitclass_deg_mult,
-                                    self.config.saliencescalars.unitclass_prop_iters,
-                                );
-                                supply
-                                    .iter()
-                                    .zip(demand.iter())
-                                    .map(|(s, d)| [*s, *d])
-                                    .collect()
-                            }),
-                    )
+                    .chain(self.squadronclasses.par_iter().map(|squadronclass| {
+                        if squadronclass.propagates {
+                            let supply = self.calculate_values::<UnitClass, polarity::Supply>(
+                                SquadronClass::get_unitclass(squadronclass.clone()),
+                                faction.clone(),
+                                self.config.saliencescalars.unitclass_deg_mult,
+                                self.config.saliencescalars.unitclass_prop_iters,
+                            );
+                            let demand = self.calculate_values::<UnitClass, polarity::Demand>(
+                                SquadronClass::get_unitclass(squadronclass.clone()),
+                                faction.clone(),
+                                self.config.saliencescalars.unitclass_deg_mult,
+                                self.config.saliencescalars.unitclass_prop_iters,
+                            );
+                            supply
+                                .iter()
+                                .zip(demand.iter())
+                                .map(|(s, d)| [*s, *d])
+                                .collect()
+                        } else {
+                            self.nodes.iter().map(|_| [0.0; 2]).collect()
+                        }
+                    }))
                     .collect()
             })
             .collect()
     }
     pub fn process_turn(&mut self) {
-        let start0 = Instant::now();
+        let turn_start = Instant::now();
         //increment turn counter
         let turn = self.turn.fetch_add(1, atomic::Ordering::Relaxed);
         println!("It is now turn {}.", turn);
@@ -5167,24 +4994,24 @@ impl Root {
         //propagate threat values
         //propagate saliences, create salience map
         //NOTE: I'm thinking of setting this up such that we use last turn's threat salience map as the degradation map for this turn's threat salience propagation.
-        //That's what'll happen here with the way it is currently (barring the update_threats loop above). Previous turn's values get used in calc faction salience, then get overwritten.
+        //That's what'll happen here with the way it is currently. Previous turn's values get used in calc faction salience, then get overwritten.
         //At least assuming the order of operations works like I'm expecting -- check that with Amaryllis.
         //On turn 1, we'll want to run calc faction salience several times to get the values to settle.
-        let start1 = Instant::now();
+        let salience_propagation_start = Instant::now();
         let gfs = self.calculate_global_faction_salience();
         *self.globalsalience.factionsalience.write().unwrap() = gfs;
         let grs = self.calculate_global_resource_salience();
         *self.globalsalience.resourcesalience.write().unwrap() = grs;
         let gus = self.calculate_global_unitclass_salience();
         *self.globalsalience.unitclasssalience.write().unwrap() = gus;
-        let duration1 = start1.elapsed();
-        dbg!(duration1);
+        let salience_propagation_finished = salience_propagation_start.elapsed();
+        dbg!(salience_propagation_finished);
 
         //run operation management logic
 
         //move ships, one edge at a time
         //running battle checks and stockpile balancing with each traversal
-        let start = Instant::now();
+        let ship_moves_start = Instant::now();
         let shipinstances = self.shipinstances.read().unwrap().clone();
         shipinstances.iter().for_each(|shipinstance| {
             if let Some(destination) = shipinstance.maneuver(self) {
@@ -5200,7 +5027,7 @@ impl Root {
                 }
             }
         });
-        dbg!(start.elapsed());
+        dbg!(ship_moves_start.elapsed());
 
         //move squadrons, one edge at a time
         //running battle checks and stockpile balancing with each traversal
@@ -5211,7 +5038,11 @@ impl Root {
 
         //transmit root data to frontend
 
-        dbg!(start0.elapsed());
+        let number_of_ships = &self.shipinstances.read().unwrap().len();
+
+        dbg!(number_of_ships);
+
+        dbg!(turn_start.elapsed());
     }
 }
 

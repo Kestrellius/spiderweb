@@ -1,12 +1,16 @@
-use spiderweb::json;
+use clipboard::ClipboardContext;
+use clipboard::ClipboardProvider;
+use spiderweb::json_hydration;
+use std::env;
+use std::fs;
 use std::fs::File;
 use std::time::Instant;
 
 fn main() {
     //env::set_var("RUST_BACKTRACE", "1");
-    let file = File::open("mod-specs.json").unwrap();
+    let file = File::open("benchmark.json").unwrap();
     let start = Instant::now();
-    let json_root: json::Root = serde_json::from_reader(file).unwrap();
+    let json_root: json_hydration::Root = serde_json::from_reader(file).unwrap();
     let duration = start.elapsed();
     dbg!(duration);
     let mut root = json_root.hydrate();
@@ -16,13 +20,30 @@ fn main() {
     }
 
     dbg!(root.nodes.len());
-    dbg!(root.resources.len());
-    dbg!(root.shipclasses.len());
+    dbg!(root.edges.len());
 
     /*
-        dbg!(root.nodes);
-        dbg!(root.shipinstances);
-        dbg!(root.shipinstancecounter);
+    let nodes_w_shipyards = root
+        .nodes
+        .iter()
+        .filter(|node| node.mutables.read().unwrap().shipyardinstancelist.len() > 0)
+        .map(|node| node.visiblename.clone())
+        .collect::<Vec<_>>();
+
+    dbg!(nodes_w_shipyards);
+    */
+
+    /*
+    dbg!(root.nodes);
+    dbg!(root.shipinstances);
+    dbg!(root.shipinstancecounter);
+
+    /*
+    let print = json_hydration::generate_saliencenames();
+
+    let mut paste: ClipboardContext = ClipboardProvider::new().unwrap();
+    paste.set_contents(print).unwrap();
+    */
 
     let empire = internal::Key::<internal::Faction>::new_from_index(0);
     let steel = internal::Key::<internal::Resource>::new_from_index(0);

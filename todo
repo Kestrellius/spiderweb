@@ -20,7 +20,7 @@ GENERAL:
 [x] Replace the threat field on Node with the factions field on Global Salience.
 [x] Figure out issues surrounding engine mechanics -- the relationship between once-per-turn events and once-per-move events
 [x] A list of ship keys is stored in hangar.contents, but ships in a hangar have their location data set to the carrier holding them. This is redundant. We should probably abandon the notion of the contents field and stick to ship.location, but given that ships can have multiple hangars, we'll need a way to specify, which probably means unique hangar keys and hangars being stored in a table in root...
-[x] When entities are stored in a table, we don't (AFAIK) have a way to get the key associated with an entity if all we have is the entity itself. This means that any time we need the entity's key for a method on an entity, it can't actually be a method -- it has to be an associated function. This seems non-ideal. (Associated functions are fine, per Amaryllis.)
+[x] When entities are stored in a table, we don't (AFAIK) have a way to get the key associated with an entity if all we have is the entity itself. This means that any time we need the entity's key for a method on an entity, it can't actually be a method -- it has to be an associated function. This seems non-ideal. (Associated functions are fine, per Amaryllis.) (Later mostly resolved by switch to Arcs.)
 [x] We'll need to make a "get ideal strength" method on fleetclass, which likewise references a "get ideal strength" method on shipclass, so that we can do disbandthreshold checking properly without the modder having to calculate it manually. Or maybe keep the idealstrength field on fleetclass, but compute it at hydration.
 [x] Add nodeflavor enterability checks
 [x] Figure out how to handle some edges being traversable and not others by certain ships. Edgeflavors, probably.
@@ -41,17 +41,19 @@ GENERAL:
 [x] Experience should probably work differently (it should be a feature of characters, not ships; basically dummy it out for now)
 [x] Defectchance as from-faction and to-faction
 [x] Build defection logic
-[ ] Implement shipflavors (and maybe fleetflavors?)
+[x] Implement shipflavors (and maybe fleetflavors?)
+[ ] Implement variants for ships
 [x] Config struct on root with settings for salience propagation iters
 [x] Replace current implementation of entity locations with entity-component system or similar
 [x] Build hangar entry and exit methods
 [ ] Build balance_stockpiles
 [ ] Build balance_hangars
-[x] Clean up salience propagation logic
 [ ] Build operation logic
-[ ] Figure out the whole thing with whether demand from a pluripotent stockpile should be divided by the number of relevant resources or whatever
-[ ] Think about whether there should be a check so that hangars don't generate demand for/seek out units that can't currently fit in them
-[x] Create check in transfer to make sure mobs can't be inside themselves
+[x] Clean up salience propagation logic
+[ ] Figure out the situation with generic unitclass demand.
+[x] Figure out the whole thing with whether demand from a pluripotent stockpile should be divided by the number of relevant resources or whatever
+[x] Think about whether there should be a check so that hangars don't generate demand for/seek out units that can't currently fit in them. (Not needed; demand is calculated based on ideal configurations)
+[x] Create check in transfer to make sure units can't be inside themselves
 [ ] Build out process_turn
 [x] Gigantic refactor! Switch everything in root over to Arcs.
     [x] Convert nodeflavors.
@@ -79,7 +81,7 @@ GENERAL:
 [x] Replace root's shipinstances and fleetinstances with units (decided not to do this for now)
 [x] Build "unitclass"; replace shipclass salience with unitclass salience
 [x] Refactor internal_battle and related to clean it up, take advantage of unit genericity, and allow multi-coalition engagements
-[ ] Make try_defect fully generic?
+[x] Make try_defect fully generic?
 [x] Change squadron supply so that it gets the volume of the squadron as it actually exists, rather than ideal volume
 [x] Interdictor stat on ships
 [x] Rename "fleets" to "squadrons"
@@ -89,7 +91,7 @@ GENERAL:
 [ ] Figure out mechanics for ground assaults/ship or station capture
     [ ] Flag for nodes that can only be captured via 'special missions', which have certain conditions -- "special capture requirements", Option<Mission>?
 [ ] Add inter-node weapons
-[ ] Add navigation threshold on ships and fleets, and check for it in navigate
+[x] Add navigation threshold on ships and fleets, and check for it in navigate
 [ ] Excursions!
 [x] Clean up hydration logic -- which things do or don't return just the internal struct vs. internal struct plus stringid.
 [ ] Dessication logic
@@ -107,7 +109,7 @@ LONGER-TERM:
 LOW-PRIORITY:
 [ ] Have relations between factions in a coalition fighting together affect strength score
 [ ] Allow factions that have no presence in the node where a battle is taking place to send reinforcements in if they want
-[ ] Build system for ships deciding to leave fleet, and add fleet-misalignment-tolerance scalar to shipclass
+[ ] Build system for ships deciding to leave squadron, and add squadron-misalignment-tolerance scalar to shipclass
 [ ] Build high-level nonlocal fleet system
 [ ] Build morale system
 [ ] Build pilot system
@@ -134,3 +136,5 @@ QUESTIONS FOR AMARYLLIS:
 [x] Look over The System-Edge-Building Situation(TM)
 [x] Figure out what to do about fleet ideal volume
 [x] Probably there's a cleaner way to do the coalition wars gathering? (There isn't. Or at least Amaryllis didn't immediately come up with one.)
+[x] How do we handle making sure the arcs get cleaned up properly when a dynamic entity is destroyed? (Just go clean up the arcs; weaks aren't necessary.)
+[x] What's the best way to get the data about how many resources there are for get_resource_demand? (It probably works better to not even divide by number of resources the stockpile can hold.)
