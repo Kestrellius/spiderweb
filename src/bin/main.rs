@@ -17,7 +17,6 @@ fn main() {
 
     dbg!(root.nodes.len());
     dbg!(root.edges.len());
-
     /*
     let nodes_w_shipyards = root
         .nodes

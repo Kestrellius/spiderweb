@@ -31,7 +31,7 @@ GENERAL:
 [x] Add hangarclass as a field to hangarinstance, and id as a field to hangarclass, maybe same for repairers, etc.
 [x] Have visibility defined in the class of things
 [x] Maybe add visibility to more entity types (nodes? systems? factions?)
-[ ] If we implement disband checking the easy way, more experienced fleets will effectively have lower disband thresholds than less experienced fleets. Is this fine?
+[x] If we implement disband checking the easy way, more experienced fleets will effectively have lower disband thresholds than less experienced fleets. Is this fine?
 [x] Split out force-gathering from internal_battle into a separate function that parcels out all the data needed by FSO (will this be viable in terms of expense?)
 [x] Add per-turn/per-engagement toggle on repairers
 [x] Have repairers check for damage before running
@@ -43,13 +43,20 @@ GENERAL:
 [x] Build defection logic
 [x] Implement shipflavors (and maybe fleetflavors?)
 [ ] Implement variants for ships
+[ ] Implement resourceflavors, factionflavors
 [x] Config struct on root with settings for salience propagation iters
 [x] Replace current implementation of entity locations with entity-component system or similar
 [x] Build hangar entry and exit methods
 [ ] Build balance_stockpiles
 [ ] Build balance_hangars
 [ ] Build operation logic
+[ ] Implement faction demand, and incorporate faction salience into navigation logic
 [x] Clean up salience propagation logic
+[x] Think about whether demand from ship stockpiles should be treated differently from demand from shipboard shipyards or factories during navigation
+[x] Sort out the issue of which supply/demand gathering methods on units should be recursive, and how
+[ ] Determine how to handle problem of output stockpile targets -- we need the resources to generate supply, but target is also used for factory state calculations
+[x] Think about whether and how to take target into account when calculating unitclass supply
+[x] Make sure all get supply/demand methods check for propagation flag
 [ ] Figure out the situation with generic unitclass demand.
 [x] Figure out the whole thing with whether demand from a pluripotent stockpile should be divided by the number of relevant resources or whatever
 [x] Think about whether there should be a check so that hangars don't generate demand for/seek out units that can't currently fit in them. (Not needed; demand is calculated based on ideal configurations)
@@ -85,6 +92,7 @@ GENERAL:
 [x] Change squadron supply so that it gets the volume of the squadron as it actually exists, rather than ideal volume
 [x] Interdictor stat on ships
 [x] Rename "fleets" to "squadrons"
+[ ] Squadron leader, scalar for how much extra influence its AI gets
 [ ] Build edge-length system
     [x] Add check_for_battles, balance_hangars, and balance_stockpiles bools on node
     [x] Build node templating system
@@ -92,14 +100,19 @@ GENERAL:
     [ ] Flag for nodes that can only be captured via 'special missions', which have certain conditions -- "special capture requirements", Option<Mission>?
 [ ] Add inter-node weapons
 [x] Add navigation threshold on ships and fleets, and check for it in navigate
-[ ] Excursions!
+[x] Excursions!
+    [x] Build method for determining how many moves left a ship has
+    [x] Build deploy_daughters method, and use it in maneuver
+[x] Make movement_left propagate to daughter ships
 [x] Clean up hydration logic -- which things do or don't return just the internal struct vs. internal struct plus stringid.
 [ ] Dessication logic
 [ ] Rehydration logic
 [ ] Optimize salience propagation logic
-    [x] Exclude all-to-all system edges from propagation
+    [x] Exclude all-to-all system edges from propagation (figure out why this doesn't actually help and whether it's fixable)
+    [ ] Figure out where the shipbuilding indeterminacy is coming from
     [ ] Store salience source node data so we can prune the logic for unit movement
     [ ] Move propagation logic to GPU
+[x] Optimize rng creation
 
 LONGER-TERM:
 [ ] Build system for transmitting data to FSO
@@ -113,6 +126,7 @@ LOW-PRIORITY:
 [ ] Build high-level nonlocal fleet system
 [ ] Build morale system
 [ ] Build pilot system
+    [ ] Build characterais
 [ ] Build intel system
 [ ] Replace shipbuilding system with a more simulationistic one
 [ ] Build parser to convert .blend file to Spiderweb nodemap
@@ -138,3 +152,6 @@ QUESTIONS FOR AMARYLLIS:
 [x] Probably there's a cleaner way to do the coalition wars gathering? (There isn't. Or at least Amaryllis didn't immediately come up with one.)
 [x] How do we handle making sure the arcs get cleaned up properly when a dynamic entity is destroyed? (Just go clean up the arcs; weaks aren't necessary.)
 [x] What's the best way to get the data about how many resources there are for get_resource_demand? (It probably works better to not even divide by number of resources the stockpile can hold.)
+[ ] Look at the set_movement_recursive shitshow.
+[ ] Consult re: magic numbers in navigation calcs.
+[ ] Make sure the option option thing for deploys_daughters will work in json.

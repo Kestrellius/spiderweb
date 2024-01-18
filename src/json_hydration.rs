@@ -167,9 +167,10 @@ impl Node {
                 .unwrap_or(false),
         }
     }
-    fn hydrate(
+    fn hydrate<R: Rng>(
         &self,
         index: usize,
+        rng: &mut R,
         nodetemplates: &Vec<NodeTemplate>,
         nodeflavoridmap: &HashMap<String, Arc<internal::NodeFlavor>>,
         factions: &HashMap<String, Arc<internal::Faction>>,
@@ -184,10 +185,9 @@ impl Node {
             .clone();
         let faction = factions
             .get(&self.allegiance.clone().unwrap_or({
-                let mut rng = thread_rng();
                 template
                     .allegiance
-                    .choose_weighted(&mut rng, |(_, prob)| prob.clone())
+                    .choose_weighted(rng, |(_, prob)| prob.clone())
                     .unwrap()
                     .0
                     .clone()
@@ -211,10 +211,9 @@ impl Node {
                 .environment
                 .clone()
                 .unwrap_or({
-                    let mut rng = thread_rng();
                     template
                         .environment
-                        .choose_weighted(&mut rng, |(_, prob)| prob.clone())
+                        .choose_weighted(rng, |(_, prob)| prob.clone())
                         .unwrap()
                         .0
                         .clone()
@@ -222,25 +221,21 @@ impl Node {
                 .clone(),
             bitmap: match &self.bitmap {
                 Some(bm) => Some(bm.clone()),
-                None => {
-                    let mut rng = thread_rng();
-                    template.bitmap.map(|bitmaps| {
-                        bitmaps
-                            .choose_weighted(&mut rng, |(_, prob)| prob.clone())
-                            .unwrap()
-                            .0
-                            .clone()
-                    })
-                }
+                None => template.bitmap.map(|bitmaps| {
+                    bitmaps
+                        .choose_weighted(rng, |(_, prob)| prob.clone())
+                        .unwrap()
+                        .0
+                        .clone()
+                }),
             },
             mutables: RwLock::new(internal::NodeMut {
                 visibility: self.visibility.unwrap_or(template.visibility),
                 flavor: nodeflavoridmap
                     .get(&self.flavor.clone().unwrap_or({
-                        let mut rng = thread_rng();
                         template
                             .flavor
-                            .choose_weighted(&mut rng, |(_, prob)| prob.clone())
+                            .choose_weighted(rng, |(_, prob)| prob.clone())
                             .unwrap()
                             .0
                             .clone()
@@ -268,11 +263,11 @@ impl Node {
                         .iter()
                         .map(|(stringid, (factor, min, max))| {
                             let attempt_range = (*min..=*max).collect::<Vec<_>>();
-                            let attempt_count = attempt_range.choose(&mut thread_rng()).unwrap();
+                            let attempt_count = attempt_range.choose(rng).unwrap();
                             (0..=*attempt_count)
                                 .collect::<Vec<_>>()
                                 .iter()
-                                .filter(|_| rand::random::<f32>() < *factor)
+                                .filter(|_| rng.gen_range(0.0..1.0) < *factor)
                                 .map(|_| {
                                     internal::FactoryClass::instantiate(
                                         factoryclassidmap
@@ -310,11 +305,11 @@ impl Node {
                         .iter()
                         .map(|(stringid, (factor, min, max))| {
                             let attempt_range = (*min..=*max).collect::<Vec<_>>();
-                            let attempt_count = attempt_range.choose(&mut thread_rng()).unwrap();
+                            let attempt_count = attempt_range.choose(rng).unwrap();
                             (0..=*attempt_count)
                                 .collect::<Vec<_>>()
                                 .iter()
-                                .filter(|_| rand::random::<f32>() < *factor)
+                                .filter(|_| rng.gen_range(0.0..1.0) < *factor)
                                 .map(|_| {
                                     internal::ShipyardClass::instantiate(
                                         shipyardclassidmap
@@ -475,7 +470,7 @@ pub struct UnipotentStockpile {
     rate: Option<u64>,
     target: u64,
     capacity: u64,
-    propagate: Option<bool>,
+    propagates: Option<bool>,
 }
 
 impl UnipotentStockpile {
@@ -493,7 +488,7 @@ impl UnipotentStockpile {
             rate: self.rate.unwrap_or(0),
             target: self.target,
             capacity: self.capacity,
-            propagate: self.propagate.unwrap_or(true),
+            propagates: self.propagates.unwrap_or(true),
         };
         stockpile
     }
@@ -506,7 +501,7 @@ pub struct PluripotentStockpile {
     allowed: Option<Vec<String>>,
     target: u64,
     capacity: u64,
-    propagate: Option<bool>,
+    propagates: Option<bool>,
 }
 
 impl PluripotentStockpile {
@@ -537,7 +532,7 @@ impl PluripotentStockpile {
             }),
             target: self.target,
             capacity: self.capacity,
-            propagate: self.propagate.unwrap_or(true),
+            propagates: self.propagates.unwrap_or(true),
         };
         stockpile
     }
@@ -553,9 +548,10 @@ struct HangarClass {
     target: u64, //volume the hangar wants to hold; this is usually either equal to capacity (for carriers) or zero (for shipyard outputs)
     allowed: Vec<String>, //which shipclasses this hangar can hold
     ideal: HashMap<String, u64>, //how many of each ship type the hangar wants
+    non_ideal_supply_scalar: Option<f32>,
     launch_volume: u64, //how much volume the hangar can launch at one time in battle
     launch_interval: u64, //time between launches in battle
-    propagate: bool, //whether or not hangar generates saliences
+    propagates: Option<bool>, //whether or not hangar generates saliences
 }
 
 impl HangarClass {
@@ -601,9 +597,10 @@ impl HangarClass {
                     )
                 })
                 .collect(),
+            non_ideal_supply_scalar: self.non_ideal_supply_scalar.unwrap_or(0.5),
             launch_volume: self.launch_volume,
             launch_interval: self.launch_interval,
-            propagate: self.propagate,
+            propagates: self.propagates.unwrap_or(true),
         };
         hangarclass
     }
@@ -858,8 +855,9 @@ struct ShipClass {
     shipyardclasslist: Option<Vec<String>>,
     aiclass: String,
     navthreshold: Option<f32>,
+    processordemandnavscalar: Option<f32>,
     deploys_self: Option<bool>,
-    deploys_daughters: Option<bool>,
+    deploys_daughters: Option<Option<u64>>,
     defectchance: Option<HashMap<String, (f32, f32)>>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
     toughnessscalar: Option<f32>,
     battleescapescalar: Option<f32>,
@@ -972,9 +970,10 @@ impl ShipClass {
                 })
                 .collect(),
             aiclass: shipaiidmap.get(&self.aiclass).unwrap().clone(),
+            processordemandnavscalar: self.processordemandnavscalar.unwrap_or(10.0),
             navthreshold: self.navthreshold.unwrap_or(1.0),
             deploys_self: self.deploys_self.unwrap_or(true),
-            deploys_daughters: self.deploys_daughters.unwrap_or(true),
+            deploys_daughters: self.deploys_daughters.unwrap_or(None),
             defectchance: self
                 .defectchance
                 .clone()
@@ -1018,11 +1017,12 @@ struct SquadronClass {
     propagates: Option<bool>,
     strengthmod: (f32, u64),
     squadronconfig: HashMap<String, u64>,
+    non_ideal_supply_scalar: Option<f32>,
     navthreshold: Option<f32>,
     navquorum: f32,
     disbandthreshold: f32,
     deploys_self: Option<bool>,
-    deploys_daughters: Option<bool>,
+    deploys_daughters: Option<Option<u64>>,
     defectchance: Option<HashMap<String, (f32, f32)>>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
     defectescapescalar: Option<f32>,
 }
@@ -1087,12 +1087,13 @@ impl SquadronClass {
                     )
                 })
                 .collect(),
+            non_ideal_supply_scalar: self.non_ideal_supply_scalar.unwrap_or(0.5),
             target: self.get_target(shipclasses, squadronclasses),
             navthreshold: self.navthreshold.unwrap_or(1.0),
             navquorum: self.navquorum,
             disbandthreshold: self.disbandthreshold,
             deploys_self: self.deploys_self.unwrap_or(true),
-            deploys_daughters: self.deploys_daughters.unwrap_or(true),
+            deploys_daughters: self.deploys_daughters.unwrap_or(None),
             defectchance: self
                 .defectchance
                 .clone()
@@ -1258,6 +1259,7 @@ impl Root {
             shipyardclasslist: None,
             aiclass: "default".to_string(), //aiclass
             navthreshold: None,
+            processordemandnavscalar: None,
             deploys_self: None,
             deploys_daughters: None,
             defectchance: None,
@@ -1356,6 +1358,8 @@ impl Root {
             })
             .collect();
 
+        let mut rng = rand_hc::Hc128Rng::seed_from_u64(1138);
+
         //here we iterate over the json systems to create a map between nodes' json string-ids and internal ids
         let nodeidmap: HashMap<String, Arc<internal::Node>> = self
             .systems
@@ -1365,6 +1369,7 @@ impl Root {
             .map(|(i, node)| {
                 let nodehydration = node.hydrate(
                     i,
+                    &mut rng,
                     &self.nodetemplates,
                     &nodeflavoridmap,
                     &factions,
