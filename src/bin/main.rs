@@ -1,6 +1,7 @@
 use spiderweb::json_hydration;
 use std::fs::File;
 use std::time::Instant;
+use std::mem;
 
 fn main() {
     //env::set_var("RUST_BACKTRACE", "1");
@@ -11,12 +12,19 @@ fn main() {
     dbg!(duration);
     let mut root = json_root.hydrate();
 
-    for _i in 0..50 {
+    for _i in 0..2 {
         root.process_turn();
     }
 
-    dbg!(root.nodes.len());
-    dbg!(root.edges.len());
+    let connection_root = root.dessicate();
+
+    let new_root = &connection_root.rehydrate();
+
+    let new_connection_root = new_root.dessicate();
+
+    //dbg!(root.nodes.len());
+    //dbg!(root.edges.len());
+
     /*
     let nodes_w_shipyards = root
         .nodes

@@ -11359,70 +11359,70 @@
             "visiblename": "Resource_0",
             "description": "none",
             "unit_vol": 1,
-            "valuemult": 1
+            "value_mult": 1
         },
         {
             "id": "resource_1",
             "visiblename": "Resource_1",
             "description": "none",
             "unit_vol": 1,
-            "valuemult": 1
+            "value_mult": 1
         },
         {
             "id": "resource_2",
             "visiblename": "Resource_2",
             "description": "none",
             "unit_vol": 1,
-            "valuemult": 1
+            "value_mult": 1
         },
         {
             "id": "resource_3",
             "visiblename": "Resource_3",
             "description": "none",
             "unit_vol": 1,
-            "valuemult": 1
+            "value_mult": 1
         },
         {
             "id": "resource_4",
             "visiblename": "Resource_4",
             "description": "none",
             "unit_vol": 1,
-            "valuemult": 1
+            "value_mult": 1
         },
         {
             "id": "resource_5",
             "visiblename": "Resource_5",
             "description": "none",
             "unit_vol": 1,
-            "valuemult": 1
+            "value_mult": 1
         },
         {
             "id": "resource_6",
             "visiblename": "Resource_6",
             "description": "none",
             "unit_vol": 1,
-            "valuemult": 1
+            "value_mult": 1
         },
         {
             "id": "resource_7",
             "visiblename": "Resource_7",
             "description": "none",
             "unit_vol": 1,
-            "valuemult": 1
+            "value_mult": 1
         },
         {
             "id": "resource_8",
             "visiblename": "Resource_8",
             "description": "none",
             "unit_vol": 1,
-            "valuemult": 1
+            "value_mult": 1
         },
         {
             "id": "resource_9",
             "visiblename": "Resource_9",
             "description": "none",
             "unit_vol": 1,
-            "valuemult": 1
+            "value_mult": 1
         }
     ],
     "hangarclasses": [
@@ -11902,14 +11902,14 @@
                 {
                     "resourcetype": "resource_0",
                     "contents": 10000,
-                    "rate": 100,
+                    "rate": 1000,
                     "target": 10000,
                     "capacity": 10000
                 },
                 {
                     "resourcetype": "resource_1",
                     "contents": 10000,
-                    "rate": 100,
+                    "rate": 1000,
                     "target": 10000,
                     "capacity": 10000
                 }
@@ -11937,14 +11937,14 @@
                 {
                     "resourcetype": "resource_2",
                     "contents": 10000,
-                    "rate": 100,
+                    "rate": 1000,
                     "target": 10000,
                     "capacity": 10000
                 },
                 {
                     "resourcetype": "resource_3",
                     "contents": 10000,
-                    "rate": 100,
+                    "rate": 1000,
                     "target": 10000,
                     "capacity": 10000
                 }
@@ -11972,14 +11972,14 @@
                 {
                     "resourcetype": "resource_4",
                     "contents": 10000,
-                    "rate": 100,
+                    "rate": 1000,
                     "target": 10000,
                     "capacity": 10000
                 },
                 {
                     "resourcetype": "resource_5",
                     "contents": 10000,
-                    "rate": 100,
+                    "rate": 1000,
                     "target": 10000,
                     "capacity": 10000
                 }
@@ -12007,14 +12007,14 @@
                 {
                     "resourcetype": "resource_6",
                     "contents": 10000,
-                    "rate": 100,
+                    "rate": 1000,
                     "target": 10000,
                     "capacity": 10000
                 },
                 {
                     "resourcetype": "resource_7",
                     "contents": 10000,
-                    "rate": 100,
+                    "rate": 1000,
                     "target": 10000,
                     "capacity": 10000
                 }
@@ -12042,14 +12042,14 @@
                 {
                     "resourcetype": "resource_8",
                     "contents": 10000,
-                    "rate": 100,
+                    "rate": 1000,
                     "target": 10000,
                     "capacity": 10000
                 },
                 {
                     "resourcetype": "resource_8",
                     "contents": 10000,
-                    "rate": 100,
+                    "rate": 1000,
                     "target": 10000,
                     "capacity": 10000
                 }
@@ -13547,7 +13547,11 @@
                 "resource_7": 1.0,
                 "resource_8": 1.0,
                 "resource_9": 1.0
-            }
+            },
+            "friendly_supply_attract": 0.0,
+            "hostile_supply_attract": -1.0,
+            "allegiance_demand_attract": 1.0,
+            "enemy_demand_attract": 1.0
         }
     ],
     "squadronflavors": [],

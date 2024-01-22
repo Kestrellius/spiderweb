@@ -44,13 +44,17 @@ GENERAL:
 [x] Implement shipflavors (and maybe fleetflavors?)
 [ ] Implement variants for ships
 [ ] Implement resourceflavors, factionflavors
+[ ] Toughnessmod field on squadrons, maybe similar for interdiction, etc? Think about it
 [x] Config struct on root with settings for salience propagation iters
 [x] Replace current implementation of entity locations with entity-component system or similar
 [x] Build hangar entry and exit methods
 [ ] Build balance_stockpiles
 [ ] Build balance_hangars
 [ ] Build operation logic
-[ ] Implement faction demand, and incorporate faction salience into navigation logic
+[x] Implement faction demand, and incorporate faction salience into navigation logic
+    [x] Add scalars on faction and on config for resource/unitclass salience relative to strength of forces
+[x] Think about how unitclass supply is calculated -- by volume, or strength? (Pretty much has to be by volume. Value mults will work fine to modify it.)
+[x] Make sure value mults are properly applied for relevant calculations
 [x] Clean up salience propagation logic
 [x] Think about whether demand from ship stockpiles should be treated differently from demand from shipboard shipyards or factories during navigation
 [x] Sort out the issue of which supply/demand gathering methods on units should be recursive, and how
@@ -105,14 +109,17 @@ GENERAL:
     [x] Build deploy_daughters method, and use it in maneuver
 [x] Make movement_left propagate to daughter ships
 [x] Clean up hydration logic -- which things do or don't return just the internal struct vs. internal struct plus stringid.
-[ ] Dessication logic
-[ ] Rehydration logic
+[x] Dessication logic
+    [ ] Move dessication methods to connection
+[x] Rehydration logic
 [ ] Optimize salience propagation logic
     [x] Exclude all-to-all system edges from propagation (figure out why this doesn't actually help and whether it's fixable)
     [ ] Figure out where the shipbuilding indeterminacy is coming from
     [ ] Store salience source node data so we can prune the logic for unit movement
     [ ] Move propagation logic to GPU
 [x] Optimize rng creation
+[ ] Make sure units can't enter hangars they won't fit in by entering a squadron within a hangar -- make the fit check recurse upward
+[ ] Fix the thing where ordering of lists in root gets scrambled by the hashmaps during hydration
 
 LONGER-TERM:
 [ ] Build system for transmitting data to FSO
@@ -124,6 +131,9 @@ LOW-PRIORITY:
 [ ] Allow factions that have no presence in the node where a battle is taking place to send reinforcements in if they want
 [ ] Build system for ships deciding to leave squadron, and add squadron-misalignment-tolerance scalar to shipclass
 [ ] Build high-level nonlocal fleet system
+[ ] Add randomization to various calculations
+[ ] Add node position rotation logic
+[ ] Use distance between nodes as a parameter for determining engine performance
 [ ] Build morale system
 [ ] Build pilot system
     [ ] Build characterais
@@ -155,3 +165,7 @@ QUESTIONS FOR AMARYLLIS:
 [ ] Look at the set_movement_recursive shitshow.
 [ ] Consult re: magic numbers in navigation calcs.
 [ ] Make sure the option option thing for deploys_daughters will work in json.
+[x] Weirdness with faction demand being multiplied by relations.
+[ ] Faction demand get_value performance.
+[ ] Best way to prune navigation logic by scalar = 0?
+[x] Hangarinstances not being in root

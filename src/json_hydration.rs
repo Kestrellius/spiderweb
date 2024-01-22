@@ -32,6 +32,7 @@ struct SalienceScalars {
     faction_prop_iters: Option<usize>, //number of edges across which this salience will propagate during a turn
     resource_prop_iters: Option<usize>,
     unitclass_prop_iters: Option<usize>,
+    volume_strength_ratio: Option<f32>,
 }
 
 impl SalienceScalars {
@@ -43,6 +44,7 @@ impl SalienceScalars {
             faction_prop_iters: self.faction_prop_iters.unwrap_or(5),
             resource_prop_iters: self.resource_prop_iters.unwrap_or(5),
             unitclass_prop_iters: self.unitclass_prop_iters.unwrap_or(5),
+            volume_strength_ratio: self.volume_strength_ratio.unwrap_or(0.5),
         }
     }
 }
@@ -407,7 +409,9 @@ struct Faction {
     efficiencydefault: f32, //starting value for production facility efficiency
     efficiencytarget: f32, //end value for efficiency, toward which efficiency changes over time in a node held by this faction
     efficiencydelta: f32,  //rate at which efficiency changes
-    battlescalar: f32,
+    battlescalar: Option<f32>,
+    value_mult: Option<f32>,
+    volume_strength_ratio: Option<f32>,
     relations: HashMap<String, f32>,
 }
 
@@ -426,7 +430,9 @@ impl Faction {
             efficiencydefault: self.efficiencydefault,
             efficiencytarget: self.efficiencytarget,
             efficiencydelta: self.efficiencydelta,
-            battlescalar: self.battlescalar,
+            battlescalar: self.battlescalar.unwrap_or(1.0),
+            value_mult: self.value_mult.clone().unwrap_or(1.0),
+            volume_strength_ratio: self.volume_strength_ratio.unwrap_or(1.0),
             relations: factionidmap
                 .iter()
                 .map(|(name, id)| (*id, self.relations.get(name).map(|&x| x).unwrap_or(0_f32)))
@@ -444,7 +450,7 @@ struct Resource {
     visibility: Option<bool>,
     propagates: Option<bool>,
     unit_vol: u64, //how much space a one unit of this resource takes up when transported by a cargo ship
-    valuemult: u64, //how valuable the AI considers one unit of this resource to be
+    value_mult: Option<f32>, //how valuable the AI considers one unit of this resource to be
 }
 
 impl Resource {
@@ -456,7 +462,7 @@ impl Resource {
             visibility: self.visibility.unwrap_or(true),
             propagates: self.propagates.unwrap_or(true),
             unit_vol: self.unit_vol,
-            valuemult: self.valuemult,
+            value_mult: self.value_mult.clone().unwrap_or(1.0),
         };
         resource
     }
@@ -785,6 +791,10 @@ struct ShipAI {
     ship_attract_generic: f32, //a multiplier for the extent to which a ship using this AI will follow generic ship supply gradients
     ship_cargo_attract: HashMap<String, f32>, //a list of ship classes whose supply gradients this AI will follow (so as to carry e.g. fighters that can't travel on their own), and individual strength multipliers
     resource_attract: HashMap<String, f32>, //a list of resources whose supply gradients this AI will follow, and individual strength multipliers
+    friendly_supply_attract: f32,
+    hostile_supply_attract: f32,
+    allegiance_demand_attract: f32,
+    enemy_demand_attract: f32,
 }
 
 impl ShipAI {
@@ -813,6 +823,10 @@ impl ShipAI {
                 .iter()
                 .map(|(stringid, v)| (resourceidmap.get(stringid).unwrap().clone(), *v))
                 .collect(),
+            friendly_supply_attract: self.friendly_supply_attract.clone(),
+            hostile_supply_attract: self.hostile_supply_attract.clone(),
+            allegiance_demand_attract: self.allegiance_demand_attract.clone(),
+            enemy_demand_attract: self.enemy_demand_attract.clone(),
         };
         shipai
     }
@@ -863,6 +877,7 @@ struct ShipClass {
     battleescapescalar: Option<f32>,
     defectescapescalar: Option<f32>,
     interdictionscalar: Option<f32>,
+    value_mult: Option<f32>, //how valuable the AI considers one volume point of this shipclass to be
 }
 
 impl ShipClass {
@@ -985,6 +1000,7 @@ impl ShipClass {
             battleescapescalar: self.battleescapescalar.unwrap_or(1.0),
             defectescapescalar: self.defectescapescalar.unwrap_or(1.0),
             interdictionscalar: self.interdictionscalar.unwrap_or(1.0),
+            value_mult: self.value_mult.clone().unwrap_or(1.0),
         };
         shipclass
     }
@@ -1025,6 +1041,7 @@ struct SquadronClass {
     deploys_daughters: Option<Option<u64>>,
     defectchance: Option<HashMap<String, (f32, f32)>>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
     defectescapescalar: Option<f32>,
+    value_mult: Option<f32>, //how valuable the AI considers one volume point of this squadronclass to be
 }
 
 impl SquadronClass {
@@ -1102,6 +1119,7 @@ impl SquadronClass {
                 .map(|(stringid, n)| (factions.get(stringid).unwrap().clone(), *n))
                 .collect(),
             defectescapescalar: self.defectescapescalar.unwrap_or(1.0),
+            value_mult: self.value_mult.clone().unwrap_or(1.0),
         };
         squadronclass
     }
@@ -1267,6 +1285,7 @@ impl Root {
             battleescapescalar: None,
             defectescapescalar: None,
             interdictionscalar: None,
+            value_mult: None,
         };
 
         //here we create the shipclassidmap, put the dummy ship class inside it, and then insert all the actual ship classes
