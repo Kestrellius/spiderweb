@@ -16,6 +16,8 @@ rand = "0.8.5"
 rayon = "1.8"
 clipboard = "0.5.0"
 rand_hc = "0.3"
+serde_json_any_key = "2.0.0"
+itertools = "0.12"
 
 [dependencies.uuid]
 version = "1.1.2"

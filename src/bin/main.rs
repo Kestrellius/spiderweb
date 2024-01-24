@@ -1,7 +1,8 @@
+use serde_json_any_key::*;
+use spiderweb::connection;
 use spiderweb::json_hydration;
 use std::fs::File;
 use std::time::Instant;
-use std::mem;
 
 fn main() {
     //env::set_var("RUST_BACKTRACE", "1");
@@ -10,17 +11,31 @@ fn main() {
     let json_root: json_hydration::Root = serde_json::from_reader(file).unwrap();
     let duration = start.elapsed();
     dbg!(duration);
-    let mut root = json_root.hydrate();
+    let mut root_0 = json_root.hydrate();
 
     for _i in 0..2 {
-        root.process_turn();
+        root_0.process_turn();
     }
 
-    let connection_root = root.dessicate();
+    let connection_root_0 = connection::Root::desiccate(&root_0);
 
-    let new_root = &connection_root.rehydrate();
+    let mut root_1 = &mut connection_root_0.rehydrate();
 
-    let new_connection_root = new_root.dessicate();
+    let connection_root_1 = connection::Root::desiccate(root_1);
+
+    let mut root_2 = connection::Root::rehydrate(connection_root_1.clone());
+
+    dbg!(*root_1 == root_2);
+
+    let connection_root_2 = connection::Root::desiccate(&root_2);
+
+    dbg!(&connection_root_1 == &connection_root_2);
+
+    let mut root_3 = connection::Root::rehydrate(connection_root_2);
+
+    //let json_connection_root = serde_json::to_string_pretty(&connection_root_1).unwrap();
+
+    //std::fs::write(&"connection_root.json", &json_connection_root);
 
     //dbg!(root.nodes.len());
     //dbg!(root.edges.len());

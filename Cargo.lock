@@ -117,6 +117,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25db6b064527c5d482d0423354fcd07a89a2dfe07b67892e62411946db7f07b0"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -339,11 +348,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_json_any_key"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2c409ca1209f6c4741028b9e1e56d973c868ffaef25ffbaf2471e486c2a74b3"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "spiderweb"
 version = "0.1.0"
 dependencies = [
  "average",
  "clipboard",
+ "itertools",
  "no-panic",
  "ordered-float",
  "rand",
@@ -352,6 +372,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
+ "serde_json_any_key",
  "uuid",
 ]
 

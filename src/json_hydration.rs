@@ -1,5 +1,6 @@
 //this is the section of the program that manages the json files defined by the modder
 use crate::internal;
+use itertools::Itertools;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -1511,26 +1512,82 @@ impl Root {
 
         internal::Root {
             config: config,
-            nodeflavors: nodeflavoridmap.values().cloned().collect(),
-            nodes: nodeidmap.values().cloned().collect(),
-            systems: systemidmap.values().cloned().collect(),
-            edgeflavors: edgeflavoridmap.values().cloned().collect(),
+            nodeflavors: nodeflavoridmap
+                .values()
+                .cloned()
+                .sorted_by_key(|x| x.id)
+                .collect(),
+            nodes: nodeidmap
+                .values()
+                .cloned()
+                .sorted_by_key(|x| x.id)
+                .collect(),
+            systems: systemidmap
+                .values()
+                .cloned()
+                .sorted_by_key(|x| x.id)
+                .collect(),
+            edgeflavors: edgeflavoridmap
+                .values()
+                .sorted_by_key(|x| x.id)
+                .cloned()
+                .collect(),
             edges,
             neighbors,
-            factions: factions.values().cloned().collect(),
+            factions: factions.values().cloned().sorted_by_key(|x| x.id).collect(),
             wars,
-            resources: resourceidmap.values().cloned().collect(),
-            hangarclasses: hangarclassidmap.values().cloned().collect(),
+            resources: resourceidmap
+                .values()
+                .cloned()
+                .sorted_by_key(|x| x.id)
+                .collect(),
+            hangarclasses: hangarclassidmap
+                .values()
+                .cloned()
+                .sorted_by_key(|x| x.id)
+                .collect(),
             hangarinstancecounter: Arc::new(AtomicU64::new(0)),
-            engineclasses: engineclassidmap.values().cloned().collect(),
-            repairerclasses: repairerclassidmap.values().cloned().collect(),
-            factoryclasses: factoryclassidmap.values().cloned().collect(),
-            shipyardclasses: shipyardclassidmap.values().cloned().collect(),
-            shipais: shipaiidmap.values().cloned().collect(),
-            shipflavors: shipflavoridmap.values().cloned().collect(),
-            squadronflavors: squadronflavoridmap.values().cloned().collect(),
+            engineclasses: engineclassidmap
+                .values()
+                .cloned()
+                .sorted_by_key(|x| x.id)
+                .collect(),
+            repairerclasses: repairerclassidmap
+                .values()
+                .cloned()
+                .sorted_by_key(|x| x.id)
+                .collect(),
+            factoryclasses: factoryclassidmap
+                .values()
+                .cloned()
+                .sorted_by_key(|x| x.id)
+                .collect(),
+            shipyardclasses: shipyardclassidmap
+                .values()
+                .cloned()
+                .sorted_by_key(|x| x.id)
+                .collect(),
+            shipais: shipaiidmap
+                .values()
+                .cloned()
+                .sorted_by_key(|x| x.id)
+                .collect(),
+            shipflavors: shipflavoridmap
+                .values()
+                .cloned()
+                .sorted_by_key(|x| x.id)
+                .collect(),
+            squadronflavors: squadronflavoridmap
+                .values()
+                .cloned()
+                .sorted_by_key(|x| x.id)
+                .collect(),
             shipclasses: shipclasses.clone(),
-            squadronclasses: squadronclasses.values().cloned().collect(),
+            squadronclasses: squadronclasses
+                .values()
+                .cloned()
+                .sorted_by_key(|x| x.id)
+                .collect(),
             shipinstances: RwLock::new(Vec::new()),
             squadroninstances: RwLock::new(Vec::new()),
             unitcounter: Arc::new(AtomicU64::new(0)),

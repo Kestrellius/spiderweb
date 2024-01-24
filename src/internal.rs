@@ -1,4 +1,5 @@
 use crate::connection;
+use itertools::Itertools;
 use ordered_float::NotNan;
 use rand::prelude::*;
 use rand_distr::*;
@@ -7,6 +8,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::iter;
 use std::sync::atomic::{self, AtomicU64};
@@ -14,14 +16,14 @@ use std::sync::Arc;
 use std::sync::{RwLock, RwLockWriteGuard};
 use std::time::Instant;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     pub saliencescalars: SalienceScalars,
     pub entityscalars: EntityScalars,
     pub battlescalars: BattleScalars,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SalienceScalars {
     pub faction_deg_mult: f32,
     pub resource_deg_mult: f32,
@@ -32,14 +34,14 @@ pub struct SalienceScalars {
     pub volume_strength_ratio: f32, //multiplier for resource/unitclass supply points when comparing to threat values for faction demand calcs
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EntityScalars {
     pub defect_escape_scalar: f32,
     pub victor_morale_scalar: f32,
     pub victis_morale_scalar: f32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BattleScalars {
     pub avg_duration: u64,
     pub duration_log_exp: f32, //logarithmic exponent for scaling of battle duration over battle size
@@ -87,7 +89,7 @@ impl Hash for NodeFlavor {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct NodeMut {
     pub visibility: bool,
     pub flavor: Arc<NodeFlavor>, //type of location this node is -- planet, asteroid field, hyperspace transit zone
@@ -103,33 +105,6 @@ pub struct NodeMut {
     pub hangars_balanced: bool,
 }
 
-impl NodeMut {
-    fn dessicate(&self) -> connection::NodeMut {
-        connection::NodeMut {
-            visibility: self.visibility,
-            flavor: self.flavor.id,
-            units: self.units.iter().map(|x| x.dessicate()).collect(),
-            factoryinstancelist: self
-                .factoryinstancelist
-                .iter()
-                .map(|x| x.dessicate())
-                .collect(),
-            shipyardinstancelist: self
-                .shipyardinstancelist
-                .iter()
-                .map(|x| x.dessicate())
-                .collect(),
-            allegiance: self.allegiance.id,
-            efficiency: self.efficiency,
-            balance_stockpiles: self.balance_stockpiles,
-            balance_hangars: self.balance_hangars,
-            check_for_battles: self.check_for_battles,
-            stockpiles_balanced: self.stockpiles_balanced,
-            hangars_balanced: self.hangars_balanced,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct Node {
     pub id: usize,
@@ -142,17 +117,6 @@ pub struct Node {
 }
 
 impl Node {
-    fn dessicate(&self) -> connection::Node {
-        connection::Node {
-            id: self.id,
-            visiblename: self.visiblename.clone(),
-            position: self.position,
-            description: self.description.clone(),
-            environment: self.environment.clone(),
-            bitmap: self.bitmap.clone(),
-            mutables: self.mutables.read().unwrap().dessicate(),
-        }
-    }
     fn get_strength(&self, faction: Arc<Faction>, time: u64) -> u64 {
         self.mutables
             .read()
@@ -304,6 +268,12 @@ impl Node {
 impl PartialEq for Node {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
+            && self.visiblename == other.visiblename
+            && self.position == other.position
+            && self.description == other.description
+            && self.environment == other.environment
+            && self.bitmap == other.bitmap
+            && self.mutables.read().unwrap().clone() == other.mutables.read().unwrap().clone()
     }
 }
 
@@ -381,18 +351,6 @@ pub struct System {
     pub description: String,
     pub visibility: bool,
     pub nodes: Vec<Arc<Node>>,
-}
-
-impl System {
-    fn dessicate(&self) -> connection::System {
-        connection::System {
-            id: self.id,
-            visiblename: self.visiblename.clone(),
-            description: self.description.clone(),
-            visibility: self.visibility.clone(),
-            nodes: self.nodes.iter().map(|x| x.id).collect(),
-        }
-    }
 }
 
 impl PartialEq for System {
@@ -648,17 +606,6 @@ pub struct UnipotentStockpile {
 }
 
 impl UnipotentStockpile {
-    fn dessicate(&self) -> connection::UnipotentStockpile {
-        connection::UnipotentStockpile {
-            visibility: self.visibility,
-            resourcetype: self.resourcetype.id,
-            contents: self.contents,
-            rate: self.rate,
-            target: self.target,
-            capacity: self.capacity,
-            propagates: self.propagates,
-        }
-    }
     fn input_is_sufficient(&self) -> bool {
         self.contents >= self.rate
     }
@@ -750,7 +697,7 @@ impl Stockpileness for UnipotentStockpile {
 
 //a pluripotent stockpile can contain any number of different resources and ships
 //however, it has no constant rate of increase or decrease; things may only be added or removed manually
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PluripotentStockpile {
     pub visibility: bool,
     pub contents: HashMap<Arc<Resource>, u64>,
@@ -758,26 +705,6 @@ pub struct PluripotentStockpile {
     pub target: u64,
     pub capacity: u64,
     pub propagates: bool,
-}
-
-impl PluripotentStockpile {
-    fn dessicate(&self) -> connection::PluripotentStockpile {
-        connection::PluripotentStockpile {
-            visibility: self.visibility,
-            contents: self
-                .contents
-                .iter()
-                .map(|(resource, count)| (resource.id, *count))
-                .collect(),
-            allowed: self
-                .allowed
-                .clone()
-                .map(|vec| vec.iter().map(|x| x.id).collect()),
-            target: self.target,
-            capacity: self.capacity,
-            propagates: self.propagates,
-        }
-    }
 }
 
 impl Stockpileness for PluripotentStockpile {
@@ -808,9 +735,6 @@ impl Stockpileness for PluripotentStockpile {
             .unwrap_or(resource_vec.clone())
             .contains(&resource.clone())
         {
-            //NOTE: This will cause incorrect behavior in the case of stockpiles with allowed set to none.
-            //Since what's happening there is that all resources are allowed, we need to divide the target-minus-fullness value
-            //by the total number of resources in the game, but it's not obvious what the best way to get that information is.
             self.target.saturating_sub(self.get_fullness())
         } else {
             0
@@ -858,17 +782,6 @@ pub struct SharedStockpile {
     pub contents: Arc<AtomicU64>,
     pub rate: u64,
     pub capacity: u64,
-}
-
-impl SharedStockpile {
-    fn dessicate(&self) -> connection::SharedStockpile {
-        connection::SharedStockpile {
-            resourcetype: self.resourcetype.id,
-            contents: self.contents.load(atomic::Ordering::Relaxed),
-            rate: self.rate,
-            capacity: self.capacity,
-        }
-    }
 }
 
 impl Stockpileness for SharedStockpile {
@@ -1018,15 +931,6 @@ pub struct HangarInstanceMut {
     pub contents: Vec<Unit>,
 }
 
-impl HangarInstanceMut {
-    fn dessicate(&self) -> connection::HangarInstanceMut {
-        connection::HangarInstanceMut {
-            visibility: self.visibility,
-            contents: self.contents.iter().map(|x| x.dessicate()).collect(),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct HangarInstance {
     pub id: u64,
@@ -1036,14 +940,6 @@ pub struct HangarInstance {
 }
 
 impl HangarInstance {
-    pub fn dessicate(&self) -> connection::HangarInstance {
-        connection::HangarInstance {
-            id: self.id,
-            class: self.class.id,
-            mother: self.mother.id,
-            mutables: self.mutables.read().unwrap().dessicate(),
-        }
-    }
     pub fn get_strength(&self, time: u64) -> u64 {
         let contents_strength = self
             .mutables
@@ -1184,21 +1080,6 @@ pub struct EngineClass {
 }
 
 impl EngineClass {
-    pub fn dessicate(&self) -> connection::EngineClass {
-        connection::EngineClass {
-            id: self.id,
-            visiblename: self.visiblename.clone(),
-            description: self.description.clone(),
-            visibility: self.visibility,
-            basehealth: self.basehealth,
-            toughnessscalar: self.toughnessscalar.clone(),
-            inputs: self.inputs.iter().map(|x| x.dessicate()).collect(),
-            forbidden_nodeflavors: self.forbidden_nodeflavors.iter().map(|x| x.id).collect(),
-            forbidden_edgeflavors: self.forbidden_edgeflavors.iter().map(|x| x.id).collect(),
-            speed: self.speed,
-            cooldown: self.cooldown,
-        }
-    }
     pub fn instantiate(class: Arc<Self>) -> EngineInstance {
         EngineInstance {
             engineclass: class.clone(),
@@ -1258,21 +1139,6 @@ pub struct EngineInstance {
 }
 
 impl EngineInstance {
-    fn dessicate(&self) -> connection::EngineInstance {
-        connection::EngineInstance {
-            engineclass: self.engineclass.id,
-            visibility: self.visibility,
-            basehealth: self.basehealth,
-            health: self.health,
-            toughnessscalar: self.toughnessscalar,
-            inputs: self.inputs.iter().map(|x| x.dessicate()).collect(),
-            forbidden_nodeflavors: self.forbidden_nodeflavors.iter().map(|x| x.id).collect(),
-            forbidden_edgeflavors: self.forbidden_edgeflavors.iter().map(|x| x.id).collect(),
-            speed: self.speed,
-            cooldown: self.cooldown,
-            last_move_turn: self.last_move_turn,
-        }
-    }
     fn check_engine(
         &self,
         root: &Root,
@@ -1391,20 +1257,6 @@ pub struct RepairerClass {
 }
 
 impl RepairerClass {
-    fn dessicate(&self) -> connection::RepairerClass {
-        connection::RepairerClass {
-            id: self.id,
-            visiblename: self.visiblename.clone(),
-            description: self.description.clone(),
-            visibility: self.visibility,
-            inputs: self.inputs.iter().map(|x| x.dessicate()).collect(),
-            repair_points: self.repair_points,
-            repair_factor: self.repair_factor.clone(),
-            engine_repair_points: self.engine_repair_points,
-            engine_repair_factor: self.engine_repair_factor.clone(),
-            per_engagement: self.per_engagement,
-        }
-    }
     pub fn instantiate(class: Arc<Self>) -> RepairerInstance {
         RepairerInstance {
             repairerclass: class.clone(),
@@ -1458,18 +1310,6 @@ pub struct RepairerInstance {
 }
 
 impl RepairerInstance {
-    fn dessicate(&self) -> connection::RepairerInstance {
-        connection::RepairerInstance {
-            repairerclass: self.repairerclass.id,
-            visibility: self.visibility,
-            inputs: self.inputs.iter().map(|x| x.dessicate()).collect(),
-            repair_points: self.repair_points,
-            repair_factor: self.repair_factor.clone(),
-            engine_repair_points: self.engine_repair_points,
-            engine_repair_factor: self.engine_repair_factor.clone(),
-            per_engagement: self.per_engagement,
-        }
-    }
     fn process(&mut self) {
         self.inputs
             .iter_mut()
@@ -1478,6 +1318,204 @@ impl RepairerInstance {
 }
 
 impl ResourceProcess for RepairerInstance {
+    fn get_state(&self) -> FactoryState {
+        let input_is_good: bool = self.inputs.iter().all(|x| x.input_is_sufficient()); //this uses the FactoryOutputInstance sufficiency method defined earlier
+        if input_is_good {
+            FactoryState::Active
+        } else {
+            FactoryState::Stalled
+        }
+    }
+    fn get_resource_supply_total(&self, _resource: Arc<Resource>) -> u64 {
+        0
+    }
+    fn get_resource_demand_total(&self, resource: Arc<Resource>) -> u64 {
+        self.inputs
+            .iter()
+            .filter(|sp| sp.propagates)
+            .map(|sp| sp.get_resource_demand(resource.clone()))
+            .sum()
+    }
+    fn get_target_total(&self) -> u64 {
+        self.inputs.iter().map(|sp| sp.target).sum()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InterNodeWeaponClass {
+    pub id: usize,
+    pub visiblename: String,
+    pub description: String,
+    pub visibility: bool,
+    pub basehealth: Option<u64>,
+    pub toughnessscalar: f32,
+    pub inputs: Vec<UnipotentStockpile>,
+    pub forbidden_nodeflavors: Vec<Arc<NodeFlavor>>, //the weapon won't fire into nodes of these flavors
+    pub forbidden_edgeflavors: Vec<Arc<EdgeFlavor>>, //the weapon won't fire across edges of these flavors
+    pub damage: (u64, u64), //lower and upper bounds for damage done by a single shot
+    pub engine_damage: (u64, u64), //lower and upper bounds for damage to engine done by a single shot
+    pub accuracy: f32, //divided by target's internodeweaponevasionscalar to get hit probability as a fraction of 1.0
+    pub range: u64,    //how many edges away the weapon can reach
+    pub shots: (u64, u64), //lower and upper bounds for maximum number of shots the weapon fires each time it's activated
+    pub target_priorities_class: HashMap<Arc<ShipClassID>, f32>, //how strongly weapon will prioritize ships of each class; classes absent from list will default to 1.0
+    pub target_priorities_flavor: HashMap<Arc<ShipFlavor>, f32>, //how strongly weapon will prioritize ships of each flavor; flavors absent from list will default to 1.0
+}
+
+impl InterNodeWeaponClass {
+    pub fn instantiate(class: Arc<Self>) -> InterNodeWeaponInstance {
+        InterNodeWeaponInstance {
+            class: class.clone(),
+            visibility: class.visibility,
+            health: class.basehealth,
+            inputs: class.inputs.clone(),
+        }
+    }
+}
+
+impl Eq for InterNodeWeaponClass {}
+
+impl Ord for InterNodeWeaponClass {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.id.cmp(&other.id)
+    }
+}
+
+impl PartialOrd for InterNodeWeaponClass {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.id.partial_cmp(&other.id)
+    }
+}
+
+impl Hash for InterNodeWeaponClass {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InterNodeWeaponInstance {
+    pub class: Arc<InterNodeWeaponClass>,
+    pub visibility: bool,
+    pub health: Option<u64>,
+    pub inputs: Vec<UnipotentStockpile>,
+}
+
+impl InterNodeWeaponInstance {
+    fn fire<R: Rng>(
+        &self,
+        root: &Root,
+        mother: Arc<ShipInstance>,
+        rng: &mut R,
+    ) -> HashMap<Unit, UnitStatus> {
+        let allegiance = mother.get_allegiance();
+        let location = mother.get_mother_node();
+        let mut target_nodes = vec![location.clone()];
+        let mut node_layer = vec![location.clone()];
+        for _ in 0..self.class.range {
+            let neighbors: Vec<Arc<Node>> = node_layer
+                .iter()
+                .map(|node| {
+                    root.neighbors
+                        .get(node)
+                        .unwrap()
+                        .iter()
+                        .filter(move |rhs_node| {
+                            !(target_nodes.contains(&rhs_node)
+                                || self
+                                    .class
+                                    .forbidden_nodeflavors
+                                    .contains(&rhs_node.mutables.read().unwrap().flavor)
+                                || self.class.forbidden_edgeflavors.contains(
+                                    root.edges
+                                        .get(&(
+                                            node.min(rhs_node).clone(),
+                                            rhs_node.max(&node).clone().clone(),
+                                        ))
+                                        .unwrap(),
+                                ))
+                        })
+                })
+                .flatten()
+                .cloned()
+                .collect();
+            target_nodes.append(&mut neighbors.clone());
+            node_layer = neighbors.clone();
+        }
+
+        let enemies = root
+            .factions
+            .iter()
+            .filter(|faction| {
+                root.wars.contains(&(
+                    faction.clone().min(&allegiance.clone().clone()).clone(),
+                    allegiance.clone().max(faction.clone().clone()).clone(),
+                ))
+            })
+            .collect::<Vec<_>>();
+
+        let targets = target_nodes
+            .iter()
+            .map(|node| {
+                node.mutables
+                    .read()
+                    .unwrap()
+                    .units
+                    .iter()
+                    .filter_map(|unit| unit.get_ship())
+                    .filter(|ship| enemies.contains(&&ship.mutables.read().unwrap().allegiance))
+                    .collect::<Vec<_>>()
+            })
+            .flatten()
+            .collect::<Vec<_>>();
+
+        let shots_fired: usize = rng.gen_range(self.class.shots.0..self.class.shots.1) as usize;
+
+        let hit_ships = targets
+            .iter()
+            .sorted_by_key(|target| {
+                NotNan::new(
+                    self.class
+                        .target_priorities_class
+                        .get(&ShipClassID::new_from_index(target.class.id))
+                        .unwrap_or(&0.0)
+                        + self
+                            .class
+                            .target_priorities_flavor
+                            .get(&target.class.shipflavor)
+                            .unwrap_or(&0.0),
+                )
+                .unwrap()
+            })
+            .take(shots_fired)
+            .filter(|target| {
+                (self.class.accuracy / target.class.internodeweaponevasionscalar) > 1.0
+            })
+            .collect();
+
+        hit_ships.iter().map(|hit_ship| {
+            let status = UnitStatus {
+                location: hit_ship.mutables.read().unwrap().location,
+                damage: rng.gen_range(self.class.damage.0..self.class.damage.1)
+                    / hit_ship.toughnessscalar,
+                engine_damage: hit_ship
+                    .mutables
+                    .read()
+                    .unwrap()
+                    .engines
+                    .iter()
+                    .filter(|e| e.health.is_some())
+                    .map(|e| {
+                        (rng.gen_range(self.class.engine_damage.0..self.class.engine_damage.1)
+                            / e.toughnessscalar) as u64
+                    })
+                    .collect(),
+            };
+            (hit_ship, status)
+        })
+    }
+}
+
+impl ResourceProcess for InterNodeWeaponInstance {
     fn get_state(&self) -> FactoryState {
         let input_is_good: bool = self.inputs.iter().all(|x| x.input_is_sufficient()); //this uses the FactoryOutputInstance sufficiency method defined earlier
         if input_is_good {
@@ -1512,16 +1550,6 @@ pub struct FactoryClass {
 }
 
 impl FactoryClass {
-    fn dessicate(&self) -> connection::FactoryClass {
-        connection::FactoryClass {
-            id: self.id,
-            visiblename: self.visiblename.clone(),
-            description: self.description.clone(),
-            visibility: self.visibility,
-            inputs: self.inputs.iter().map(|x| x.dessicate()).collect(),
-            outputs: self.outputs.iter().map(|x| x.dessicate()).collect(),
-        }
-    }
     pub fn instantiate(class: Arc<Self>) -> FactoryInstance {
         FactoryInstance {
             factoryclass: class.clone(),
@@ -1568,14 +1596,6 @@ pub struct FactoryInstance {
 }
 
 impl FactoryInstance {
-    fn dessicate(&self) -> connection::FactoryInstance {
-        connection::FactoryInstance {
-            factoryclass: self.factoryclass.id,
-            visibility: self.visibility,
-            inputs: self.inputs.iter().map(|x| x.dessicate()).collect(),
-            outputs: self.outputs.iter().map(|x| x.dessicate()).collect(),
-        }
-    }
     //we take an active factory and update all its inputs and outputs to add or remove resources
     fn process(&mut self, location_efficiency: f32) {
         if let FactoryState::Active = self.get_state() {
@@ -1677,18 +1697,6 @@ pub struct ShipyardClass {
 }
 
 impl ShipyardClass {
-    fn dessicate(&self) -> connection::ShipyardClass {
-        connection::ShipyardClass {
-            id: self.id,
-            visiblename: self.visiblename.clone(),
-            description: self.description.clone(),
-            visibility: self.visibility,
-            inputs: self.inputs.iter().map(|x| x.dessicate()).collect(),
-            outputs: self.outputs.clone(),
-            constructrate: self.constructrate,
-            efficiency: self.efficiency,
-        }
-    }
     pub fn instantiate(class: Arc<Self>, shipclasses: &Vec<Arc<ShipClass>>) -> ShipyardInstance {
         ShipyardInstance {
             shipyardclass: class.clone(),
@@ -1753,21 +1761,6 @@ pub struct ShipyardInstance {
 }
 
 impl ShipyardInstance {
-    fn dessicate(&self) -> connection::ShipyardInstance {
-        connection::ShipyardInstance {
-            shipyardclass: self.shipyardclass.id,
-            visibility: self.visibility,
-            inputs: self.inputs.iter().map(|x| x.dessicate()).collect(),
-            outputs: self
-                .outputs
-                .iter()
-                .map(|(shipclass, count)| (shipclass.id, *count))
-                .collect(),
-            constructpoints: self.constructpoints,
-            constructrate: self.constructrate,
-            efficiency: self.efficiency,
-        }
-    }
     fn process(&mut self, location_efficiency: f32) {
         if let FactoryState::Active = self.get_state() {
             self.inputs
@@ -1846,26 +1839,6 @@ pub struct ShipAI {
     pub enemy_demand_attract: f32,
 }
 
-impl ShipAI {
-    fn dessicate(&self) -> connection::ShipAI {
-        connection::ShipAI {
-            id: self.id,
-            ship_attract_specific: self.ship_attract_specific,
-            ship_attract_generic: self.ship_attract_generic,
-            ship_cargo_attract: self.ship_cargo_attract.clone(),
-            resource_attract: self
-                .resource_attract
-                .iter()
-                .map(|(resource, scalar)| (resource.id, *scalar))
-                .collect(),
-            friendly_supply_attract: self.friendly_supply_attract,
-            hostile_supply_attract: self.hostile_supply_attract,
-            allegiance_demand_attract: self.allegiance_demand_attract,
-            enemy_demand_attract: self.enemy_demand_attract,
-        }
-    }
-}
-
 impl PartialEq for ShipAI {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
@@ -1892,7 +1865,7 @@ impl Hash for ShipAI {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum UnitLocation {
     Node(Arc<Node>),
     Squadron(Arc<SquadronInstance>),
@@ -1900,17 +1873,15 @@ pub enum UnitLocation {
 }
 
 impl UnitLocation {
-    fn dessicate(&self) -> connection::UnitLocation {
-        match self {
-            UnitLocation::Node(n) => connection::UnitLocation::Node(n.id),
-            UnitLocation::Squadron(s) => connection::UnitLocation::Squadron(s.id),
-            UnitLocation::Hangar(h) => connection::UnitLocation::Hangar(h.id),
-        }
-    }
     fn check_insert(&self, unit: Unit) -> bool {
         match self {
             UnitLocation::Node(_node) => true,
-            UnitLocation::Squadron(_squadron) => true,
+            UnitLocation::Squadron(squadron) => squadron
+                .mutables
+                .read()
+                .unwrap()
+                .location
+                .check_insert(unit.clone()),
             UnitLocation::Hangar(hangar) => {
                 unit.get_volume() <= hangar.class.capacity - hangar.get_fullness()
             }
@@ -1960,6 +1931,22 @@ impl UnitLocation {
                 .contents
                 .retain(|content| content != &unit),
         }
+    }
+}
+
+impl PartialEq for UnitLocation {
+    fn eq(&self, other: &Self) -> bool {
+        let self_val = match self {
+            UnitLocation::Node(n) => n.id,
+            UnitLocation::Squadron(s) => s.id as usize,
+            UnitLocation::Hangar(h) => h.id as usize,
+        };
+        let other_val = match other {
+            UnitLocation::Node(n) => n.id,
+            UnitLocation::Squadron(s) => s.id as usize,
+            UnitLocation::Hangar(h) => h.id as usize,
+        };
+        self_val == other_val
     }
 }
 
@@ -2467,7 +2454,7 @@ impl ShipClassID {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ShipClass {
     pub id: usize,
     pub visiblename: String,
@@ -2499,45 +2486,6 @@ pub struct ShipClass {
 }
 
 impl ShipClass {
-    fn dessicate(&self) -> connection::ShipClass {
-        connection::ShipClass {
-            id: self.id,
-            visiblename: self.visiblename.clone(),
-            description: self.description.clone(),
-            shipflavor: self.shipflavor.id,
-            basehull: self.basehull,
-            basestrength: self.basestrength,
-            visibility: self.visibility,
-            propagates: self.propagates,
-            hangarvol: self.hangarvol,
-            stockpiles: self.stockpiles.iter().map(|x| x.dessicate()).collect(),
-            defaultweapons: self.defaultweapons.clone().map(|x| {
-                x.iter()
-                    .map(|(resource, count)| (resource.id, *count))
-                    .collect()
-            }),
-            hangars: self.hangars.iter().map(|x| x.id).collect(),
-            engines: self.engines.iter().map(|x| x.id).collect(),
-            repairers: self.repairers.iter().map(|x| x.id).collect(),
-            factoryclasslist: self.factoryclasslist.iter().map(|x| x.id).collect(),
-            shipyardclasslist: self.shipyardclasslist.iter().map(|x| x.id).collect(),
-            aiclass: self.aiclass.id,
-            navthreshold: self.navthreshold.clone(),
-            processordemandnavscalar: self.processordemandnavscalar.clone(),
-            deploys_self: self.deploys_self,
-            deploys_daughters: self.deploys_daughters,
-            defectchance: self
-                .defectchance
-                .iter()
-                .map(|(faction, scalars)| (faction.id, *scalars))
-                .collect(),
-            toughnessscalar: self.toughnessscalar.clone(),
-            battleescapescalar: self.battleescapescalar.clone(),
-            defectescapescalar: self.defectescapescalar.clone(),
-            interdictionscalar: self.interdictionscalar.clone(),
-            value_mult: self.value_mult.clone(),
-        }
-    }
     fn get_ideal_strength(&self, root: &Root) -> u64 {
         self.basestrength
             + self
@@ -2625,12 +2573,6 @@ impl ShipClass {
     }
 }
 
-impl PartialEq for ShipClass {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
 impl Eq for ShipClass {}
 
 impl Ord for ShipClass {
@@ -2651,7 +2593,7 @@ impl Hash for ShipClass {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ShipInstanceMut {
     pub hull: u64, //how many hitpoints the ship has
     pub visibility: bool,
@@ -2669,35 +2611,6 @@ pub struct ShipInstanceMut {
     pub aiclass: Arc<ShipAI>,
 }
 
-impl ShipInstanceMut {
-    fn dessicate(&self) -> connection::ShipInstanceMut {
-        connection::ShipInstanceMut {
-            hull: self.hull,
-            visibility: self.visibility,
-            stockpiles: self.stockpiles.iter().map(|x| x.dessicate()).collect(),
-            efficiency: self.efficiency.clone(),
-            hangars: self.hangars.iter().map(|x| x.dessicate()).collect(),
-            engines: self.engines.iter().map(|x| x.dessicate()).collect(),
-            movement_left: self.movement_left,
-            repairers: self.repairers.iter().map(|x| x.dessicate()).collect(),
-            factoryinstancelist: self
-                .factoryinstancelist
-                .iter()
-                .map(|x| x.dessicate())
-                .collect(),
-            shipyardinstancelist: self
-                .shipyardinstancelist
-                .iter()
-                .map(|x| x.dessicate())
-                .collect(),
-            location: self.location.dessicate(),
-            allegiance: self.allegiance.id,
-            objectives: self.objectives.iter().map(|x| x.dessicate()).collect(),
-            aiclass: self.aiclass.id,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct ShipInstance {
     pub id: u64,
@@ -2707,14 +2620,6 @@ pub struct ShipInstance {
 }
 
 impl ShipInstance {
-    fn dessicate(&self) -> connection::ShipInstance {
-        connection::ShipInstance {
-            id: self.id,
-            visiblename: self.visiblename.clone(),
-            class: self.class.id,
-            mutables: self.mutables.read().unwrap().dessicate(),
-        }
-    }
     pub fn process_factories(&self) {
         let mut mutables = self.mutables.write().unwrap();
         let efficiency = mutables.efficiency;
@@ -2763,6 +2668,9 @@ impl ShipInstance {
 impl PartialEq for ShipInstance {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
+            && self.visiblename == other.visiblename
+            && self.class == other.class
+            && self.mutables.read().unwrap().clone() == other.mutables.read().unwrap().clone()
     }
 }
 
@@ -3204,11 +3112,10 @@ impl Mobility for Arc<ShipInstance> {
             .collect()
     }
     fn set_movement_recursive(&self, value: u64) {
-        self.mutables
-            .write()
-            .unwrap()
-            .movement_left
-            .saturating_sub(value);
+        let mut mutables = self.mutables.write().unwrap();
+        let new_value = mutables.movement_left.saturating_sub(value);
+        mutables.movement_left = new_value;
+        drop(mutables);
         self.get_daughters()
             .iter()
             .for_each(|daughter| daughter.set_movement_recursive(value));
@@ -3436,7 +3343,7 @@ impl SquadronClassID {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SquadronClass {
     pub id: usize,
     pub visiblename: String,
@@ -3459,32 +3366,6 @@ pub struct SquadronClass {
 }
 
 impl SquadronClass {
-    fn dessicate(&self) -> connection::SquadronClass {
-        connection::SquadronClass {
-            id: self.id,
-            visiblename: self.visiblename.clone(),
-            description: self.description.clone(),
-            squadronflavor: self.squadronflavor.id,
-            visibility: self.visibility,
-            propagates: self.propagates,
-            strengthmod: self.strengthmod.clone(),
-            squadronconfig: self.squadronconfig.clone(),
-            non_ideal_supply_scalar: self.non_ideal_supply_scalar.clone(),
-            target: self.target,
-            navthreshold: self.navthreshold.clone(),
-            navquorum: self.navquorum.clone(),
-            disbandthreshold: self.disbandthreshold.clone(),
-            deploys_self: self.deploys_self,
-            deploys_daughters: self.deploys_daughters,
-            defectchance: self
-                .defectchance
-                .iter()
-                .map(|(faction, scalars)| (faction.id, *scalars))
-                .collect(),
-            defectescapescalar: self.defectescapescalar.clone(),
-            value_mult: self.value_mult.clone(),
-        }
-    }
     pub fn get_ideal_strength(&self, root: &Root) -> u64 {
         self.squadronconfig
             .iter()
@@ -3521,12 +3402,6 @@ impl SquadronClass {
     }
 }
 
-impl PartialEq for SquadronClass {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
 impl Eq for SquadronClass {}
 
 impl Ord for SquadronClass {
@@ -3560,7 +3435,7 @@ pub struct NavAI {
     pub enemy_demand_attract: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SquadronInstanceMut {
     pub visibility: bool,
     pub location: UnitLocation,
@@ -3568,19 +3443,6 @@ pub struct SquadronInstanceMut {
     pub allegiance: Arc<Faction>,
     pub objectives: Vec<Objective>,
     pub ghost: bool,
-}
-
-impl SquadronInstanceMut {
-    fn dessicate(&self) -> connection::SquadronInstanceMut {
-        connection::SquadronInstanceMut {
-            visibility: self.visibility,
-            location: self.location.dessicate(),
-            daughters: self.daughters.iter().map(|x| x.dessicate()).collect(),
-            allegiance: self.allegiance.id,
-            objectives: self.objectives.iter().map(|x| x.dessicate()).collect(),
-            ghost: self.ghost,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -3592,21 +3454,13 @@ pub struct SquadronInstance {
     pub mutables: RwLock<SquadronInstanceMut>,
 }
 
-impl SquadronInstance {
-    fn dessicate(&self) -> connection::SquadronInstance {
-        connection::SquadronInstance {
-            id: self.id,
-            visiblename: self.visiblename.clone(),
-            class: self.class.id,
-            idealstrength: self.idealstrength,
-            mutables: self.mutables.read().unwrap().dessicate(),
-        }
-    }
-}
-
 impl PartialEq for SquadronInstance {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
+            && self.visiblename == other.visiblename
+            && self.class == other.class
+            && self.idealstrength == other.idealstrength
+            && self.mutables.read().unwrap().clone() == other.mutables.read().unwrap().clone()
     }
 }
 
@@ -4069,12 +3923,6 @@ pub enum UnitClass {
 }
 
 impl UnitClass {
-    fn dessicate(&self) -> connection::UnitClass {
-        match self {
-            UnitClass::ShipClass(shc) => connection::UnitClass::ShipClass(shc.id),
-            UnitClass::SquadronClass(sqc) => connection::UnitClass::SquadronClass(sqc.id),
-        }
-    }
     fn get_id(&self) -> usize {
         match self {
             UnitClass::ShipClass(sc) => sc.id,
@@ -4105,15 +3953,6 @@ impl UnitClass {
 pub enum Unit {
     Ship(Arc<ShipInstance>),
     Squadron(Arc<SquadronInstance>),
-}
-
-impl Unit {
-    fn dessicate(&self) -> connection::Unit {
-        match self {
-            Unit::Ship(sh) => connection::Unit::Ship(sh.id),
-            Unit::Squadron(sq) => connection::Unit::Squadron(sq.id),
-        }
-    }
 }
 
 impl Mobility for Unit {
@@ -4410,7 +4249,7 @@ impl Mobility for Unit {
     }
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ObjectiveScalars {
     pub difficulty: f32,
     pub cost: u64,
@@ -4420,7 +4259,7 @@ pub struct ObjectiveScalars {
     pub battleescapescalar: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Objective {
     ReachNode {
         scalars: ObjectiveScalars,
@@ -4467,72 +4306,6 @@ pub enum Objective {
 }
 
 impl Objective {
-    pub fn dessicate(&self) -> connection::Objective {
-        match self {
-            Objective::ReachNode { scalars, node } => connection::Objective::ReachNode {
-                scalars: *scalars,
-                node: node.id,
-            },
-            Objective::ShipDeath { scalars, ship } => connection::Objective::ShipDeath {
-                scalars: *scalars,
-                ship: ship.id,
-            },
-            Objective::ShipSafe {
-                scalars,
-                ship,
-                nturns,
-            } => connection::Objective::ShipSafe {
-                scalars: *scalars,
-                ship: ship.id,
-                nturns: *nturns,
-            },
-            Objective::SquadronDeath { scalars, squadron } => {
-                connection::Objective::SquadronDeath {
-                    scalars: *scalars,
-                    squadron: squadron.id,
-                }
-            }
-            Objective::SquadronSafe {
-                scalars,
-                squadron,
-                nturns,
-                strengthfraction,
-            } => connection::Objective::SquadronSafe {
-                scalars: *scalars,
-                squadron: squadron.id,
-                nturns: *nturns,
-                strengthfraction: strengthfraction.clone(),
-            },
-            Objective::NodeCapture { scalars, node } => connection::Objective::NodeCapture {
-                scalars: *scalars,
-                node: node.id,
-            },
-            Objective::NodeSafe {
-                scalars,
-                node,
-                nturns,
-            } => connection::Objective::NodeSafe {
-                scalars: *scalars,
-                node: node.id,
-                nturns: *nturns,
-            },
-            Objective::SystemCapture { scalars, system } => connection::Objective::SystemCapture {
-                scalars: *scalars,
-                system: system.id,
-            },
-            Objective::SystemSafe {
-                scalars,
-                system,
-                nturns,
-                nodesfraction,
-            } => connection::Objective::SystemSafe {
-                scalars: *scalars,
-                system: system.id,
-                nturns: *nturns,
-                nodesfraction: nodesfraction.clone(),
-            },
-        }
-    }
     pub fn get_scalars(&self) -> ObjectiveScalars {
         match self {
             Objective::ReachNode { scalars, .. } => *scalars,
@@ -4554,49 +4327,17 @@ pub struct Operation {
     pub objectives: Vec<Objective>,
 }
 
-impl Operation {
-    pub fn dessicate(&self) -> connection::Operation {
-        connection::Operation {
-            visiblename: self.visiblename.clone(),
-            objectives: self.objectives.iter().map(|x| x.dessicate()).collect(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct FactionForces {
     pub local_forces: Vec<Unit>,
     pub reinforcements: Vec<(u64, Vec<Unit>)>,
 }
 
-impl FactionForces {
-    pub fn dessicate(&self) -> connection::FactionForces {
-        connection::FactionForces {
-            local_forces: self.local_forces.iter().map(|x| x.dessicate()).collect(),
-            reinforcements: self
-                .reinforcements
-                .iter()
-                .map(|(distance, units)| (*distance, units.iter().map(|x| x.dessicate()).collect()))
-                .collect(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct UnitStatus {
     pub location: Option<UnitLocation>,
     pub damage: u64,
     pub engine_damage: Vec<u64>,
-}
-
-impl UnitStatus {
-    pub fn dessicate(&self) -> connection::UnitStatus {
-        connection::UnitStatus {
-            location: self.location.clone().map(|x| x.dessicate()),
-            damage: self.damage,
-            engine_damage: self.engine_damage.clone(),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -4859,7 +4600,7 @@ impl EngagementPrep {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Engagement {
     pub visiblename: String,
     pub turn: u64,
@@ -4873,55 +4614,6 @@ pub struct Engagement {
 }
 
 impl Engagement {
-    pub fn dessicate(&self) -> connection::Engagement {
-        connection::Engagement {
-            visiblename: self.visiblename.clone(),
-            turn: self.turn,
-            coalitions: self
-                .coalitions
-                .iter()
-                .map(|(index, faction_map)| {
-                    (
-                        *index,
-                        faction_map
-                            .iter()
-                            .map(|(faction, forces)| (faction.id, forces.dessicate()))
-                            .collect(),
-                    )
-                })
-                .collect(),
-            aggressor: self.aggressor.clone().map(|x| x.id),
-            objectives: self
-                .objectives
-                .iter()
-                .map(|(faction, objs)| (faction.id, objs.iter().map(|x| x.dessicate()).collect()))
-                .collect(),
-            location: self.location.id,
-            duration: self.duration,
-            victors: (self.victors.0.id, self.victors.1),
-            unit_status: self
-                .unit_status
-                .iter()
-                .map(|(index, faction_map)| {
-                    (
-                        *index,
-                        faction_map
-                            .iter()
-                            .map(|(faction, unit_map)| {
-                                (
-                                    faction.id,
-                                    unit_map
-                                        .iter()
-                                        .map(|(u, us)| (u.dessicate(), us.dessicate()))
-                                        .collect(),
-                                )
-                            })
-                            .collect(),
-                    )
-                })
-                .collect(),
-        }
-    }
     pub fn battle_cleanup(&self, root: &Root) {
         println!("{}", self.visiblename);
         self.location.mutables.write().unwrap().allegiance = self.victors.0.clone();
@@ -5230,16 +4922,6 @@ pub struct GlobalSalience {
     pub unitclasssalience: RwLock<Vec<Vec<Vec<[f32; 2]>>>>,
 }
 
-impl GlobalSalience {
-    fn dessicate(&self) -> connection::GlobalSalience {
-        connection::GlobalSalience {
-            factionsalience: self.factionsalience.read().unwrap().clone(),
-            resourcesalience: self.resourcesalience.read().unwrap().clone(),
-            unitclasssalience: self.unitclasssalience.read().unwrap().clone(),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct Root {
     pub config: Config,
@@ -5271,93 +4953,64 @@ pub struct Root {
     pub turn: Arc<AtomicU64>,
 }
 
-impl Root {
-    pub fn dessicate(&self) -> connection::Root {
-        connection::Root {
-            config: self.config.clone(),
-            nodeflavors: self
-                .nodeflavors
-                .iter()
-                .map(|x| Arc::unwrap_or_clone(x.clone()))
-                .collect(),
-            nodes: self.nodes.iter().map(|x| x.dessicate()).collect(),
-            systems: self.systems.iter().map(|x| x.dessicate()).collect(),
-            edgeflavors: self
-                .edgeflavors
-                .iter()
-                .map(|x| Arc::unwrap_or_clone(x.clone()))
-                .collect(),
-            edges: self
-                .edges
-                .iter()
-                .map(|((n1, n2), flavor)| ((n1.id, n2.id), flavor.id))
-                .collect(),
-            neighbors: self
-                .neighbors
-                .iter()
-                .map(|(node, nodes)| (node.id, nodes.iter().map(|rhs| rhs.id).collect()))
-                .collect(),
-            factions: self
-                .factions
-                .iter()
-                .map(|x| Arc::unwrap_or_clone(x.clone()))
-                .collect(),
-            wars: self.wars.iter().map(|(f1, f2)| (f1.id, f2.id)).collect(),
-            resources: self
-                .resources
-                .iter()
-                .map(|x| Arc::unwrap_or_clone(x.clone()))
-                .collect(),
-            hangarclasses: self
-                .hangarclasses
-                .iter()
-                .map(|x| Arc::unwrap_or_clone(x.clone()))
-                .collect(),
-            hangarinstancecounter: self.hangarinstancecounter.load(atomic::Ordering::Relaxed),
-            engineclasses: self.engineclasses.iter().map(|x| x.dessicate()).collect(),
-            repairerclasses: self.repairerclasses.iter().map(|x| x.dessicate()).collect(),
-            factoryclasses: self.factoryclasses.iter().map(|x| x.dessicate()).collect(),
-            shipyardclasses: self.shipyardclasses.iter().map(|x| x.dessicate()).collect(),
-            shipais: self.shipais.iter().map(|x| x.dessicate()).collect(),
-            shipflavors: self
-                .shipflavors
-                .iter()
-                .map(|x| Arc::unwrap_or_clone(x.clone()))
-                .collect(),
-            squadronflavors: self
-                .squadronflavors
-                .iter()
-                .map(|x| Arc::unwrap_or_clone(x.clone()))
-                .collect(),
-            shipclasses: self.shipclasses.iter().map(|x| x.dessicate()).collect(),
-            squadronclasses: self.squadronclasses.iter().map(|x| x.dessicate()).collect(),
-            shipinstances: self
-                .shipinstances
+impl PartialEq for Root {
+    fn eq(&self, other: &Self) -> bool {
+        self.config == other.config
+            && self.nodeflavors == other.nodeflavors
+            && self.nodes == other.nodes
+            && self.systems == other.systems
+            && self.edgeflavors == other.edgeflavors
+            && self.edges == other.edges
+            && self.neighbors == other.neighbors
+            && self.factions == other.factions
+            && self.wars == other.wars
+            && self.resources == other.resources
+            && self.hangarclasses == other.hangarclasses
+            && self.hangarinstancecounter.load(atomic::Ordering::Relaxed)
+                == other.hangarinstancecounter.load(atomic::Ordering::Relaxed)
+            && self.engineclasses == other.engineclasses
+            && self.repairerclasses == other.repairerclasses
+            && self.factoryclasses == other.factoryclasses
+            && self.shipyardclasses == other.shipyardclasses
+            && self.shipais == other.shipais
+            && self.shipflavors == other.shipflavors
+            && self.squadronflavors == other.squadronflavors
+            && self.shipclasses == other.shipclasses
+            && self.squadronclasses == other.squadronclasses
+            && self.shipinstances.read().unwrap().clone()
+                == other.shipinstances.read().unwrap().clone()
+            && self.squadroninstances.read().unwrap().clone()
+                == other.squadroninstances.read().unwrap().clone()
+            && self.unitcounter.load(atomic::Ordering::Relaxed)
+                == other.unitcounter.load(atomic::Ordering::Relaxed)
+            && self.engagements.read().unwrap().clone() == other.engagements.read().unwrap().clone()
+            && self.globalsalience.factionsalience.read().unwrap().clone()
+                == other.globalsalience.factionsalience.read().unwrap().clone()
+            && self.globalsalience.resourcesalience.read().unwrap().clone()
+                == other
+                    .globalsalience
+                    .resourcesalience
+                    .read()
+                    .unwrap()
+                    .clone()
+            && self
+                .globalsalience
+                .unitclasssalience
                 .read()
                 .unwrap()
-                .iter()
-                .map(|x| x.dessicate())
-                .collect(),
-            squadroninstances: self
-                .squadroninstances
-                .read()
-                .unwrap()
-                .iter()
-                .map(|x| x.dessicate())
-                .collect(),
-            unitcounter: self.unitcounter.load(atomic::Ordering::Relaxed),
-            engagements: self
-                .engagements
-                .read()
-                .unwrap()
-                .iter()
-                .map(|x| x.dessicate())
-                .collect(),
-            globalsalience: self.globalsalience.dessicate(),
-            turn: self.turn.load(atomic::Ordering::Relaxed),
-        }
+                .clone()
+                == other
+                    .globalsalience
+                    .unitclasssalience
+                    .read()
+                    .unwrap()
+                    .clone()
+            && self.turn.load(atomic::Ordering::Relaxed)
+                == other.turn.load(atomic::Ordering::Relaxed)
     }
+}
 
+impl Root {
     pub fn balance_hangars(
         &self,
         _nodeid: Arc<Node>,

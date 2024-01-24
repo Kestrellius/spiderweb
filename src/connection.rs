@@ -1,14 +1,15 @@
 //this is the section of the program that converts data to or from a format suitable for transmission to or reciept from other programs
 use crate::internal;
 use serde::{Deserialize, Serialize};
+use serde_json_any_key::*;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::sync::atomic::{AtomicU64};
+use std::sync::atomic::{self, AtomicU64};
 use std::sync::Arc;
 use std::sync::RwLock;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct NodeMut {
     pub visibility: bool,
     pub flavor: usize, //type of location this node is -- planet, asteroid field, hyperspace transit zone
@@ -25,6 +26,34 @@ pub struct NodeMut {
 }
 
 impl NodeMut {
+    fn desiccate(self_entity: &internal::NodeMut) -> NodeMut {
+        NodeMut {
+            visibility: self_entity.visibility,
+            flavor: self_entity.flavor.id,
+            units: self_entity
+                .units
+                .iter()
+                .map(|x| Unit::desiccate(x))
+                .collect(),
+            factoryinstancelist: self_entity
+                .factoryinstancelist
+                .iter()
+                .map(|x| FactoryInstance::desiccate(x))
+                .collect(),
+            shipyardinstancelist: self_entity
+                .shipyardinstancelist
+                .iter()
+                .map(|x| ShipyardInstance::desiccate(x))
+                .collect(),
+            allegiance: self_entity.allegiance.id,
+            efficiency: self_entity.efficiency,
+            balance_stockpiles: self_entity.balance_stockpiles,
+            balance_hangars: self_entity.balance_hangars,
+            check_for_battles: self_entity.check_for_battles,
+            stockpiles_balanced: self_entity.stockpiles_balanced,
+            hangars_balanced: self_entity.hangars_balanced,
+        }
+    }
     fn rehydrate(
         &self,
         nodeflavorsroot: &Vec<Arc<internal::NodeFlavor>>,
@@ -59,7 +88,7 @@ impl NodeMut {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Node {
     pub id: usize,
     pub visiblename: String, //location name as shown to player
@@ -71,6 +100,17 @@ pub struct Node {
 }
 
 impl Node {
+    fn desiccate(self_entity: &internal::Node) -> Node {
+        Node {
+            id: self_entity.id,
+            visiblename: self_entity.visiblename.clone(),
+            position: self_entity.position,
+            description: self_entity.description.clone(),
+            environment: self_entity.environment.clone(),
+            bitmap: self_entity.bitmap.clone(),
+            mutables: NodeMut::desiccate(&self_entity.mutables.read().unwrap()),
+        }
+    }
     fn rehydrate(
         &self,
         nodeflavorsroot: &Vec<Arc<internal::NodeFlavor>>,
@@ -138,7 +178,7 @@ impl Hash for Node {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct System {
     pub id: usize,
     pub visiblename: String,
@@ -148,6 +188,15 @@ pub struct System {
 }
 
 impl System {
+    fn desiccate(self_entity: &internal::System) -> System {
+        System {
+            id: self_entity.id,
+            visiblename: self_entity.visiblename.clone(),
+            description: self_entity.description.clone(),
+            visibility: self_entity.visibility.clone(),
+            nodes: self_entity.nodes.iter().map(|x| x.id).collect(),
+        }
+    }
     fn rehydrate(&self, nodesroot: &Vec<Arc<internal::Node>>) -> internal::System {
         internal::System {
             id: self.id,
@@ -177,6 +226,17 @@ pub struct UnipotentStockpile {
 }
 
 impl UnipotentStockpile {
+    fn desiccate(self_entity: &internal::UnipotentStockpile) -> UnipotentStockpile {
+        UnipotentStockpile {
+            visibility: self_entity.visibility,
+            resourcetype: self_entity.resourcetype.id,
+            contents: self_entity.contents,
+            rate: self_entity.rate,
+            target: self_entity.target,
+            capacity: self_entity.capacity,
+            propagates: self_entity.propagates,
+        }
+    }
     fn rehydrate(
         &self,
         resourcesroot: &Vec<Arc<internal::Resource>>,
@@ -193,7 +253,7 @@ impl UnipotentStockpile {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PluripotentStockpile {
     pub visibility: bool,
     pub contents: HashMap<usize, u64>,
@@ -204,6 +264,23 @@ pub struct PluripotentStockpile {
 }
 
 impl PluripotentStockpile {
+    fn desiccate(self_entity: &internal::PluripotentStockpile) -> PluripotentStockpile {
+        PluripotentStockpile {
+            visibility: self_entity.visibility,
+            contents: self_entity
+                .contents
+                .iter()
+                .map(|(resource, count)| (resource.id, *count))
+                .collect(),
+            allowed: self_entity
+                .allowed
+                .clone()
+                .map(|vec| vec.iter().map(|x| x.id).collect()),
+            target: self_entity.target,
+            capacity: self_entity.capacity,
+            propagates: self_entity.propagates,
+        }
+    }
     fn rehydrate(
         &self,
         resourcesroot: &Vec<Arc<internal::Resource>>,
@@ -226,7 +303,7 @@ impl PluripotentStockpile {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SharedStockpile {
     pub resourcetype: usize,
     pub contents: u64,
@@ -235,6 +312,14 @@ pub struct SharedStockpile {
 }
 
 impl SharedStockpile {
+    fn desiccate(self_entity: &internal::SharedStockpile) -> SharedStockpile {
+        SharedStockpile {
+            resourcetype: self_entity.resourcetype.id,
+            contents: self_entity.contents.load(atomic::Ordering::Relaxed),
+            rate: self_entity.rate,
+            capacity: self_entity.capacity,
+        }
+    }
     fn rehydrate(&self, resourcesroot: &Vec<Arc<internal::Resource>>) -> internal::SharedStockpile {
         internal::SharedStockpile {
             resourcetype: resourcesroot[self.resourcetype].clone(),
@@ -245,13 +330,23 @@ impl SharedStockpile {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct HangarInstanceMut {
     pub visibility: bool,
     pub contents: Vec<Unit>,
 }
 
 impl HangarInstanceMut {
+    fn desiccate(self_entity: &internal::HangarInstanceMut) -> HangarInstanceMut {
+        HangarInstanceMut {
+            visibility: self_entity.visibility,
+            contents: self_entity
+                .contents
+                .iter()
+                .map(|x| Unit::desiccate(x))
+                .collect(),
+        }
+    }
     fn rehydrate(
         &self,
         shipinstancesroot: &Vec<Arc<internal::ShipInstance>>,
@@ -268,7 +363,7 @@ impl HangarInstanceMut {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct HangarInstance {
     pub id: u64,
     pub class: usize,
@@ -277,6 +372,14 @@ pub struct HangarInstance {
 }
 
 impl HangarInstance {
+    pub fn desiccate(self_entity: &internal::HangarInstance) -> HangarInstance {
+        HangarInstance {
+            id: self_entity.id,
+            class: self_entity.class.id,
+            mother: self_entity.mother.id,
+            mutables: HangarInstanceMut::desiccate(&self_entity.mutables.read().unwrap()),
+        }
+    }
     pub fn rehydrate(
         &self,
         hangarclassesroot: &Vec<Arc<internal::HangarClass>>,
@@ -295,7 +398,7 @@ impl HangarInstance {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EngineClass {
     pub id: usize,
     pub visiblename: String,
@@ -311,6 +414,33 @@ pub struct EngineClass {
 }
 
 impl EngineClass {
+    pub fn desiccate(self_entity: &internal::EngineClass) -> EngineClass {
+        EngineClass {
+            id: self_entity.id,
+            visiblename: self_entity.visiblename.clone(),
+            description: self_entity.description.clone(),
+            visibility: self_entity.visibility,
+            basehealth: self_entity.basehealth,
+            toughnessscalar: self_entity.toughnessscalar.clone(),
+            inputs: self_entity
+                .inputs
+                .iter()
+                .map(|x| UnipotentStockpile::desiccate(x))
+                .collect(),
+            forbidden_nodeflavors: self_entity
+                .forbidden_nodeflavors
+                .iter()
+                .map(|x| x.id)
+                .collect(),
+            forbidden_edgeflavors: self_entity
+                .forbidden_edgeflavors
+                .iter()
+                .map(|x| x.id)
+                .collect(),
+            speed: self_entity.speed,
+            cooldown: self_entity.cooldown,
+        }
+    }
     pub fn rehydrate(
         &self,
         nodeflavorsroot: &Vec<Arc<internal::NodeFlavor>>,
@@ -361,6 +491,33 @@ pub struct EngineInstance {
 }
 
 impl EngineInstance {
+    fn desiccate(self_entity: &internal::EngineInstance) -> EngineInstance {
+        EngineInstance {
+            engineclass: self_entity.engineclass.id,
+            visibility: self_entity.visibility,
+            basehealth: self_entity.basehealth,
+            health: self_entity.health,
+            toughnessscalar: self_entity.toughnessscalar,
+            inputs: self_entity
+                .inputs
+                .iter()
+                .map(|x| UnipotentStockpile::desiccate(x))
+                .collect(),
+            forbidden_nodeflavors: self_entity
+                .forbidden_nodeflavors
+                .iter()
+                .map(|x| x.id)
+                .collect(),
+            forbidden_edgeflavors: self_entity
+                .forbidden_edgeflavors
+                .iter()
+                .map(|x| x.id)
+                .collect(),
+            speed: self_entity.speed,
+            cooldown: self_entity.cooldown,
+            last_move_turn: self_entity.last_move_turn,
+        }
+    }
     fn rehydrate(
         &self,
         nodeflavorsroot: &Vec<Arc<internal::NodeFlavor>>,
@@ -396,7 +553,7 @@ impl EngineInstance {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RepairerClass {
     pub id: usize,
     pub visiblename: String,
@@ -411,6 +568,24 @@ pub struct RepairerClass {
 }
 
 impl RepairerClass {
+    fn desiccate(self_entity: &internal::RepairerClass) -> RepairerClass {
+        RepairerClass {
+            id: self_entity.id,
+            visiblename: self_entity.visiblename.clone(),
+            description: self_entity.description.clone(),
+            visibility: self_entity.visibility,
+            inputs: self_entity
+                .inputs
+                .iter()
+                .map(|x| UnipotentStockpile::desiccate(x))
+                .collect(),
+            repair_points: self_entity.repair_points,
+            repair_factor: self_entity.repair_factor.clone(),
+            engine_repair_points: self_entity.engine_repair_points,
+            engine_repair_factor: self_entity.engine_repair_factor.clone(),
+            per_engagement: self_entity.per_engagement,
+        }
+    }
     fn rehydrate(&self, resourcesroot: &Vec<Arc<internal::Resource>>) -> internal::RepairerClass {
         internal::RepairerClass {
             id: self.id,
@@ -444,6 +619,22 @@ pub struct RepairerInstance {
 }
 
 impl RepairerInstance {
+    fn desiccate(self_entity: &internal::RepairerInstance) -> RepairerInstance {
+        RepairerInstance {
+            repairerclass: self_entity.repairerclass.id,
+            visibility: self_entity.visibility,
+            inputs: self_entity
+                .inputs
+                .iter()
+                .map(|x| UnipotentStockpile::desiccate(x))
+                .collect(),
+            repair_points: self_entity.repair_points,
+            repair_factor: self_entity.repair_factor.clone(),
+            engine_repair_points: self_entity.engine_repair_points,
+            engine_repair_factor: self_entity.engine_repair_factor.clone(),
+            per_engagement: self_entity.per_engagement,
+        }
+    }
     fn rehydrate(
         &self,
         resourcesroot: &Vec<Arc<internal::Resource>>,
@@ -466,7 +657,7 @@ impl RepairerInstance {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FactoryClass {
     pub id: usize,
     pub visiblename: String,
@@ -477,6 +668,24 @@ pub struct FactoryClass {
 }
 
 impl FactoryClass {
+    fn desiccate(self_entity: &internal::FactoryClass) -> FactoryClass {
+        FactoryClass {
+            id: self_entity.id,
+            visiblename: self_entity.visiblename.clone(),
+            description: self_entity.description.clone(),
+            visibility: self_entity.visibility,
+            inputs: self_entity
+                .inputs
+                .iter()
+                .map(|x| UnipotentStockpile::desiccate(x))
+                .collect(),
+            outputs: self_entity
+                .outputs
+                .iter()
+                .map(|x| UnipotentStockpile::desiccate(x))
+                .collect(),
+        }
+    }
     fn rehydrate(&self, resourcesroot: &Vec<Arc<internal::Resource>>) -> internal::FactoryClass {
         internal::FactoryClass {
             id: self.id,
@@ -507,6 +716,22 @@ pub struct FactoryInstance {
 }
 
 impl FactoryInstance {
+    fn desiccate(self_entity: &internal::FactoryInstance) -> FactoryInstance {
+        FactoryInstance {
+            factoryclass: self_entity.factoryclass.id,
+            visibility: self_entity.visibility,
+            inputs: self_entity
+                .inputs
+                .iter()
+                .map(|x| UnipotentStockpile::desiccate(x))
+                .collect(),
+            outputs: self_entity
+                .outputs
+                .iter()
+                .map(|x| UnipotentStockpile::desiccate(x))
+                .collect(),
+        }
+    }
     fn rehydrate(
         &self,
         resourcesroot: &Vec<Arc<internal::Resource>>,
@@ -529,7 +754,7 @@ impl FactoryInstance {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShipyardClass {
     pub id: usize,
     pub visiblename: Option<String>,
@@ -542,6 +767,22 @@ pub struct ShipyardClass {
 }
 
 impl ShipyardClass {
+    fn desiccate(self_entity: &internal::ShipyardClass) -> ShipyardClass {
+        ShipyardClass {
+            id: self_entity.id,
+            visiblename: self_entity.visiblename.clone(),
+            description: self_entity.description.clone(),
+            visibility: self_entity.visibility,
+            inputs: self_entity
+                .inputs
+                .iter()
+                .map(|x| UnipotentStockpile::desiccate(x))
+                .collect(),
+            outputs: self_entity.outputs.clone(),
+            constructrate: self_entity.constructrate,
+            efficiency: self_entity.efficiency,
+        }
+    }
     fn rehydrate(&self, resourcesroot: &Vec<Arc<internal::Resource>>) -> internal::ShipyardClass {
         internal::ShipyardClass {
             id: self.id,
@@ -572,6 +813,25 @@ pub struct ShipyardInstance {
 }
 
 impl ShipyardInstance {
+    fn desiccate(self_entity: &internal::ShipyardInstance) -> ShipyardInstance {
+        ShipyardInstance {
+            shipyardclass: self_entity.shipyardclass.id,
+            visibility: self_entity.visibility,
+            inputs: self_entity
+                .inputs
+                .iter()
+                .map(|x| UnipotentStockpile::desiccate(x))
+                .collect(),
+            outputs: self_entity
+                .outputs
+                .iter()
+                .map(|(shipclass, count)| (shipclass.id, *count))
+                .collect(),
+            constructpoints: self_entity.constructpoints,
+            constructrate: self_entity.constructrate,
+            efficiency: self_entity.efficiency,
+        }
+    }
     fn rehydrate(
         &self,
         resourcesroot: &Vec<Arc<internal::Resource>>,
@@ -598,7 +858,7 @@ impl ShipyardInstance {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShipAI {
     pub id: usize,
     pub ship_attract_specific: f32, //a multiplier for demand gradients corresponding to the specific class of a ship using this AI
@@ -612,6 +872,23 @@ pub struct ShipAI {
 }
 
 impl ShipAI {
+    fn desiccate(self_entity: &internal::ShipAI) -> ShipAI {
+        ShipAI {
+            id: self_entity.id,
+            ship_attract_specific: self_entity.ship_attract_specific,
+            ship_attract_generic: self_entity.ship_attract_generic,
+            ship_cargo_attract: self_entity.ship_cargo_attract.clone(),
+            resource_attract: self_entity
+                .resource_attract
+                .iter()
+                .map(|(resource, scalar)| (resource.id, *scalar))
+                .collect(),
+            friendly_supply_attract: self_entity.friendly_supply_attract,
+            hostile_supply_attract: self_entity.hostile_supply_attract,
+            allegiance_demand_attract: self_entity.allegiance_demand_attract,
+            enemy_demand_attract: self_entity.enemy_demand_attract,
+        }
+    }
     fn rehydrate(&self, resourcesroot: &Vec<Arc<internal::Resource>>) -> internal::ShipAI {
         internal::ShipAI {
             id: self.id,
@@ -639,6 +916,13 @@ pub enum UnitLocation {
 }
 
 impl UnitLocation {
+    fn desiccate(self_entity: &internal::UnitLocation) -> UnitLocation {
+        match self_entity {
+            internal::UnitLocation::Node(n) => UnitLocation::Node(n.id),
+            internal::UnitLocation::Squadron(s) => UnitLocation::Squadron(s.id),
+            internal::UnitLocation::Hangar(h) => UnitLocation::Hangar(h.id),
+        }
+    }
     fn rehydrate(
         &self,
         nodesroot: &Vec<Arc<internal::Node>>,
@@ -657,7 +941,7 @@ impl UnitLocation {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShipClass {
     pub id: usize,
     pub visiblename: String,
@@ -689,6 +973,49 @@ pub struct ShipClass {
 }
 
 impl ShipClass {
+    fn desiccate(self_entity: &internal::ShipClass) -> ShipClass {
+        ShipClass {
+            id: self_entity.id,
+            visiblename: self_entity.visiblename.clone(),
+            description: self_entity.description.clone(),
+            shipflavor: self_entity.shipflavor.id,
+            basehull: self_entity.basehull,
+            basestrength: self_entity.basestrength,
+            visibility: self_entity.visibility,
+            propagates: self_entity.propagates,
+            hangarvol: self_entity.hangarvol,
+            stockpiles: self_entity
+                .stockpiles
+                .iter()
+                .map(|x| PluripotentStockpile::desiccate(x))
+                .collect(),
+            defaultweapons: self_entity.defaultweapons.clone().map(|x| {
+                x.iter()
+                    .map(|(resource, count)| (resource.id, *count))
+                    .collect()
+            }),
+            hangars: self_entity.hangars.iter().map(|x| x.id).collect(),
+            engines: self_entity.engines.iter().map(|x| x.id).collect(),
+            repairers: self_entity.repairers.iter().map(|x| x.id).collect(),
+            factoryclasslist: self_entity.factoryclasslist.iter().map(|x| x.id).collect(),
+            shipyardclasslist: self_entity.shipyardclasslist.iter().map(|x| x.id).collect(),
+            aiclass: self_entity.aiclass.id,
+            navthreshold: self_entity.navthreshold.clone(),
+            processordemandnavscalar: self_entity.processordemandnavscalar.clone(),
+            deploys_self: self_entity.deploys_self,
+            deploys_daughters: self_entity.deploys_daughters,
+            defectchance: self_entity
+                .defectchance
+                .iter()
+                .map(|(faction, scalars)| (faction.id, *scalars))
+                .collect(),
+            toughnessscalar: self_entity.toughnessscalar.clone(),
+            battleescapescalar: self_entity.battleescapescalar.clone(),
+            defectescapescalar: self_entity.defectescapescalar.clone(),
+            interdictionscalar: self_entity.interdictionscalar.clone(),
+            value_mult: self_entity.value_mult.clone(),
+        }
+    }
     fn rehydrate(
         &self,
         factionsroot: &Vec<Arc<internal::Faction>>,
@@ -765,7 +1092,7 @@ impl ShipClass {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShipInstanceMut {
     pub hull: u64, //how many hitpoints the ship has
     pub visibility: bool,
@@ -784,6 +1111,52 @@ pub struct ShipInstanceMut {
 }
 
 impl ShipInstanceMut {
+    fn desiccate(self_entity: &internal::ShipInstanceMut) -> ShipInstanceMut {
+        ShipInstanceMut {
+            hull: self_entity.hull,
+            visibility: self_entity.visibility,
+            stockpiles: self_entity
+                .stockpiles
+                .iter()
+                .map(|x| PluripotentStockpile::desiccate(x))
+                .collect(),
+            efficiency: self_entity.efficiency.clone(),
+            hangars: self_entity
+                .hangars
+                .iter()
+                .map(|x| HangarInstance::desiccate(x))
+                .collect(),
+            engines: self_entity
+                .engines
+                .iter()
+                .map(|x| EngineInstance::desiccate(x))
+                .collect(),
+            movement_left: self_entity.movement_left,
+            repairers: self_entity
+                .repairers
+                .iter()
+                .map(|x| RepairerInstance::desiccate(x))
+                .collect(),
+            factoryinstancelist: self_entity
+                .factoryinstancelist
+                .iter()
+                .map(|x| FactoryInstance::desiccate(x))
+                .collect(),
+            shipyardinstancelist: self_entity
+                .shipyardinstancelist
+                .iter()
+                .map(|x| ShipyardInstance::desiccate(x))
+                .collect(),
+            location: UnitLocation::desiccate(&self_entity.location),
+            allegiance: self_entity.allegiance.id,
+            objectives: self_entity
+                .objectives
+                .iter()
+                .map(|x| Objective::desiccate(x))
+                .collect(),
+            aiclass: self_entity.aiclass.id,
+        }
+    }
     fn rehydrate(
         &self,
         nodeflavorsroot: &Vec<Arc<internal::NodeFlavor>>,
@@ -844,7 +1217,7 @@ impl ShipInstanceMut {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShipInstance {
     pub id: u64,
     pub visiblename: String,
@@ -853,6 +1226,14 @@ pub struct ShipInstance {
 }
 
 impl ShipInstance {
+    fn desiccate(self_entity: &internal::ShipInstance) -> ShipInstance {
+        ShipInstance {
+            id: self_entity.id,
+            visiblename: self_entity.visiblename.clone(),
+            class: self_entity.class.id,
+            mutables: ShipInstanceMut::desiccate(&self_entity.mutables.read().unwrap()),
+        }
+    }
     fn rehydrate(
         &self,
         nodeflavorsroot: &Vec<Arc<internal::NodeFlavor>>,
@@ -938,7 +1319,7 @@ impl ShipInstance {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SquadronClass {
     pub id: usize,
     pub visiblename: String,
@@ -961,6 +1342,32 @@ pub struct SquadronClass {
 }
 
 impl SquadronClass {
+    fn desiccate(self_entity: &internal::SquadronClass) -> SquadronClass {
+        SquadronClass {
+            id: self_entity.id,
+            visiblename: self_entity.visiblename.clone(),
+            description: self_entity.description.clone(),
+            squadronflavor: self_entity.squadronflavor.id,
+            visibility: self_entity.visibility,
+            propagates: self_entity.propagates,
+            strengthmod: self_entity.strengthmod.clone(),
+            squadronconfig: self_entity.squadronconfig.clone(),
+            non_ideal_supply_scalar: self_entity.non_ideal_supply_scalar.clone(),
+            target: self_entity.target,
+            navthreshold: self_entity.navthreshold.clone(),
+            navquorum: self_entity.navquorum.clone(),
+            disbandthreshold: self_entity.disbandthreshold.clone(),
+            deploys_self: self_entity.deploys_self,
+            deploys_daughters: self_entity.deploys_daughters,
+            defectchance: self_entity
+                .defectchance
+                .iter()
+                .map(|(faction, scalars)| (faction.id, *scalars))
+                .collect(),
+            defectescapescalar: self_entity.defectescapescalar.clone(),
+            value_mult: self_entity.value_mult.clone(),
+        }
+    }
     fn rehydrate(
         &self,
         factionsroot: &Vec<Arc<internal::Faction>>,
@@ -993,7 +1400,7 @@ impl SquadronClass {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SquadronInstanceMut {
     pub visibility: bool,
     pub location: UnitLocation,
@@ -1004,6 +1411,24 @@ pub struct SquadronInstanceMut {
 }
 
 impl SquadronInstanceMut {
+    fn desiccate(self_entity: &internal::SquadronInstanceMut) -> SquadronInstanceMut {
+        SquadronInstanceMut {
+            visibility: self_entity.visibility,
+            location: UnitLocation::desiccate(&self_entity.location),
+            daughters: self_entity
+                .daughters
+                .iter()
+                .map(|x| Unit::desiccate(x))
+                .collect(),
+            allegiance: self_entity.allegiance.id,
+            objectives: self_entity
+                .objectives
+                .iter()
+                .map(|x| Objective::desiccate(x))
+                .collect(),
+            ghost: self_entity.ghost,
+        }
+    }
     fn rehydrate(
         &self,
         nodesroot: &Vec<Arc<internal::Node>>,
@@ -1020,7 +1445,7 @@ impl SquadronInstanceMut {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SquadronInstance {
     pub id: u64,
     pub visiblename: String,
@@ -1030,6 +1455,15 @@ pub struct SquadronInstance {
 }
 
 impl SquadronInstance {
+    fn desiccate(self_entity: &internal::SquadronInstance) -> SquadronInstance {
+        SquadronInstance {
+            id: self_entity.id,
+            visiblename: self_entity.visiblename.clone(),
+            class: self_entity.class.id,
+            idealstrength: self_entity.idealstrength,
+            mutables: SquadronInstanceMut::desiccate(&self_entity.mutables.read().unwrap()),
+        }
+    }
     fn rehydrate(
         &self,
         nodesroot: &Vec<Arc<internal::Node>>,
@@ -1086,6 +1520,12 @@ pub enum UnitClass {
 }
 
 impl UnitClass {
+    fn desiccate(self_entity: &internal::UnitClass) -> UnitClass {
+        match self_entity {
+            internal::UnitClass::ShipClass(shc) => UnitClass::ShipClass(shc.id),
+            internal::UnitClass::SquadronClass(sqc) => UnitClass::SquadronClass(sqc.id),
+        }
+    }
     fn rehydrate(
         &self,
         shipclassesroot: &Vec<Arc<internal::ShipClass>>,
@@ -1109,6 +1549,12 @@ pub enum Unit {
 }
 
 impl Unit {
+    fn desiccate(self_entity: &internal::Unit) -> Unit {
+        match self_entity {
+            internal::Unit::Ship(sh) => Unit::Ship(sh.id),
+            internal::Unit::Squadron(sq) => Unit::Squadron(sq.id),
+        }
+    }
     fn rehydrate(
         &self,
         shipinstancesroot: &Vec<Arc<internal::ShipInstance>>,
@@ -1123,7 +1569,7 @@ impl Unit {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Objective {
     ReachNode {
         scalars: internal::ObjectiveScalars,
@@ -1170,6 +1616,70 @@ pub enum Objective {
 }
 
 impl Objective {
+    pub fn desiccate(self_entity: &internal::Objective) -> Objective {
+        match self_entity {
+            internal::Objective::ReachNode { scalars, node } => Objective::ReachNode {
+                scalars: *scalars,
+                node: node.id,
+            },
+            internal::Objective::ShipDeath { scalars, ship } => Objective::ShipDeath {
+                scalars: *scalars,
+                ship: ship.id,
+            },
+            internal::Objective::ShipSafe {
+                scalars,
+                ship,
+                nturns,
+            } => Objective::ShipSafe {
+                scalars: *scalars,
+                ship: ship.id,
+                nturns: *nturns,
+            },
+            internal::Objective::SquadronDeath { scalars, squadron } => Objective::SquadronDeath {
+                scalars: *scalars,
+                squadron: squadron.id,
+            },
+            internal::Objective::SquadronSafe {
+                scalars,
+                squadron,
+                nturns,
+                strengthfraction,
+            } => Objective::SquadronSafe {
+                scalars: *scalars,
+                squadron: squadron.id,
+                nturns: *nturns,
+                strengthfraction: strengthfraction.clone(),
+            },
+            internal::Objective::NodeCapture { scalars, node } => Objective::NodeCapture {
+                scalars: *scalars,
+                node: node.id,
+            },
+            internal::Objective::NodeSafe {
+                scalars,
+                node,
+                nturns,
+            } => Objective::NodeSafe {
+                scalars: *scalars,
+                node: node.id,
+                nturns: *nturns,
+            },
+            internal::Objective::SystemCapture { scalars, system } => Objective::SystemCapture {
+                scalars: *scalars,
+                system: system.id,
+            },
+            internal::Objective::SystemSafe {
+                scalars,
+                system,
+                nturns,
+                nodesfraction,
+            } => Objective::SystemSafe {
+                scalars: *scalars,
+                system: system.id,
+                nturns: *nturns,
+                nodesfraction: nodesfraction.clone(),
+            },
+        }
+    }
     pub fn rehydrate(
         &self,
         nodesroot: &Vec<Arc<internal::Node>>,
@@ -1242,13 +1752,23 @@ impl Objective {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Operation {
     pub visiblename: String,
     pub objectives: Vec<Objective>,
 }
 
 impl Operation {
+    pub fn desiccate(self_entity: &internal::Operation) -> Operation {
+        Operation {
+            visiblename: self_entity.visiblename.clone(),
+            objectives: self_entity
+                .objectives
+                .iter()
+                .map(|x| Objective::desiccate(x))
+                .collect(),
+        }
+    }
     pub fn rehydrate(
         &self,
         nodesroot: &Vec<Arc<internal::Node>>,
@@ -1274,13 +1794,32 @@ impl Operation {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct FactionForces {
     pub local_forces: Vec<Unit>,
     pub reinforcements: Vec<(u64, Vec<Unit>)>,
 }
 
 impl FactionForces {
+    pub fn desiccate(self_entity: &internal::FactionForces) -> FactionForces {
+        FactionForces {
+            local_forces: self_entity
+                .local_forces
+                .iter()
+                .map(|x| Unit::desiccate(x))
+                .collect(),
+            reinforcements: self_entity
+                .reinforcements
+                .iter()
+                .map(|(distance, units)| {
+                    (
+                        *distance,
+                        units.iter().map(|x| Unit::desiccate(x)).collect(),
+                    )
+                })
+                .collect(),
+        }
+    }
     pub fn rehydrate(
         &self,
         shipinstancesroot: &Vec<Arc<internal::ShipInstance>>,
@@ -1309,7 +1848,7 @@ impl FactionForces {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct UnitStatus {
     pub location: Option<UnitLocation>,
     pub damage: u64,
@@ -1317,6 +1856,16 @@ pub struct UnitStatus {
 }
 
 impl UnitStatus {
+    pub fn desiccate(self_entity: &internal::UnitStatus) -> UnitStatus {
+        UnitStatus {
+            location: self_entity
+                .location
+                .clone()
+                .map(|x| UnitLocation::desiccate(&x)),
+            damage: self_entity.damage,
+            engine_damage: self_entity.engine_damage.clone(),
+        }
+    }
     pub fn rehydrate(
         &self,
         nodesroot: &Vec<Arc<internal::Node>>,
@@ -1334,7 +1883,7 @@ impl UnitStatus {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Engagement {
     pub visiblename: String,
     pub turn: u64,
@@ -1348,6 +1897,62 @@ pub struct Engagement {
 }
 
 impl Engagement {
+    pub fn desiccate(self_entity: &internal::Engagement) -> Engagement {
+        Engagement {
+            visiblename: self_entity.visiblename.clone(),
+            turn: self_entity.turn,
+            coalitions: self_entity
+                .coalitions
+                .iter()
+                .map(|(index, faction_map)| {
+                    (
+                        *index,
+                        faction_map
+                            .iter()
+                            .map(|(faction, forces)| (faction.id, FactionForces::desiccate(forces)))
+                            .collect(),
+                    )
+                })
+                .collect(),
+            aggressor: self_entity.aggressor.clone().map(|x| x.id),
+            objectives: self_entity
+                .objectives
+                .iter()
+                .map(|(faction, objs)| {
+                    (
+                        faction.id,
+                        objs.iter().map(|x| Objective::desiccate(x)).collect(),
+                    )
+                })
+                .collect(),
+            location: self_entity.location.id,
+            duration: self_entity.duration,
+            victors: (self_entity.victors.0.id, self_entity.victors.1),
+            unit_status: self_entity
+                .unit_status
+                .iter()
+                .map(|(index, faction_map)| {
+                    (
+                        *index,
+                        faction_map
+                            .iter()
+                            .map(|(faction, unit_map)| {
+                                (
+                                    faction.id,
+                                    unit_map
+                                        .iter()
+                                        .map(|(u, us)| {
+                                            (Unit::desiccate(u), UnitStatus::desiccate(us))
+                                        })
+                                        .collect(),
+                                )
+                            })
+                            .collect(),
+                    )
+                })
+                .collect(),
+        }
+    }
     pub fn rehydrate(
         &self,
         nodesroot: &Vec<Arc<internal::Node>>,
@@ -1438,7 +2043,7 @@ impl Engagement {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GlobalSalience {
     pub factionsalience: Vec<Vec<Vec<[f32; 2]>>>,
     pub resourcesalience: Vec<Vec<Vec<[f32; 2]>>>,
@@ -1446,6 +2051,13 @@ pub struct GlobalSalience {
 }
 
 impl GlobalSalience {
+    fn desiccate(self_entity: &internal::GlobalSalience) -> GlobalSalience {
+        GlobalSalience {
+            factionsalience: self_entity.factionsalience.read().unwrap().clone(),
+            resourcesalience: self_entity.resourcesalience.read().unwrap().clone(),
+            unitclasssalience: self_entity.unitclasssalience.read().unwrap().clone(),
+        }
+    }
     fn rehydrate(&self) -> internal::GlobalSalience {
         internal::GlobalSalience {
             factionsalience: RwLock::new(self.factionsalience.clone()),
@@ -1455,7 +2067,7 @@ impl GlobalSalience {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Root {
     pub config: internal::Config,
     pub nodeflavors: Vec<internal::NodeFlavor>,
@@ -1487,6 +2099,133 @@ pub struct Root {
 }
 
 impl Root {
+    pub fn desiccate(self_entity: &internal::Root) -> Root {
+        Root {
+            config: self_entity.config.clone(),
+            nodeflavors: self_entity
+                .nodeflavors
+                .iter()
+                .map(|x| Arc::unwrap_or_clone(x.clone()))
+                .collect(),
+            nodes: self_entity
+                .nodes
+                .iter()
+                .map(|x| Node::desiccate(x))
+                .collect(),
+            systems: self_entity
+                .systems
+                .iter()
+                .map(|x| System::desiccate(x))
+                .collect(),
+            edgeflavors: self_entity
+                .edgeflavors
+                .iter()
+                .map(|x| Arc::unwrap_or_clone(x.clone()))
+                .collect(),
+            edges: self_entity
+                .edges
+                .iter()
+                .map(|((n1, n2), flavor)| ((n1.id, n2.id), flavor.id))
+                .collect(),
+            neighbors: self_entity
+                .neighbors
+                .iter()
+                .map(|(node, nodes)| (node.id, nodes.iter().map(|rhs| rhs.id).collect()))
+                .collect(),
+            factions: self_entity
+                .factions
+                .iter()
+                .map(|x| Arc::unwrap_or_clone(x.clone()))
+                .collect(),
+            wars: self_entity
+                .wars
+                .iter()
+                .map(|(f1, f2)| (f1.id, f2.id))
+                .collect(),
+            resources: self_entity
+                .resources
+                .iter()
+                .map(|x| Arc::unwrap_or_clone(x.clone()))
+                .collect(),
+            hangarclasses: self_entity
+                .hangarclasses
+                .iter()
+                .map(|x| Arc::unwrap_or_clone(x.clone()))
+                .collect(),
+            hangarinstancecounter: self_entity
+                .hangarinstancecounter
+                .load(atomic::Ordering::Relaxed),
+            engineclasses: self_entity
+                .engineclasses
+                .iter()
+                .map(|x| EngineClass::desiccate(x))
+                .collect(),
+            repairerclasses: self_entity
+                .repairerclasses
+                .iter()
+                .map(|x| RepairerClass::desiccate(x))
+                .collect(),
+            factoryclasses: self_entity
+                .factoryclasses
+                .iter()
+                .map(|x| FactoryClass::desiccate(x))
+                .collect(),
+            shipyardclasses: self_entity
+                .shipyardclasses
+                .iter()
+                .map(|x| ShipyardClass::desiccate(x))
+                .collect(),
+            shipais: self_entity
+                .shipais
+                .iter()
+                .map(|x| ShipAI::desiccate(x))
+                .collect(),
+            shipflavors: self_entity
+                .shipflavors
+                .iter()
+                .map(|x| Arc::unwrap_or_clone(x.clone()))
+                .collect(),
+            squadronflavors: self_entity
+                .squadronflavors
+                .iter()
+                .map(|x| Arc::unwrap_or_clone(x.clone()))
+                .collect(),
+            shipclasses: self_entity
+                .shipclasses
+                .iter()
+                .map(|x| ShipClass::desiccate(x))
+                .collect(),
+            squadronclasses: self_entity
+                .squadronclasses
+                .iter()
+                .map(|x| SquadronClass::desiccate(x))
+                .collect(),
+            shipinstances: self_entity
+                .shipinstances
+                .read()
+                .unwrap()
+                .iter()
+                .map(|x| ShipInstance::desiccate(x))
+                .collect(),
+            squadroninstances: self_entity
+                .squadroninstances
+                .read()
+                .unwrap()
+                .iter()
+                .map(|x| SquadronInstance::desiccate(x))
+                .collect(),
+            unitcounter: self_entity.unitcounter.load(atomic::Ordering::Relaxed),
+            engagements: self_entity
+                .engagements
+                .read()
+                .unwrap()
+                .iter()
+                .map(|x| Engagement::desiccate(x))
+                .collect(),
+            globalsalience: GlobalSalience::desiccate(&self_entity.globalsalience),
+            turn: self_entity.turn.load(atomic::Ordering::Relaxed),
+        }
+    }
     pub fn rehydrate(mut self) -> internal::Root {
         let config = self.config.clone();
         let nodeflavors = self.nodeflavors.drain(0..).map(|x| Arc::new(x)).collect();

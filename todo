@@ -110,16 +110,20 @@ GENERAL:
 [x] Make movement_left propagate to daughter ships
 [x] Clean up hydration logic -- which things do or don't return just the internal struct vs. internal struct plus stringid.
 [x] Dessication logic
-    [ ] Move dessication methods to connection
+    [x] Move dessication methods to connection
 [x] Rehydration logic
+[ ] Test to make sure that dessication-rehydration loop does not alter contents of root
 [ ] Optimize salience propagation logic
     [x] Exclude all-to-all system edges from propagation (figure out why this doesn't actually help and whether it's fixable)
     [ ] Figure out where the shipbuilding indeterminacy is coming from
     [ ] Store salience source node data so we can prune the logic for unit movement
     [ ] Move propagation logic to GPU
 [x] Optimize rng creation
-[ ] Make sure units can't enter hangars they won't fit in by entering a squadron within a hangar -- make the fit check recurse upward
-[ ] Fix the thing where ordering of lists in root gets scrambled by the hashmaps during hydration
+[x] Make sure units can't enter hangars they won't fit in by entering a squadron within a hangar -- make the fit check recurse upward
+[x] Fix the thing where ordering of lists in root gets scrambled by the hashmaps during hydration
+[ ] Remove fields that can be stored in classes from their respective instances
+[ ] Clean up struct field names -- switch to snake case, remove unnecessary qualifiers
+[ ] Stop calling everything an instance?
 
 LONGER-TERM:
 [ ] Build system for transmitting data to FSO
@@ -164,7 +168,7 @@ QUESTIONS FOR AMARYLLIS:
 [x] What's the best way to get the data about how many resources there are for get_resource_demand? (It probably works better to not even divide by number of resources the stockpile can hold.)
 [ ] Look at the set_movement_recursive shitshow.
 [ ] Consult re: magic numbers in navigation calcs.
-[ ] Make sure the option option thing for deploys_daughters will work in json.
+[x] Make sure the option option thing for deploys_daughters will work in json.
 [x] Weirdness with faction demand being multiplied by relations.
 [ ] Faction demand get_value performance.
 [ ] Best way to prune navigation logic by scalar = 0?
