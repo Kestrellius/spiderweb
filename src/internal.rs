@@ -2470,6 +2470,7 @@ pub struct ShipClass {
     pub hangars: Vec<Arc<HangarClass>>,
     pub engines: Vec<Arc<EngineClass>>,
     pub repairers: Vec<Arc<RepairerClass>>,
+    pub internodeweapons: Vec<Arc<InterNodeWeaponClass>>,
     pub factoryclasslist: Vec<Arc<FactoryClass>>,
     pub shipyardclasslist: Vec<Arc<ShipyardClass>>,
     pub aiclass: Arc<ShipAI>,
@@ -2530,6 +2531,13 @@ impl ShipClass {
                     .repairers
                     .iter()
                     .map(|repairerclass| RepairerClass::instantiate(repairerclass.clone()))
+                    .collect(),
+                internodeweapons: class
+                    .internodeweapons
+                    .iter()
+                    .map(|internodeweaponclass| {
+                        InterNodeWeaponClass::instantiate(internodeweaponclass.clone())
+                    })
                     .collect(),
                 factoryinstancelist: class
                     .factoryclasslist
@@ -2603,6 +2611,7 @@ pub struct ShipInstanceMut {
     pub engines: Vec<EngineInstance>,
     pub movement_left: u64, //starts at one trillion each turn, gets decremented as ship moves; represents time left to move during the turn
     pub repairers: Vec<RepairerInstance>,
+    pub internodeweapons: Vec<Arc<InterNodeWeaponClass>>,
     pub factoryinstancelist: Vec<FactoryInstance>,
     pub shipyardinstancelist: Vec<ShipyardInstance>,
     pub location: UnitLocation, //where the ship is -- a node if it's unaffiliated, a squadron if it's in one

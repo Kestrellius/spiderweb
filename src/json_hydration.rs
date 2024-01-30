@@ -708,6 +708,84 @@ impl RepairerClass {
     }
 }
 
+struct InterNodeWeaponClass {
+    id: String,
+    visiblename: String,
+    description: String,
+    visibility: Option<bool>,
+    basehealth: Option<u64>,
+    toughnessscalar: f32,
+    inputs: Vec<UnipotentStockpile>,
+    forbidden_nodeflavors: Option<Vec<String>>, //the weapon won't fire into nodes of these flavors
+    forbidden_edgeflavors: Option<Vec<String>>, //the weapon won't fire across edges of these flavors
+    damage: (u64, u64), //lower and upper bounds for damage done by a single shot
+    engine_damage: (u64, u64), //lower and upper bounds for damage to engine done by a single shot
+    accuracy: f32, //divided by target's internodeweaponevasionscalar to get hit probability as a fraction of 1.0
+    range: u64,    //how many edges away the weapon can reach
+    shots: (u64, u64), //lower and upper bounds for maximum number of shots the weapon fires each time it's activated
+    target_priorities_class: Option<HashMap<String, f32>>, //how strongly weapon will prioritize ships of each class; classes absent from list will default to 1.0
+    target_priorities_flavor: Option<HashMap<String, f32>>, //how strongly weapon will prioritize ships of each flavor; flavors absent from list will default to 1.0
+}
+
+impl InterNodeWeaponClass {
+    fn hydrate(
+        mut self,
+        index: usize,
+        resourceidmap: &HashMap<String, Arc<internal::Resource>>,
+        nodeflavoridmap: &HashMap<String, Arc<internal::NodeFlavor>>,
+        edgeflavoridmap: &HashMap<String, Arc<internal::EdgeFlavor>>,
+        shipflavoridmap: &HashMap<String, Arc<internal::ShipFlavor>>,
+        shipclassidmap: &HashMap<String, Arc<internal::ShipClassID>>,
+    ) -> internal::InterNodeWeaponClass {
+        internal::InterNodeWeaponClass {
+            id: index,
+            visiblename: self.visiblename.clone(),
+            description: self.description.clone(),
+            visibility: self.visibility.unwrap_or(true),
+            basehealth: self.basehealth,
+            toughnessscalar: self.toughnessscalar,
+            inputs: self
+                .inputs
+                .drain(0..)
+                .map(|x| x.hydrate(resourceidmap))
+                .collect(),
+            forbidden_nodeflavors: match self.forbidden_nodeflavors {
+                Some(mut v) => v
+                    .drain(0..)
+                    .map(|s| nodeflavoridmap.get(&s).unwrap().clone())
+                    .collect(),
+                None => Vec::new(),
+            },
+            forbidden_edgeflavors: match self.forbidden_edgeflavors {
+                Some(mut v) => v
+                    .drain(0..)
+                    .map(|s| edgeflavoridmap.get(&s).unwrap().clone())
+                    .collect(),
+                None => Vec::new(),
+            },
+            damage: self.damage,
+            engine_damage: self.engine_damage,
+            accuracy: self.accuracy,
+            range: self.range,
+            shots: self.shots,
+            target_priorities_class: match self.target_priorities_class {
+                Some(mut v) => v
+                    .drain(0..)
+                    .map(|(class, val)| (shipclassidmap.get(&class).unwrap().clone(), val))
+                    .collect(),
+                None => Vec::new(),
+            },
+            target_priorities_flavor: match self.target_priorities_flavor {
+                Some(mut v) => v
+                    .drain(0..)
+                    .map(|(flavor, val)| (shipflavoridmap.get(&flavor).unwrap().clone(), val))
+                    .collect(),
+                None => Vec::new(),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct FactoryClass {
     id: String,
@@ -866,6 +944,7 @@ struct ShipClass {
     hangars: Option<Vec<String>>,
     engines: Option<Vec<String>>,
     repairers: Option<Vec<String>>,
+    internodeweapons: Option<Vec<String>>,
     factoryclasslist: Option<Vec<String>>,
     shipyardclasslist: Option<Vec<String>>,
     aiclass: String,
@@ -890,6 +969,7 @@ impl ShipClass {
         hangarclassidmap: &HashMap<String, Arc<internal::HangarClass>>,
         engineclassidmap: &HashMap<String, Arc<internal::EngineClass>>,
         repairerclassidmap: &HashMap<String, Arc<internal::RepairerClass>>,
+        internodeweaponclassidmap: &HashMap<String, Arc<internal::InterNodeWeaponClass>>,
         factoryclassidmap: &HashMap<String, Arc<internal::FactoryClass>>,
         shipyardclassidmap: &HashMap<String, Arc<internal::ShipyardClass>>,
         shipaiidmap: &HashMap<String, Arc<internal::ShipAI>>,
@@ -956,6 +1036,18 @@ impl ShipClass {
                 .iter()
                 .map(|id| {
                     repairerclassidmap
+                        .get(id)
+                        .unwrap_or_else(|| panic!("{} is not found!", id))
+                        .clone()
+                })
+                .collect(),
+            internodeweapons: self
+                .internodeweapons
+                .clone()
+                .unwrap_or(Vec::new())
+                .iter()
+                .map(|id| {
+                    internodeweaponclassidmap
                         .get(id)
                         .unwrap_or_else(|| panic!("{} is not found!", id))
                         .clone()
