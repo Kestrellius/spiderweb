@@ -1,5 +1,3 @@
-use crate::connection;
-use itertools::Itertools;
 use ordered_float::NotNan;
 use rand::prelude::*;
 use rand_distr::*;
@@ -8,7 +6,6 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::iter;
 use std::sync::atomic::{self, AtomicU64};
@@ -18,9 +15,9 @@ use std::time::Instant;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Config {
-    pub saliencescalars: SalienceScalars,
-    pub entityscalars: EntityScalars,
-    pub battlescalars: BattleScalars,
+    pub salience_scalars: SalienceScalars,
+    pub entity_scalars: EntityScalars,
+    pub battle_scalars: BattleScalars,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -36,6 +33,7 @@ pub struct SalienceScalars {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EntityScalars {
+    pub avg_speed: u64, //typical speed of a cargo ship; that is, the speed divided by cooldown of its main engine
     pub defect_escape_scalar: f32,
     pub victor_morale_scalar: f32,
     pub victis_morale_scalar: f32,
@@ -53,13 +51,27 @@ pub struct BattleScalars {
     pub damage_dev: f32, //standard deviation for the randomly-generated scaling factor for damage done to ships
     pub base_damage: f32, //base value for the additive damage done to ships in addition to the percentage-based damage
     pub engine_damage_scalar: f32,
+    pub strategic_weapon_damage_scalar: f32,
     pub duration_damage_scalar: f32, //multiplier for damage increase as battle duration rises
+}
+
+#[derive(Debug, Clone)]
+pub struct UnitContainer {
+    pub contents: Vec<Unit>,
+}
+
+impl UnitContainer {
+    pub fn new() -> UnitContainer {
+        UnitContainer {
+            contents: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeFlavor {
     pub id: usize,
-    pub visiblename: String,
+    pub visible_name: String,
     pub description: String,
 }
 
@@ -93,35 +105,35 @@ impl Hash for NodeFlavor {
 pub struct NodeMut {
     pub visibility: bool,
     pub flavor: Arc<NodeFlavor>, //type of location this node is -- planet, asteroid field, hyperspace transit zone
-    pub units: Vec<Unit>,
-    pub factoryinstancelist: Vec<FactoryInstance>, //this is populated at runtime from the factoryclasslist, not specified in json
-    pub shipyardinstancelist: Vec<ShipyardInstance>,
+    pub factories: Vec<Factory>, //this is populated at runtime from the factoryclasslist, not specified in json
+    pub shipyards: Vec<Shipyard>,
     pub allegiance: Arc<Faction>, //faction that currently holds the node
     pub efficiency: f32, //efficiency of any production facilities in this node; changes over time based on faction ownership
-    pub balance_stockpiles: bool,
-    pub balance_hangars: bool,
+    pub transact_resources: bool,
+    pub transact_units: bool,
     pub check_for_battles: bool,
-    pub stockpiles_balanced: bool,
-    pub hangars_balanced: bool,
+    pub resources_transacted: bool,
+    pub units_transacted: bool,
 }
 
 #[derive(Debug)]
 pub struct Node {
     pub id: usize,
-    pub visiblename: String, //location name as shown to player
+    pub visible_name: String, //location name as shown to player
     pub position: [i64; 3], //node's position in 3d space; this is used for autogenerating skyboxes and determining reinforcement delay between nodes
     pub description: String,
     pub environment: String, //name of the FRED environment to use for missions set in this node
     pub bitmap: Option<(String, f32)>, //name of the bitmap used to depict this node in other nodes' FRED environments, and a size factor
     pub mutables: RwLock<NodeMut>,
+    pub unit_container: RwLock<UnitContainer>,
 }
 
 impl Node {
     fn get_strength(&self, faction: Arc<Faction>, time: u64) -> u64 {
-        self.mutables
+        self.unit_container
             .read()
             .unwrap()
-            .units
+            .contents
             .iter()
             .filter(|unit| unit.get_allegiance() == faction)
             .map(|unit| unit.get_strength(time))
@@ -132,10 +144,10 @@ impl Node {
             .iter()
             .map(|faction| {
                 let units: Vec<Unit> = self
-                    .mutables
+                    .unit_container
                     .read()
                     .unwrap()
-                    .units
+                    .contents
                     .iter()
                     .filter(|unit| unit.get_allegiance() == *faction)
                     .cloned()
@@ -150,10 +162,10 @@ impl Node {
             .iter()
             .filter(|faction| {
                 !self
-                    .mutables
+                    .unit_container
                     .read()
                     .unwrap()
-                    .units
+                    .contents
                     .iter()
                     .filter(|unit| unit.get_allegiance() == **faction)
                     .collect::<Vec<_>>()
@@ -169,10 +181,10 @@ impl Node {
         root: &Root,
     ) -> Vec<Unit> {
         let top_level_units: Vec<Unit> = self
-            .mutables
+            .unit_container
             .read()
             .unwrap()
-            .units
+            .contents
             .iter()
             .filter(|unit| unit.get_allegiance() == factionid)
             .filter(|unit| {
@@ -194,21 +206,21 @@ impl Node {
     pub fn get_node_faction_forces(
         &self,
         faction: Arc<Faction>,
-    ) -> (Vec<Arc<SquadronInstance>>, Vec<Arc<ShipInstance>>) {
-        let ships: Vec<Arc<ShipInstance>> = self
-            .mutables
+    ) -> (Vec<Arc<Squadron>>, Vec<Arc<Ship>>) {
+        let ships: Vec<Arc<Ship>> = self
+            .unit_container
             .read()
             .unwrap()
-            .units
+            .contents
             .iter()
             .filter_map(|unit| unit.get_ship())
             .filter(|ship| ship.mutables.read().unwrap().allegiance == faction)
             .collect();
-        let squadrons: Vec<Arc<SquadronInstance>> = self
-            .mutables
+        let squadrons: Vec<Arc<Squadron>> = self
+            .unit_container
             .read()
             .unwrap()
-            .units
+            .contents
             .iter()
             .filter_map(|unit| unit.get_squadron())
             .filter(|squadron| squadron.mutables.read().unwrap().allegiance == faction)
@@ -216,10 +228,10 @@ impl Node {
         (squadrons, ships)
     }
     pub fn get_unitclass_num(&self, shipclass: Arc<ShipClass>) -> u64 {
-        self.mutables
+        self.unit_container
             .read()
             .unwrap()
-            .units
+            .contents
             .iter()
             .filter_map(|unit| unit.get_ship())
             .filter(|ship| ship.class.id == shipclass.id)
@@ -250,7 +262,7 @@ impl Node {
         self.mutables
             .write()
             .unwrap()
-            .factoryinstancelist
+            .factories
             .iter_mut()
             .for_each(|f| f.process(efficiency));
     }
@@ -259,7 +271,7 @@ impl Node {
         self.mutables
             .write()
             .unwrap()
-            .shipyardinstancelist
+            .shipyards
             .iter_mut()
             .for_each(|sy| sy.process(efficiency));
     }
@@ -268,7 +280,7 @@ impl Node {
 impl PartialEq for Node {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
-            && self.visiblename == other.visiblename
+            && self.visible_name == other.visible_name
             && self.position == other.position
             && self.description == other.description
             && self.environment == other.environment
@@ -299,10 +311,19 @@ impl Hash for Node {
 
 trait Locality {
     fn get_distance(&self, rhs: Arc<Node>) -> u64;
+    fn get_nodes_in_range(
+        &self,
+        root: &Root,
+        range: u64,
+        forbidden_nodeflavors: &Vec<Arc<NodeFlavor>>,
+        forbidden_edgeflavors: &Vec<Arc<EdgeFlavor>>,
+    ) -> Vec<Arc<Node>>;
     fn plan_ships(
         &self,
         shipclasses: &Vec<Arc<ShipClass>>,
     ) -> Vec<(Arc<ShipClass>, UnitLocation, Arc<Faction>)>;
+    fn transact_resources(&self, root: &Root);
+    fn transact_units(&self, root: &Root);
 }
 
 impl Locality for Arc<Node> {
@@ -313,6 +334,77 @@ impl Locality for Arc<Node> {
             as f32)
             .sqrt() as u64
     }
+    fn get_nodes_in_range(
+        &self,
+        root: &Root,
+        range: u64,
+        forbidden_nodeflavors: &Vec<Arc<NodeFlavor>>,
+        forbidden_edgeflavors: &Vec<Arc<EdgeFlavor>>,
+    ) -> Vec<Arc<Node>> {
+        fn inner_recursion(
+            self_node: Arc<Node>,
+            root: &Root,
+            range: u64,
+            forbidden_nodeflavors: &Vec<Arc<NodeFlavor>>,
+            forbidden_edgeflavors: &Vec<Arc<EdgeFlavor>>,
+            touched: &mut HashMap<Arc<Node>, u64>,
+        ) {
+            if !forbidden_nodeflavors.contains(&self_node.mutables.read().unwrap().flavor) {
+                touched.insert(self_node.clone(), range);
+            }
+            if range > 0 {
+                let valid_neighbors: Vec<_> = root
+                    .neighbors
+                    .get(&self_node)
+                    .unwrap()
+                    .iter()
+                    .cloned()
+                    .filter(|neighbor| {
+                        touched
+                            .get(neighbor)
+                            .map(|range_left_when_touched| *range_left_when_touched <= range)
+                            .unwrap_or(true)
+                    })
+                    .filter(|neighbor| {
+                        !forbidden_nodeflavors.contains(&neighbor.mutables.read().unwrap().flavor)
+                    })
+                    .filter(|neighbor| {
+                        !forbidden_edgeflavors.contains(
+                            root.edges
+                                .get(&(
+                                    (&self_node).min(neighbor).clone(),
+                                    (neighbor).max(&self_node).clone(),
+                                ))
+                                .unwrap(),
+                        )
+                    })
+                    .collect();
+                valid_neighbors.iter().for_each(|neighbor| {
+                    assert!(touched.insert(neighbor.clone(), range).is_none());
+                });
+                valid_neighbors.iter().for_each(|_neighbor| {
+                    inner_recursion(
+                        self_node.clone(),
+                        root,
+                        range,
+                        forbidden_nodeflavors,
+                        forbidden_edgeflavors,
+                        touched,
+                    )
+                });
+            }
+        }
+        let mut touched = HashMap::new();
+        inner_recursion(
+            self.clone(),
+            root,
+            range,
+            forbidden_nodeflavors,
+            forbidden_edgeflavors,
+            &mut touched,
+        );
+        touched.into_keys().collect::<Vec<_>>()
+    }
     fn plan_ships(
         &self,
         shipclasses: &Vec<Arc<ShipClass>>,
@@ -321,7 +413,7 @@ impl Locality for Arc<Node> {
         let efficiency = mutables.efficiency;
         let allegiance = mutables.allegiance.clone();
         mutables
-            .shipyardinstancelist
+            .shipyards
             .iter_mut()
             .map(|shipyard| {
                 let ship_plans = shipyard.plan_ships(efficiency, shipclasses);
@@ -342,12 +434,918 @@ impl Locality for Arc<Node> {
             .flatten()
             .collect::<Vec<_>>()
     }
+    fn transact_resources(&self, root: &Root) {
+        let mut self_mut = self.mutables.write().unwrap();
+        let self_container = self.unit_container.read().unwrap();
+        root.factions.iter().for_each(|faction| {
+            let node_is_owned = faction.id == self_mut.allegiance.id;
+            let all_relevant_ships: Vec<Arc<Ship>> = self_container
+                .contents
+                .iter()
+                .filter(|unit| unit.get_allegiance().id == faction.id)
+                .map(|unit| unit.get_daughters_recursive())
+                .flatten()
+                .filter_map(|unit| unit.get_ship())
+                .collect();
+            let mut all_relevant_ships_mut_lock: Vec<RwLockWriteGuard<ShipMut>> =
+                all_relevant_ships
+                    .iter()
+                    .map(|ship| ship.mutables.write().unwrap())
+                    .filter(|ship_mut| {
+                        !(ship_mut.engines.iter().all(|e| e.inputs.is_empty())
+                            && ship_mut.repairers.iter().all(|r| r.inputs.is_empty())
+                            && ship_mut
+                                .strategic_weapons
+                                .iter()
+                                .all(|w| w.inputs.is_empty())
+                            && ship_mut.factories.iter().all(|f| f.inputs.is_empty())
+                            && ship_mut.factories.iter().all(|f| f.outputs.is_empty())
+                            && ship_mut.shipyards.iter().all(|s| s.inputs.is_empty()))
+                    })
+                    .collect::<Vec<_>>();
+
+            root.resources.iter().for_each(|resource| {
+                let total_pluripotent_naive_demand = all_relevant_ships_mut_lock
+                    .iter()
+                    .map(|ship_mut| {
+                        ship_mut
+                            .stockpiles
+                            .iter()
+                            .map(|sp| {
+                                sp.target.saturating_sub(
+                                    sp.get_fullness()
+                                        .saturating_sub(sp.get_resource_num(resource.clone())),
+                                )
+                            })
+                            .sum::<u64>()
+                    })
+                    .sum::<u64>() as f32;
+
+                let external_demand = (root.global_salience.resource_salience.read().unwrap()
+                    [faction.id][resource.id][self.id][0]
+                    - Salience::<polarity::Demand>::calculate_node_salience(
+                        resource.clone(),
+                        root,
+                        self.clone(),
+                        faction.clone(),
+                        root.config.battle_scalars.avg_duration,
+                    )
+                    .unwrap_or(0.0))
+                .clamp(0.0, f32::MAX);
+
+                let unipotent_stockpiles_supply_demand: Vec<(u64, u64)> =
+                    all_relevant_ships_mut_lock
+                        .iter()
+                        .map(|ship_mut| {
+                            ship_mut
+                                .engines
+                                .iter()
+                                .flat_map(|engine| {
+                                    engine
+                                        .inputs
+                                        .iter()
+                                        .filter(|usp| usp.resource_type.id == resource.id)
+                                        .map(|usp| (usp.contents, usp.target))
+                                })
+                                .chain(ship_mut.repairers.iter().flat_map(|repairer| {
+                                    repairer
+                                        .inputs
+                                        .iter()
+                                        .filter(|usp| usp.resource_type.id == resource.id)
+                                        .map(|usp| (usp.contents, usp.target))
+                                }))
+                                .chain(ship_mut.strategic_weapons.iter().flat_map(|weapon| {
+                                    weapon
+                                        .inputs
+                                        .iter()
+                                        .filter(|usp| usp.resource_type.id == resource.id)
+                                        .map(|usp| (usp.contents, usp.target))
+                                }))
+                                .chain(ship_mut.factories.iter().flat_map(|factory| {
+                                    factory
+                                        .inputs
+                                        .iter()
+                                        .filter(|usp| usp.resource_type.id == resource.id)
+                                        .map(|usp| (usp.contents, usp.target))
+                                }))
+                                .chain(ship_mut.factories.iter().flat_map(|factory| {
+                                    factory
+                                        .outputs
+                                        .iter()
+                                        .filter(|usp| usp.resource_type.id == resource.id)
+                                        .map(|usp| (usp.contents, usp.target))
+                                }))
+                                .chain(ship_mut.shipyards.iter().flat_map(|shipyard| {
+                                    shipyard
+                                        .inputs
+                                        .iter()
+                                        .filter(|usp| usp.resource_type.id == resource.id)
+                                        .map(|usp| (usp.contents, usp.target))
+                                }))
+                        })
+                        .flatten()
+                        .chain(Some(()).iter().filter(|_| node_is_owned).flat_map(|_| {
+                            self_mut
+                                .factories
+                                .iter()
+                                .flat_map(|factory| {
+                                    factory
+                                        .inputs
+                                        .iter()
+                                        .filter(|usp| usp.resource_type.id == resource.id)
+                                        .map(|usp| (usp.contents, usp.target))
+                                })
+                                .chain(self_mut.factories.iter().flat_map(|factory| {
+                                    factory
+                                        .outputs
+                                        .iter()
+                                        .filter(|usp| usp.resource_type.id == resource.id)
+                                        .map(|usp| (usp.contents, usp.target))
+                                }))
+                                .chain(self_mut.shipyards.iter().flat_map(|shipyard| {
+                                    shipyard
+                                        .inputs
+                                        .iter()
+                                        .filter(|usp| usp.resource_type.id == resource.id)
+                                        .map(|usp| (usp.contents, usp.target))
+                                }))
+                        }))
+                        .collect();
+
+                let pluripotent_stockpiles_supply_demand: Vec<Vec<(u64, u64)>> =
+                    all_relevant_ships_mut_lock
+                        .iter()
+                        .map(|ship_mut| {
+                            ship_mut
+                                .stockpiles
+                                .iter()
+                                .map(|ppsp| {
+                                    (
+                                        ppsp.get_resource_supply(resource.clone()),
+                                        ppsp.get_pluripotent_balance_resource_demand(
+                                            resource.clone(),
+                                            external_demand,
+                                            ship_mut.get_speed_factor(
+                                                root.config.entity_scalars.avg_speed,
+                                                root.turn.load(atomic::Ordering::Relaxed),
+                                            ),
+                                            total_pluripotent_naive_demand,
+                                        ),
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .collect();
+
+                let supply_total = unipotent_stockpiles_supply_demand
+                    .iter()
+                    .map(|(supply, _)| *supply)
+                    .sum::<u64>()
+                    + pluripotent_stockpiles_supply_demand
+                        .iter()
+                        .map(|x| x.iter().map(|(supply, _)| *supply).sum::<u64>())
+                        .sum::<u64>();
+
+                let demand_total = unipotent_stockpiles_supply_demand
+                    .iter()
+                    .map(|(_, demand)| *demand)
+                    .sum::<u64>()
+                    + pluripotent_stockpiles_supply_demand
+                        .iter()
+                        .map(|x| x.iter().map(|(_, demand)| *demand).sum::<u64>())
+                        .sum::<u64>();
+
+                let supply_demand_ratio = supply_total as f32 / demand_total as f32;
+
+                let mut transfer_stockpile = UnipotentStockpile {
+                    visibility: false,
+                    resource_type: resource.clone(),
+                    contents: 0,
+                    rate: 0,
+                    target: 0,
+                    capacity: u64::MAX,
+                    propagates: false,
+                };
+
+                all_relevant_ships_mut_lock.iter_mut().for_each(|ship_mut| {
+                    ship_mut.engines.iter_mut().for_each(|engine| {
+                        engine
+                            .inputs
+                            .iter_mut()
+                            .filter(|usp| usp.resource_type.id == resource.id)
+                            .for_each(|usp| {
+                                let proper_quantity =
+                                    (usp.target as f32 * supply_demand_ratio) as u64;
+                                let transfer_quantity =
+                                    usp.contents.saturating_sub(proper_quantity);
+                                if transfer_quantity > 0 {
+                                    Stockpileness::transfer(
+                                        usp,
+                                        &mut transfer_stockpile,
+                                        resource.clone(),
+                                        transfer_quantity,
+                                    );
+                                }
+                            })
+                    });
+                    ship_mut.repairers.iter_mut().for_each(|repairer| {
+                        repairer
+                            .inputs
+                            .iter_mut()
+                            .filter(|usp| usp.resource_type.id == resource.id)
+                            .for_each(|usp| {
+                                let proper_quantity =
+                                    (usp.target as f32 * supply_demand_ratio) as u64;
+                                let transfer_quantity =
+                                    usp.contents.saturating_sub(proper_quantity);
+                                if transfer_quantity > 0 {
+                                    Stockpileness::transfer(
+                                        usp,
+                                        &mut transfer_stockpile,
+                                        resource.clone(),
+                                        transfer_quantity,
+                                    );
+                                }
+                            })
+                    });
+                    ship_mut.strategic_weapons.iter_mut().for_each(|weapon| {
+                        weapon
+                            .inputs
+                            .iter_mut()
+                            .filter(|usp| usp.resource_type.id == resource.id)
+                            .for_each(|usp| {
+                                let proper_quantity =
+                                    (usp.target as f32 * supply_demand_ratio) as u64;
+                                let transfer_quantity =
+                                    usp.contents.saturating_sub(proper_quantity);
+                                if transfer_quantity > 0 {
+                                    Stockpileness::transfer(
+                                        usp,
+                                        &mut transfer_stockpile,
+                                        resource.clone(),
+                                        transfer_quantity,
+                                    );
+                                }
+                            })
+                    });
+                    ship_mut.factories.iter_mut().for_each(|factory| {
+                        factory
+                            .inputs
+                            .iter_mut()
+                            .filter(|usp| usp.resource_type.id == resource.id)
+                            .for_each(|usp| {
+                                let proper_quantity =
+                                    (usp.target as f32 * supply_demand_ratio) as u64;
+                                let transfer_quantity =
+                                    usp.contents.saturating_sub(proper_quantity);
+                                if transfer_quantity > 0 {
+                                    Stockpileness::transfer(
+                                        usp,
+                                        &mut transfer_stockpile,
+                                        resource.clone(),
+                                        transfer_quantity,
+                                    );
+                                }
+                            })
+                    });
+                    ship_mut.factories.iter_mut().for_each(|factory| {
+                        factory
+                            .outputs
+                            .iter_mut()
+                            .filter(|usp| usp.resource_type.id == resource.id)
+                            .for_each(|usp| {
+                                let proper_quantity =
+                                    (usp.target as f32 * supply_demand_ratio) as u64;
+                                let transfer_quantity =
+                                    usp.contents.saturating_sub(proper_quantity);
+                                if transfer_quantity > 0 {
+                                    Stockpileness::transfer(
+                                        usp,
+                                        &mut transfer_stockpile,
+                                        resource.clone(),
+                                        transfer_quantity,
+                                    );
+                                }
+                            })
+                    });
+                    ship_mut.shipyards.iter_mut().for_each(|shipyard| {
+                        shipyard
+                            .inputs
+                            .iter_mut()
+                            .filter(|usp| usp.resource_type.id == resource.id)
+                            .for_each(|usp| {
+                                let proper_quantity =
+                                    (usp.target as f32 * supply_demand_ratio) as u64;
+                                let transfer_quantity =
+                                    usp.contents.saturating_sub(proper_quantity);
+                                if transfer_quantity > 0 {
+                                    Stockpileness::transfer(
+                                        usp,
+                                        &mut transfer_stockpile,
+                                        resource.clone(),
+                                        transfer_quantity,
+                                    );
+                                }
+                            })
+                    });
+                });
+
+                if node_is_owned {
+                    self_mut.factories.iter_mut().for_each(|factory| {
+                        factory
+                            .inputs
+                            .iter_mut()
+                            .filter(|usp| usp.resource_type.id == resource.id)
+                            .for_each(|usp| {
+                                let proper_quantity =
+                                    (usp.target as f32 * supply_demand_ratio) as u64;
+                                let transfer_quantity =
+                                    usp.contents.saturating_sub(proper_quantity);
+                                if transfer_quantity > 0 {
+                                    Stockpileness::transfer(
+                                        usp,
+                                        &mut transfer_stockpile,
+                                        resource.clone(),
+                                        transfer_quantity,
+                                    );
+                                }
+                            });
+                    });
+                    self_mut.factories.iter_mut().for_each(|factory| {
+                        factory
+                            .outputs
+                            .iter_mut()
+                            .filter(|usp| usp.resource_type.id == resource.id)
+                            .for_each(|usp| {
+                                let proper_quantity =
+                                    (usp.target as f32 * supply_demand_ratio) as u64;
+                                let transfer_quantity =
+                                    usp.contents.saturating_sub(proper_quantity);
+                                if transfer_quantity > 0 {
+                                    Stockpileness::transfer(
+                                        usp,
+                                        &mut transfer_stockpile,
+                                        resource.clone(),
+                                        transfer_quantity,
+                                    );
+                                }
+                            });
+                    });
+                    self_mut.shipyards.iter_mut().for_each(|shipyard| {
+                        shipyard
+                            .inputs
+                            .iter_mut()
+                            .filter(|usp| usp.resource_type.id == resource.id)
+                            .for_each(|usp| {
+                                let proper_quantity =
+                                    (usp.target as f32 * supply_demand_ratio) as u64;
+                                let transfer_quantity =
+                                    usp.contents.saturating_sub(proper_quantity);
+                                if transfer_quantity > 0 {
+                                    Stockpileness::transfer(
+                                        usp,
+                                        &mut transfer_stockpile,
+                                        resource.clone(),
+                                        transfer_quantity,
+                                    );
+                                }
+                            });
+                    });
+                }
+
+                all_relevant_ships_mut_lock.iter_mut().enumerate().for_each(
+                    |(ship_i, ship_mut)| {
+                        ship_mut
+                            .stockpiles
+                            .iter_mut()
+                            .enumerate()
+                            .for_each(|(sp_i, ppsp)| {
+                                let (sp_supply, sp_demand) =
+                                    pluripotent_stockpiles_supply_demand[ship_i][sp_i];
+                                let proper_quantity =
+                                    (sp_demand as f32 * supply_demand_ratio) as u64;
+                                let transfer_quantity = sp_supply.saturating_sub(proper_quantity);
+                                if transfer_quantity > 0 {
+                                    Stockpileness::transfer(
+                                        ppsp,
+                                        &mut transfer_stockpile,
+                                        resource.clone(),
+                                        transfer_quantity,
+                                    );
+                                }
+                            })
+                    },
+                );
+
+                //transfer_stockpile now contains all the resources that we're transferring
+                //so we begin transferring them back out, into the stockpiles that need them
+
+                all_relevant_ships_mut_lock.iter_mut().for_each(|ship_mut| {
+                    ship_mut.engines.iter_mut().for_each(|engine| {
+                        engine
+                            .inputs
+                            .iter_mut()
+                            .filter(|usp| usp.resource_type.id == resource.id)
+                            .for_each(|usp| {
+                                let proper_quantity =
+                                    (usp.target as f32 * supply_demand_ratio) as u64;
+                                let transfer_quantity =
+                                    proper_quantity.saturating_sub(usp.contents);
+                                if transfer_quantity > 0 {
+                                    Stockpileness::transfer(
+                                        &mut transfer_stockpile,
+                                        usp,
+                                        resource.clone(),
+                                        transfer_quantity,
+                                    );
+                                }
+                            })
+                    });
+                    ship_mut.repairers.iter_mut().for_each(|repairer| {
+                        repairer
+                            .inputs
+                            .iter_mut()
+                            .filter(|usp| usp.resource_type.id == resource.id)
+                            .for_each(|usp| {
+                                let proper_quantity =
+                                    (usp.target as f32 * supply_demand_ratio) as u64;
+                                let transfer_quantity =
+                                    proper_quantity.saturating_sub(usp.contents);
+                                if transfer_quantity > 0 {
+                                    Stockpileness::transfer(
+                                        &mut transfer_stockpile,
+                                        usp,
+                                        resource.clone(),
+                                        transfer_quantity,
+                                    );
+                                }
+                            })
+                    });
+                    ship_mut.strategic_weapons.iter_mut().for_each(|weapon| {
+                        weapon
+                            .inputs
+                            .iter_mut()
+                            .filter(|usp| usp.resource_type.id == resource.id)
+                            .for_each(|usp| {
+                                let proper_quantity =
+                                    (usp.target as f32 * supply_demand_ratio) as u64;
+                                let transfer_quantity =
+                                    proper_quantity.saturating_sub(usp.contents);
+                                if transfer_quantity > 0 {
+                                    Stockpileness::transfer(
+                                        &mut transfer_stockpile,
+                                        usp,
+                                        resource.clone(),
+                                        transfer_quantity,
+                                    );
+                                }
+                            })
+                    });
+                    ship_mut.factories.iter_mut().for_each(|factory| {
+                        factory
+                            .inputs
+                            .iter_mut()
+                            .filter(|usp| usp.resource_type.id == resource.id)
+                            .for_each(|usp| {
+                                let proper_quantity =
+                                    (usp.target as f32 * supply_demand_ratio) as u64;
+                                let transfer_quantity =
+                                    proper_quantity.saturating_sub(usp.contents);
+                                if transfer_quantity > 0 {
+                                    Stockpileness::transfer(
+                                        &mut transfer_stockpile,
+                                        usp,
+                                        resource.clone(),
+                                        transfer_quantity,
+                                    );
+                                }
+                            })
+                    });
+                    ship_mut.factories.iter_mut().for_each(|factory| {
+                        factory
+                            .outputs
+                            .iter_mut()
+                            .filter(|usp| usp.resource_type.id == resource.id)
+                            .for_each(|usp| {
+                                let proper_quantity =
+                                    (usp.target as f32 * supply_demand_ratio) as u64;
+                                let transfer_quantity =
+                                    proper_quantity.saturating_sub(usp.contents);
+                                if transfer_quantity > 0 {
+                                    Stockpileness::transfer(
+                                        &mut transfer_stockpile,
+                                        usp,
+                                        resource.clone(),
+                                        transfer_quantity,
+                                    );
+                                }
+                            })
+                    });
+                    ship_mut.shipyards.iter_mut().for_each(|shipyard| {
+                        shipyard
+                            .inputs
+                            .iter_mut()
+                            .filter(|usp| usp.resource_type.id == resource.id)
+                            .for_each(|usp| {
+                                let proper_quantity =
+                                    (usp.target as f32 * supply_demand_ratio) as u64;
+                                let transfer_quantity =
+                                    proper_quantity.saturating_sub(usp.contents);
+                                if transfer_quantity > 0 {
+                                    Stockpileness::transfer(
+                                        &mut transfer_stockpile,
+                                        usp,
+                                        resource.clone(),
+                                        transfer_quantity,
+                                    );
+                                }
+                            })
+                    });
+                });
+
+                if node_is_owned {
+                    self_mut.factories.iter_mut().for_each(|factory| {
+                        factory
+                            .inputs
+                            .iter_mut()
+                            .filter(|usp| usp.resource_type.id == resource.id)
+                            .for_each(|usp| {
+                                let proper_quantity =
+                                    (usp.target as f32 * supply_demand_ratio) as u64;
+                                let transfer_quantity =
+                                    proper_quantity.saturating_sub(usp.contents);
+                                if transfer_quantity > 0 {
+                                    Stockpileness::transfer(
+                                        &mut transfer_stockpile,
+                                        usp,
+                                        resource.clone(),
+                                        transfer_quantity,
+                                    );
+                                }
+                            });
+                    });
+                    self_mut.factories.iter_mut().for_each(|factory| {
+                        factory
+                            .outputs
+                            .iter_mut()
+                            .filter(|usp| usp.resource_type.id == resource.id)
+                            .for_each(|usp| {
+                                let proper_quantity =
+                                    (usp.target as f32 * supply_demand_ratio) as u64;
+                                let transfer_quantity =
+                                    proper_quantity.saturating_sub(usp.contents);
+                                if transfer_quantity > 0 {
+                                    Stockpileness::transfer(
+                                        &mut transfer_stockpile,
+                                        usp,
+                                        resource.clone(),
+                                        transfer_quantity,
+                                    );
+                                }
+                            });
+                    });
+                    self_mut.shipyards.iter_mut().for_each(|shipyard| {
+                        shipyard
+                            .inputs
+                            .iter_mut()
+                            .filter(|usp| usp.resource_type.id == resource.id)
+                            .for_each(|usp| {
+                                let proper_quantity =
+                                    (usp.target as f32 * supply_demand_ratio) as u64;
+                                let transfer_quantity =
+                                    proper_quantity.saturating_sub(usp.contents);
+                                if transfer_quantity > 0 {
+                                    Stockpileness::transfer(
+                                        &mut transfer_stockpile,
+                                        usp,
+                                        resource.clone(),
+                                        transfer_quantity,
+                                    );
+                                }
+                            });
+                    });
+                }
+
+                all_relevant_ships_mut_lock.iter_mut().enumerate().for_each(
+                    |(ship_i, ship_mut)| {
+                        ship_mut
+                            .stockpiles
+                            .iter_mut()
+                            .enumerate()
+                            .for_each(|(sp_i, ppsp)| {
+                                let (sp_supply, sp_demand) =
+                                    pluripotent_stockpiles_supply_demand[ship_i][sp_i];
+                                let proper_quantity =
+                                    (sp_demand as f32 * supply_demand_ratio) as u64;
+                                let transfer_quantity = proper_quantity.saturating_sub(sp_supply);
+                                if transfer_quantity > 0 {
+                                    Stockpileness::transfer(
+                                        &mut transfer_stockpile,
+                                        ppsp,
+                                        resource.clone(),
+                                        transfer_quantity,
+                                    );
+                                }
+                            })
+                    },
+                );
+                dbg!((&resource.visible_name, transfer_stockpile.contents));
+            });
+        });
+
+        self_mut.resources_transacted = true;
+
+        //acquire write lock on all ships in node
+
+        //collect all unipotent and pluripotent stockpiles in node into two lists
+
+        //for each resource:
+
+        //gather all real supply in node
+
+        //gather all demand in node, calculating unipotent stockpile demand normally
+        //and calculating pluripotent stockpile demand as demand from outside node * ship's speed/average speed * stockpile's capacity as fraction of all pluripotent stockpiles' capacity, clamped by stockpile's target
+
+        //calculate supply to demand ratio: supply/demand
+        //this will let us determine what fraction of the supply should be given to an entity that has a given amount of demand
+
+        //iterate over all unipotent stockpiles
+        //for each, get the stockpile's supply and demand; then
+        //while lhs contents < lhs supply:
+        //iterate over unipotent stockpiles (except lhs); for each, determine transfer amount, which is:
+        //lhs demand saturating-sub (rhs supply * supply/remand ratio), clamped by rhs contents saturating-sub (rhs supply * supply/demand ratio)
+        //transfer transfer amount from rhs to lhs
+        //iterate over pluripotent stockpiles (as rhs) and do same
+        //once both iterations are done, break
+        //iterate over pluripotent stockpiles (as lhs) and do same
+    }
+    fn transact_units(&self, root: &Root) {
+        let mut self_mut = self.mutables.write().unwrap();
+        let mut self_container = self.unit_container.write().unwrap();
+        root.factions.iter().for_each(|faction| {
+            let all_units = self_container
+                .contents
+                .iter()
+                .filter(|unit| unit.get_allegiance().id == faction.id)
+                .flat_map(|unit| unit.get_daughters_recursive())
+                .collect::<Vec<_>>();
+
+            let all_squadrons: Vec<Arc<Squadron>> = all_units
+                .iter()
+                .filter_map(|unit| unit.get_squadron())
+                .collect();
+
+            let all_squadrons_indexed: HashMap<u64, Arc<Squadron>> = all_squadrons
+                .iter()
+                .map(|squadron| (squadron.id, squadron.clone()))
+                .collect();
+
+            let mut all_squadrons_mut_lock: HashMap<u64, RwLockWriteGuard<SquadronMut>> =
+                all_squadrons_indexed
+                    .iter()
+                    .map(|(index, squadron)| (*index, squadron.mutables.write().unwrap()))
+                    .collect();
+
+            let mut all_squadrons_containers_lock: HashMap<u64, RwLockWriteGuard<UnitContainer>> =
+                all_squadrons
+                    .iter()
+                    .map(|squadron| (squadron.id, squadron.unit_container.write().unwrap()))
+                    .collect();
+
+            let all_ships: Vec<Arc<Ship>> = all_units
+                .iter()
+                .filter_map(|unit| unit.get_ship())
+                .collect();
+
+            let mut all_ships_mut_lock: HashMap<u64, RwLockWriteGuard<ShipMut>> = all_ships
+                .iter()
+                .map(|ship| (ship.id, ship.mutables.write().unwrap()))
+                .collect();
+
+            let all_hangars_indexed_with_speed: HashMap<u64, (Arc<Hangar>, f32)> =
+                all_ships_mut_lock
+                    .iter()
+                    .map(|(_, ship_mut)| {
+                        let speed_factor = ship_mut.get_speed_factor(
+                            root.config.entity_scalars.avg_speed,
+                            root.turn.load(atomic::Ordering::Relaxed),
+                        );
+                        ship_mut
+                            .hangars
+                            .iter()
+                            .map(|hangar| (hangar.id, (hangar.clone(), speed_factor)))
+                            .collect::<Vec<_>>()
+                    })
+                    .flatten()
+                    .collect();
+
+            let mut all_hangars_containers_lock: HashMap<u64, RwLockWriteGuard<UnitContainer>> =
+                all_hangars_indexed_with_speed
+                    .iter()
+                    .map(|(_, (hangar, _))| (hangar.id, hangar.unit_container.write().unwrap()))
+                    .collect();
+
+            let unitclasses = root
+                .shipclasses
+                .iter()
+                .map(|shipclass| ShipClass::get_unitclass(shipclass.clone()))
+                .chain(
+                    root.squadronclasses
+                        .iter()
+                        .map(|squadronclass| SquadronClass::get_unitclass(squadronclass.clone())),
+                )
+                .collect::<Vec<_>>();
+
+            unitclasses.iter().for_each(|unitclass| {
+                let node_supply: u64 = self_container
+                    .contents
+                    .iter()
+                    .filter(|unit| unit.get_unitclass() == unitclass.clone())
+                    .map(|unit| unit.get_real_volume_locked(&all_squadrons_containers_lock))
+                    .sum();
+
+                let squadrons_supply: HashMap<u64, u64> = all_squadrons_indexed
+                    .iter()
+                    .map(|(i, squadron)| {
+                        (
+                            *i,
+                            squadron.get_unitclass_supply_local(
+                                all_squadrons_containers_lock.get(&i).unwrap(),
+                                unitclass.clone(),
+                                &all_squadrons_containers_lock,
+                            ),
+                        )
+                    })
+                    .collect();
+
+                let squadrons_demand: HashMap<u64, u64> = all_squadrons_indexed
+                    .iter()
+                    .map(|(i, squadron)| {
+                        (
+                            *i,
+                            squadron.get_unitclass_demand_local(
+                                all_squadrons_containers_lock.get(&i).unwrap(),
+                                unitclass.clone(),
+                                &all_squadrons_containers_lock,
+                            ),
+                        )
+                    })
+                    .collect();
+
+                let hangars_supply: HashMap<u64, u64> = all_hangars_indexed_with_speed
+                    .iter()
+                    .map(|(i, (hangar, _))| {
+                        (
+                            *i,
+                            hangar.get_unitclass_supply_local(
+                                all_hangars_containers_lock.get(&i).unwrap(),
+                                unitclass.clone(),
+                                &all_squadrons_containers_lock,
+                            ),
+                        )
+                    })
+                    .collect();
+
+                let non_transport_hangars_demand: HashMap<u64, u64> =
+                    all_hangars_indexed_with_speed
+                        .iter()
+                        .filter(|(_, (hangar, _))| !hangar.class.transport)
+                        .map(|(i, (hangar, _))| {
+                            (
+                                *i,
+                                hangar.get_unitclass_demand_local(
+                                    all_hangars_containers_lock.get(&i).unwrap(),
+                                    unitclass.clone(),
+                                    &all_squadrons_containers_lock,
+                                ),
+                            )
+                        })
+                        .collect();
+
+                let total_transport_naive_demand = all_hangars_indexed_with_speed
+                    .iter()
+                    .filter(|(_, (hangar, _))| hangar.class.transport)
+                    .map(|(i, (hangar, _))| {
+                        hangar.get_unitclass_demand_local(
+                            all_hangars_containers_lock.get(&i).unwrap(),
+                            unitclass.clone(),
+                            &all_squadrons_containers_lock,
+                        )
+                    })
+                    .sum::<u64>();
+
+                let external_demand: f32 = (root.global_salience.resource_salience.read().unwrap()
+                    [faction.id][unitclass.get_id()][self.id][0]
+                    - (squadrons_demand.values().sum::<u64>()
+                        + non_transport_hangars_demand.values().sum::<u64>()
+                        + total_transport_naive_demand) as f32)
+                    .clamp(0.0, f32::MAX);
+
+                let transport_hangars_demand: HashMap<u64, u64> = all_hangars_indexed_with_speed
+                    .iter()
+                    .filter(|(_, (hangar, _))| hangar.class.transport)
+                    .map(|(i, (hangar, speed_factor))| {
+                        (
+                            *i,
+                            hangar.get_transport_balance_unitclass_demand(
+                                all_hangars_containers_lock.get(&i).unwrap(),
+                                unitclass.clone(),
+                                external_demand,
+                                *speed_factor,
+                                total_transport_naive_demand as f32,
+                            ),
+                        )
+                    })
+                    .collect();
+
+                let supply_total = node_supply
+                    + squadrons_supply
+                        .iter()
+                        .map(|(_, supply)| *supply)
+                        .sum::<u64>()
+                    + hangars_supply
+                        .iter()
+                        .map(|(_, supply)| *supply)
+                        .sum::<u64>();
+
+                let demand_total = squadrons_demand
+                    .iter()
+                    .map(|(_, demand)| *demand)
+                    .sum::<u64>()
+                    + non_transport_hangars_demand
+                        .iter()
+                        .map(|(_, demand)| *demand)
+                        .sum::<u64>()
+                    + transport_hangars_demand
+                        .iter()
+                        .map(|(_, demand)| *demand)
+                        .sum::<u64>();
+
+                let supply_demand_ratio = supply_total as f32 / demand_total as f32;
+
+                all_squadrons_indexed.iter().for_each(|(index, squadron)| {
+                    let container = all_squadrons_containers_lock.get(index).unwrap();
+                    let initial_quantity: u64 = container
+                        .contents
+                        .iter()
+                        .map(|unit| unit.get_real_volume_locked(&all_squadrons_containers_lock))
+                        .sum();
+                    let proper_quantity: u64 =
+                        (*squadrons_demand.get(index).unwrap() as f32 * supply_demand_ratio) as u64;
+                    let mut quantity_transferred: u64 = 0;
+                    let unit_volumes: HashMap<u64, u64> = container
+                        .contents
+                        .iter()
+                        .map(|unit| {
+                            (
+                                unit.get_id(),
+                                unit.get_real_volume_locked(&all_squadrons_containers_lock),
+                            )
+                        })
+                        .collect();
+                    let mut container_mut = all_squadrons_containers_lock.get_mut(index).unwrap();
+                    let container_contents = container_mut.contents.clone();
+                    for contained_unit in container_contents {
+                        let unit_volume = unit_volumes.get(&contained_unit.get_id()).unwrap();
+                        if initial_quantity
+                            .saturating_sub(quantity_transferred)
+                            .saturating_sub(unit_volume / 2)
+                            < proper_quantity
+                        {
+                            break;
+                        };
+                        let mut unit_location = match contained_unit {
+                            Unit::Ship(ref ship) => all_ships_mut_lock
+                                .get_mut(&ship.id)
+                                .unwrap()
+                                .location
+                                .clone(),
+                            Unit::Squadron(ref squadron) => all_squadrons_mut_lock
+                                .get_mut(&squadron.id)
+                                .unwrap()
+                                .location
+                                .clone(),
+                        };
+                        contained_unit.transfer_by_containers(
+                            &mut unit_location,
+                            &mut container_mut,
+                            UnitLocation::Node(self.clone()),
+                            &mut self_container,
+                        );
+                        quantity_transferred += unit_volume;
+                    }
+                })
+            });
+        });
+
+        self_mut.units_transacted = true;
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct System {
     pub id: usize,
-    pub visiblename: String,
+    pub visible_name: String,
     pub description: String,
     pub visibility: bool,
     pub nodes: Vec<Arc<Node>>,
@@ -382,7 +1380,7 @@ impl Hash for System {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EdgeFlavor {
     pub id: usize,
-    pub visiblename: String,
+    pub visible_name: String,
     pub description: String,
     pub propagates: bool,
 }
@@ -456,14 +1454,14 @@ impl FactionID {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Faction {
     pub id: usize,
-    pub visiblename: String, //faction name as shown to player
+    pub visible_name: String, //faction name as shown to player
     pub description: String,
     pub visibility: bool,
     pub propagates: bool,
-    pub efficiencydefault: f32, //starting value for production facility efficiency
-    pub efficiencytarget: f32, //end value for efficiency, toward which efficiency changes over time in a node held by this faction
-    pub efficiencydelta: f32,  //rate at which efficiency changes
-    pub battlescalar: f32,
+    pub efficiency_default: f32, //starting value for production facility efficiency
+    pub efficiency_target: f32, //end value for efficiency, toward which efficiency changes over time in a node held by this faction
+    pub efficiency_delta: f32,  //rate at which efficiency changes
+    pub battle_scalar: f32,
     pub value_mult: f32, //how valuable the AI considers one point of this faction's threat to be
     pub volume_strength_ratio: f32, //faction's multiplier for resource/unitclass supply points when comparing to threat values for faction demand calcs
     pub relations: HashMap<FactionID, f32>,
@@ -498,7 +1496,7 @@ impl Hash for Faction {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Resource {
     pub id: usize,
-    pub visiblename: String,
+    pub visible_name: String,
     pub description: String,
     pub visibility: bool,
     pub propagates: bool,
@@ -540,6 +1538,13 @@ pub trait Stockpileness {
     fn get_allowed(&self) -> Option<Vec<Arc<Resource>>>;
     fn get_resource_supply(&self, resourceid: Arc<Resource>) -> u64;
     fn get_resource_demand(&self, resourceid: Arc<Resource>) -> u64;
+    fn get_pluripotent_balance_resource_demand(
+        &self,
+        resource: Arc<Resource>,
+        external_demand: f32,
+        speed_factor: f32,
+        total_target: f32,
+    ) -> u64;
     fn insert(&mut self, cargo: Arc<Resource>, quantity: u64) -> u64;
     fn remove(&mut self, cargo: Arc<Resource>, quantity: u64) -> u64;
     fn transfer<S: Stockpileness>(&mut self, rhs: &mut S, cargo: Arc<Resource>, quantity: u64) {
@@ -583,6 +1588,25 @@ impl<A: Stockpileness, B: Stockpileness> Stockpileness for (A, B) {
     fn get_resource_demand(&self, resource: Arc<Resource>) -> u64 {
         self.0.get_resource_demand(resource.clone()) + self.1.get_resource_demand(resource.clone())
     }
+    fn get_pluripotent_balance_resource_demand(
+        &self,
+        resource: Arc<Resource>,
+        external_demand: f32,
+        speed_factor: f32,
+        total_target: f32,
+    ) -> u64 {
+        self.0.get_pluripotent_balance_resource_demand(
+            resource.clone(),
+            external_demand,
+            speed_factor,
+            total_target,
+        ) + self.1.get_pluripotent_balance_resource_demand(
+            resource.clone(),
+            external_demand,
+            speed_factor,
+            total_target,
+        )
+    }
     fn insert(&mut self, _cargo: Arc<Resource>, quantity: u64) -> u64 {
         quantity
     }
@@ -597,7 +1621,7 @@ impl<A: Stockpileness, B: Stockpileness> Stockpileness for (A, B) {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnipotentStockpile {
     pub visibility: bool,
-    pub resourcetype: Arc<Resource>,
+    pub resource_type: Arc<Resource>,
     pub contents: u64,
     pub rate: u64,
     pub target: u64,
@@ -639,10 +1663,10 @@ impl UnipotentStockpile {
 
 impl Stockpileness for UnipotentStockpile {
     fn collate_contents(&self) -> HashMap<Arc<Resource>, u64> {
-        iter::once((self.resourcetype.clone(), self.contents)).collect()
+        iter::once((self.resource_type.clone(), self.contents)).collect()
     }
     fn get_resource_num(&self, cargo: Arc<Resource>) -> u64 {
-        if cargo == self.resourcetype {
+        if cargo == self.resource_type {
             self.contents
         } else {
             0
@@ -655,24 +1679,33 @@ impl Stockpileness for UnipotentStockpile {
         self.contents
     }
     fn get_allowed(&self) -> Option<Vec<Arc<Resource>>> {
-        Some(vec![self.resourcetype.clone()])
+        Some(vec![self.resource_type.clone()])
     }
     fn get_resource_supply(&self, resource: Arc<Resource>) -> u64 {
-        if resource == self.resourcetype {
+        if resource == self.resource_type {
             (self.contents).saturating_sub(self.target)
         } else {
             0
         }
     }
     fn get_resource_demand(&self, resource: Arc<Resource>) -> u64 {
-        if resource == self.resourcetype {
+        if resource == self.resource_type {
             self.target.saturating_sub(self.contents)
         } else {
             0
         }
     }
+    fn get_pluripotent_balance_resource_demand(
+        &self,
+        _resource: Arc<Resource>,
+        _external_demand: f32,
+        _speed_factor: f32,
+        _total_target: f32,
+    ) -> u64 {
+        0
+    }
     fn insert(&mut self, cargo: Arc<Resource>, quantity: u64) -> u64 {
-        if cargo == self.resourcetype {
+        if cargo == self.resource_type {
             let old_contents = self.contents;
             let remainder = quantity.saturating_sub(self.capacity - old_contents);
             self.contents += quantity - remainder;
@@ -684,7 +1717,7 @@ impl Stockpileness for UnipotentStockpile {
         }
     }
     fn remove(&mut self, cargo: Arc<Resource>, quantity: u64) -> u64 {
-        if cargo == self.resourcetype {
+        if cargo == self.resource_type {
             let _old_contents = self.contents;
             let remainder = quantity.saturating_sub(self.contents);
             self.contents -= quantity - remainder;
@@ -729,13 +1762,38 @@ impl Stockpileness for PluripotentStockpile {
         self.get_resource_num(resource.clone())
     }
     fn get_resource_demand(&self, resource: Arc<Resource>) -> u64 {
-        let resource_vec = vec![resource.clone()];
         if self
-            .get_allowed()
-            .unwrap_or(resource_vec.clone())
-            .contains(&resource.clone())
+            .allowed
+            .as_ref()
+            .map(|allowed| allowed.contains(&resource))
+            .unwrap_or(true)
         {
             self.target.saturating_sub(self.get_fullness())
+        } else {
+            0
+        }
+    }
+    fn get_pluripotent_balance_resource_demand(
+        &self,
+        resource: Arc<Resource>,
+        external_demand: f32,
+        speed_factor: f32,
+        total_naive_demand: f32,
+    ) -> u64 {
+        if self
+            .allowed
+            .as_ref()
+            .map(|allowed| allowed.contains(&resource))
+            .unwrap_or(true)
+        {
+            let space_left_without_resource = self.target.saturating_sub(
+                self.get_fullness()
+                    .saturating_sub(self.get_resource_num(resource.clone())),
+            );
+            ((external_demand
+                * speed_factor
+                * (space_left_without_resource as f32 / total_naive_demand)) as u64)
+                .clamp(0, space_left_without_resource) as u64
         } else {
             0
         }
@@ -778,7 +1836,7 @@ impl Stockpileness for PluripotentStockpile {
 //previously this was an atomic I64 and we don't remember why, but an atomic U64 seems better and hopefully it doesn't subtly break something
 #[derive(Debug, Clone)]
 pub struct SharedStockpile {
-    pub resourcetype: Arc<Resource>,
+    pub resource_type: Arc<Resource>,
     pub contents: Arc<AtomicU64>,
     pub rate: u64,
     pub capacity: u64,
@@ -787,13 +1845,13 @@ pub struct SharedStockpile {
 impl Stockpileness for SharedStockpile {
     fn collate_contents(&self) -> HashMap<Arc<Resource>, u64> {
         iter::once((
-            self.resourcetype.clone(),
+            self.resource_type.clone(),
             self.contents.load(atomic::Ordering::SeqCst),
         ))
         .collect()
     }
     fn get_resource_num(&self, cargo: Arc<Resource>) -> u64 {
-        if cargo == self.resourcetype {
+        if cargo == self.resource_type {
             self.contents.load(atomic::Ordering::SeqCst)
         } else {
             0
@@ -806,10 +1864,10 @@ impl Stockpileness for SharedStockpile {
         self.contents.load(atomic::Ordering::SeqCst)
     }
     fn get_allowed(&self) -> Option<Vec<Arc<Resource>>> {
-        Some(vec![self.resourcetype.clone()])
+        Some(vec![self.resource_type.clone()])
     }
     fn get_resource_supply(&self, resource: Arc<Resource>) -> u64 {
-        if resource == self.resourcetype {
+        if resource == self.resource_type {
             self.contents.load(atomic::Ordering::SeqCst)
         } else {
             0
@@ -818,8 +1876,17 @@ impl Stockpileness for SharedStockpile {
     fn get_resource_demand(&self, _resourceid: Arc<Resource>) -> u64 {
         0
     }
+    fn get_pluripotent_balance_resource_demand(
+        &self,
+        _resource: Arc<Resource>,
+        _external_demand: f32,
+        _speed_factor: f32,
+        _total_target: f32,
+    ) -> u64 {
+        0
+    }
     fn insert(&mut self, cargo: Arc<Resource>, quantity: u64) -> u64 {
-        if cargo == self.resourcetype {
+        if cargo == self.resource_type {
             let old_contents = self.contents.load(atomic::Ordering::SeqCst);
             let remainder = quantity.saturating_sub(self.capacity - old_contents);
             self.contents
@@ -835,7 +1902,7 @@ impl Stockpileness for SharedStockpile {
         }
     }
     fn remove(&mut self, cargo: Arc<Resource>, quantity: u64) -> u64 {
-        if cargo == self.resourcetype {
+        if cargo == self.resource_type {
             let old_contents = self.contents.load(atomic::Ordering::SeqCst);
             let remainder = quantity.saturating_sub(old_contents);
             self.contents
@@ -850,17 +1917,19 @@ impl Stockpileness for SharedStockpile {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HangarClass {
     pub id: usize,
-    pub visiblename: String,
+    pub visible_name: String,
     pub description: String,
     pub visibility: bool,
     pub capacity: u64,                    //total volume the hangar can hold
     pub target: u64, //volume the hangar wants to hold; this is usually equal to capacity
     pub allowed: Vec<UnitClassID>, //which shipclasses this hangar can hold
     pub ideal: HashMap<UnitClassID, u64>, //how many of each ship type the hangar wants
-    pub non_ideal_supply_scalar: f32, //multiplier used for demand generated by non-ideal ships under the target limit; should be below one
-    pub launch_volume: u64,           //how much volume the hangar can launch at one time in battle
-    pub launch_interval: u64,         //time between launches in battle
-    pub propagates: bool,             //whether or not hangar generates saliences
+    pub sub_target_supply_scalar: f32, //multiplier used for supply generated by non-ideal units under the target limit; should be below one
+    pub non_ideal_demand_scalar: f32, //multiplier used for demand generated for non-ideal unitclasses; should be below one
+    pub transport: bool, //whether hangar exists primarily to transport ships to a destination, rather than launch ships into combat or utility roles
+    pub launch_volume: u64, //how much volume the hangar can launch at one time in battle
+    pub launch_interval: u64, //time between launches in battle
+    pub propagates: bool, //whether or not hangar generates saliences
 }
 
 impl PartialEq for HangarClass {
@@ -908,41 +1977,41 @@ impl HangarClass {
     }
     pub fn instantiate(
         class: Arc<Self>,
-        mother: Arc<ShipInstance>,
+        mother: Arc<Ship>,
         _shipclasses: &Vec<Arc<ShipClass>>,
         counter: &Arc<AtomicU64>,
-    ) -> HangarInstance {
+    ) -> Hangar {
         let index = counter.fetch_add(1, atomic::Ordering::Relaxed);
-        HangarInstance {
+        Hangar {
             id: index,
             class: class.clone(),
             mother: mother.clone(),
-            mutables: RwLock::new(HangarInstanceMut {
+            mutables: RwLock::new(HangarMut {
                 visibility: class.visibility,
-                contents: Vec::new(),
             }),
+            unit_container: RwLock::new(UnitContainer::new()),
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct HangarInstanceMut {
+pub struct HangarMut {
     pub visibility: bool,
-    pub contents: Vec<Unit>,
 }
 
 #[derive(Debug)]
-pub struct HangarInstance {
+pub struct Hangar {
     pub id: u64,
     pub class: Arc<HangarClass>,
-    pub mother: Arc<ShipInstance>,
-    pub mutables: RwLock<HangarInstanceMut>,
+    pub mother: Arc<Ship>,
+    pub mutables: RwLock<HangarMut>,
+    pub unit_container: RwLock<UnitContainer>,
 }
 
-impl HangarInstance {
+impl Hangar {
     pub fn get_strength(&self, time: u64) -> u64 {
         let contents_strength = self
-            .mutables
+            .unit_container
             .read()
             .unwrap()
             .contents
@@ -950,12 +2019,12 @@ impl HangarInstance {
             .map(|ship| ship.get_strength(time))
             .sum::<u64>() as f32;
         let contents_vol = self
-            .mutables
+            .unit_container
             .read()
             .unwrap()
             .contents
             .iter()
-            .map(|unit| unit.get_volume())
+            .map(|unit| unit.get_real_volume())
             .sum::<u64>() as f32;
         //we calculate how much of its complement the hangar can launch during a battle a certain number of seconds long
         let launch_mod = ((contents_vol / self.class.launch_volume as f32)
@@ -964,16 +2033,16 @@ impl HangarInstance {
         (contents_strength * launch_mod) as u64
     }
     pub fn get_fullness(&self) -> u64 {
-        self.mutables
+        self.unit_container
             .read()
             .unwrap()
             .contents
             .iter()
-            .map(|unit| unit.get_volume())
+            .map(|unit| unit.get_real_volume())
             .sum()
     }
-    pub fn get_unitclass_num(&self, unitclass: UnitClass) -> u64 {
-        self.mutables
+    pub fn get_unitclass_num_recursive(&self, unitclass: UnitClass) -> u64 {
+        self.unit_container
             .read()
             .unwrap()
             .contents
@@ -981,14 +2050,14 @@ impl HangarInstance {
             .map(|daughter| daughter.get_unitclass_num(unitclass.clone()))
             .sum::<u64>()
     }
-    pub fn get_unitclass_supply(&self, unitclass: UnitClass) -> u64 {
+    pub fn get_unitclass_supply_recursive(&self, unitclass: UnitClass) -> u64 {
         let daughter_supply = self
-            .mutables
+            .unit_container
             .read()
             .unwrap()
             .contents
             .iter()
-            .map(|daughter| daughter.get_unitclass_supply(unitclass.clone()))
+            .map(|daughter| daughter.get_unitclass_supply_recursive(unitclass.clone()))
             .sum::<u64>();
         let ideal_volume = self
             .class
@@ -1000,18 +2069,29 @@ impl HangarInstance {
         let excess_volume = self.get_fullness().saturating_sub(self.class.target);
         let over_target_supply = (excess_volume).min(non_ideal_volume);
         let under_target_supply = ((non_ideal_volume.saturating_sub(over_target_supply)) as f32
-            * self.class.non_ideal_supply_scalar) as u64;
+            * self.class.sub_target_supply_scalar) as u64;
         over_target_supply + under_target_supply
     }
-    pub fn get_unitclass_demand(&self, unitclass: UnitClass) -> u64 {
-        let daughter_volume = self
-            .mutables
-            .read()
-            .unwrap()
+    pub fn get_unitclass_supply_local(
+        &self,
+        unit_container: &RwLockWriteGuard<UnitContainer>,
+        unitclass: UnitClass,
+        squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+    ) -> u64 {
+        unit_container
+            .contents
+            .iter()
+            .filter(|daughter| &daughter.get_unitclass() == &unitclass)
+            .map(|daughter| daughter.get_real_volume_locked(squadrons_containers_lock))
+            .sum()
+    }
+    pub fn get_unitclass_demand_recursive(&self, unitclass: UnitClass) -> u64 {
+        let unit_container = self.unit_container.read().unwrap();
+        let daughter_volume = unit_container
             .contents
             .iter()
             .filter(|unit| &unit.get_unitclass() == &unitclass)
-            .map(|unit| unit.get_volume())
+            .map(|unit| unit.get_real_volume())
             .sum::<u64>();
         let ideal_volume = self
             .class
@@ -1019,39 +2099,106 @@ impl HangarInstance {
             .get(&UnitClassID::new_from_unitclass(&unitclass))
             .unwrap_or(&0)
             * unitclass.get_ideal_volume();
-        ideal_volume.saturating_sub(daughter_volume)
-            + self
-                .mutables
-                .read()
-                .unwrap()
+        let ideal_demand = ideal_volume.saturating_sub(daughter_volume);
+        let non_ideal_demand = (self
+            .class
+            .target
+            .saturating_sub(self.get_fullness())
+            .saturating_sub(ideal_demand) as f32
+            * self.class.non_ideal_demand_scalar) as u64;
+        ideal_demand
+            + non_ideal_demand
+            + unit_container
                 .contents
                 .iter()
-                .map(|daughter| daughter.get_unitclass_demand(unitclass.clone()))
+                .map(|daughter| daughter.get_unitclass_demand_recursive(unitclass.clone()))
                 .sum::<u64>()
+    }
+    pub fn get_unitclass_demand_local(
+        &self,
+        unit_container: &RwLockWriteGuard<UnitContainer>,
+        unitclass: UnitClass,
+        squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+    ) -> u64 {
+        let daughter_volume = unit_container
+            .contents
+            .iter()
+            .filter(|unit| &unit.get_unitclass() == &unitclass)
+            .map(|unit| unit.get_real_volume_locked(squadrons_containers_lock))
+            .sum::<u64>();
+        let ideal_volume = self
+            .class
+            .ideal
+            .get(&UnitClassID::new_from_unitclass(&unitclass))
+            .unwrap_or(&0)
+            * unitclass.get_ideal_volume();
+        let ideal_demand = ideal_volume.saturating_sub(daughter_volume);
+        let non_ideal_demand = (self
+            .class
+            .target
+            .saturating_sub(
+                unit_container
+                    .contents
+                    .iter()
+                    .map(|unit| unit.get_real_volume_locked(squadrons_containers_lock))
+                    .sum::<u64>(),
+            )
+            .saturating_sub(ideal_demand) as f32
+            * self.class.non_ideal_demand_scalar) as u64;
+        ideal_demand + non_ideal_demand
+    }
+    pub fn get_transport_balance_unitclass_demand(
+        &self,
+        unit_container: &RwLockWriteGuard<UnitContainer>,
+        unitclass: UnitClass,
+        external_demand: f32,
+        speed_factor: f32,
+        total_naive_demand: f32,
+    ) -> u64 {
+        let unitclass_id = UnitClassID::new_from_unitclass(&unitclass);
+        if self.class.allowed.contains(&unitclass_id) {
+            let ideal_volume =
+                self.class.ideal.get(&unitclass_id).unwrap_or(&0) * unitclass.get_ideal_volume();
+            let space_left_without_unitclass = self.class.target.saturating_sub(
+                unit_container
+                    .contents
+                    .iter()
+                    .filter(|unit| unit.get_unitclass().get_id() != unitclass.get_id())
+                    .map(|unit| unit.get_real_volume())
+                    .sum(),
+            );
+            let non_ideal_volume = space_left_without_unitclass.saturating_sub(ideal_volume);
+            let self_demand = ideal_volume
+                + (non_ideal_volume as f32 * self.class.non_ideal_demand_scalar) as u64;
+            ((external_demand * speed_factor * (self_demand as f32 / total_naive_demand)) as u64)
+                .clamp(0, self_demand)
+        } else {
+            0
+        }
     }
 }
 
-impl PartialEq for HangarInstance {
+impl PartialEq for Hangar {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
 
-impl Eq for HangarInstance {}
+impl Eq for Hangar {}
 
-impl Ord for HangarInstance {
+impl Ord for Hangar {
     fn cmp(&self, other: &Self) -> Ordering {
         self.id.cmp(&other.id)
     }
 }
 
-impl PartialOrd for HangarInstance {
+impl PartialOrd for Hangar {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.id.partial_cmp(&other.id)
     }
 }
 
-impl Hash for HangarInstance {
+impl Hash for Hangar {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id.hash(state);
     }
@@ -1067,11 +2214,11 @@ pub trait ResourceProcess {
 #[derive(Debug, Clone)]
 pub struct EngineClass {
     pub id: usize,
-    pub visiblename: String,
+    pub visible_name: String,
     pub description: String,
     pub visibility: bool,
-    pub basehealth: Option<u64>,
-    pub toughnessscalar: f32,
+    pub base_health: Option<u64>,
+    pub toughness_scalar: f32,
     pub inputs: Vec<UnipotentStockpile>,
     pub forbidden_nodeflavors: Vec<Arc<NodeFlavor>>, //the engine won't allow a ship to enter nodes of these flavors
     pub forbidden_edgeflavors: Vec<Arc<EdgeFlavor>>, //the engine won't allow a ship to traverse edges of these flavors
@@ -1080,18 +2227,14 @@ pub struct EngineClass {
 }
 
 impl EngineClass {
-    pub fn instantiate(class: Arc<Self>) -> EngineInstance {
-        EngineInstance {
-            engineclass: class.clone(),
+    pub fn instantiate(class: Arc<Self>) -> Engine {
+        Engine {
+            class: class.clone(),
             visibility: class.visibility,
-            basehealth: class.basehealth,
-            health: class.basehealth,
-            toughnessscalar: class.toughnessscalar,
+            health: class.base_health,
             inputs: class.inputs.clone(),
             forbidden_nodeflavors: class.forbidden_nodeflavors.clone(),
             forbidden_edgeflavors: class.forbidden_edgeflavors.clone(),
-            speed: class.speed,
-            cooldown: class.cooldown,
             last_move_turn: 0,
         }
     }
@@ -1124,21 +2267,17 @@ impl Hash for EngineClass {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct EngineInstance {
-    pub engineclass: Arc<EngineClass>,
+pub struct Engine {
+    pub class: Arc<EngineClass>,
     pub visibility: bool,
-    pub basehealth: Option<u64>,
     pub health: Option<u64>,
-    pub toughnessscalar: f32,
     pub inputs: Vec<UnipotentStockpile>,
     pub forbidden_nodeflavors: Vec<Arc<NodeFlavor>>, //the engine won't allow a ship to enter nodes of these flavors
     pub forbidden_edgeflavors: Vec<Arc<EdgeFlavor>>, //the engine won't allow a ship to traverse edges of these flavors
-    pub speed: u64, //the number of edges this engine will allow a ship to traverse per turn, followed by the number of turns it must wait before moving again
-    pub cooldown: u64,
     pub last_move_turn: u64,
 }
 
-impl EngineInstance {
+impl Engine {
     fn check_engine(
         &self,
         root: &Root,
@@ -1146,7 +2285,8 @@ impl EngineInstance {
         destinations: &Vec<Arc<Node>>,
     ) -> Option<(Vec<Arc<Node>>, u64)> {
         if (self.health != Some(0))
-            && ((root.turn.load(atomic::Ordering::Relaxed) - self.last_move_turn) > self.cooldown)
+            && ((root.turn.load(atomic::Ordering::Relaxed) - self.last_move_turn)
+                > self.class.cooldown)
             && (self.get_state() == FactoryState::Active)
         {
             let viable = destinations
@@ -1156,14 +2296,14 @@ impl EngineInstance {
                 })
                 .cloned()
                 .collect();
-            Some((viable, self.speed))
+            Some((viable, self.class.speed))
         } else {
             None
         }
     }
     fn check_engine_movement_only(&self, turn: u64) -> bool {
         if (self.health != Some(0))
-            && ((turn - self.last_move_turn) > self.cooldown)
+            && ((turn - self.last_move_turn) > self.class.cooldown)
             && (self.get_state() == FactoryState::Active)
         {
             true
@@ -1181,7 +2321,8 @@ impl EngineInstance {
         destination: Arc<Node>,
     ) -> Option<u64> {
         if (self.health != Some(0))
-            && ((root.turn.load(atomic::Ordering::Relaxed) - self.last_move_turn) > self.cooldown)
+            && ((root.turn.load(atomic::Ordering::Relaxed) - self.last_move_turn)
+                > self.class.cooldown)
             && (self.get_state() == FactoryState::Active)
             && (self.nav_check(root, location, destination))
         {
@@ -1189,7 +2330,7 @@ impl EngineInstance {
                 .iter_mut()
                 .for_each(|stockpile| stockpile.input_process());
             self.last_move_turn = root.turn.load(atomic::Ordering::Relaxed);
-            Some(self.speed)
+            Some(self.class.speed)
         } else {
             None
         }
@@ -1214,13 +2355,13 @@ impl EngineInstance {
             .map(|sp| sp.contents / sp.rate)
             .min()
             .unwrap_or(0))
-        .min(movement_left / self.speed)
+        .min(movement_left / self.class.speed)
     }
 }
 
-impl ResourceProcess for EngineInstance {
+impl ResourceProcess for Engine {
     fn get_state(&self) -> FactoryState {
-        let input_is_good: bool = self.inputs.iter().all(|x| x.input_is_sufficient()); //this uses the FactoryOutputInstance sufficiency method defined earlier
+        let input_is_good: bool = self.inputs.iter().all(|x| x.input_is_sufficient()); //this uses the FactoryOutput sufficiency method defined earlier
         if input_is_good {
             FactoryState::Active
         } else {
@@ -1245,7 +2386,7 @@ impl ResourceProcess for EngineInstance {
 #[derive(Debug, Clone)]
 pub struct RepairerClass {
     pub id: usize,
-    pub visiblename: String,
+    pub visible_name: String,
     pub description: String,
     pub visibility: bool,
     pub inputs: Vec<UnipotentStockpile>,
@@ -1253,20 +2394,17 @@ pub struct RepairerClass {
     pub repair_factor: f32,
     pub engine_repair_points: i64,
     pub engine_repair_factor: f32,
+    pub strategic_weapon_repair_points: i64,
+    pub strategic_weapon_repair_factor: f32,
     pub per_engagement: bool, //whether this repairer is run once per turn, or after every engagement
 }
 
 impl RepairerClass {
-    pub fn instantiate(class: Arc<Self>) -> RepairerInstance {
-        RepairerInstance {
-            repairerclass: class.clone(),
+    pub fn instantiate(class: Arc<Self>) -> Repairer {
+        Repairer {
+            class: class.clone(),
             visibility: class.visibility,
             inputs: class.inputs.clone(),
-            repair_points: class.repair_points,
-            repair_factor: class.repair_factor,
-            engine_repair_points: class.engine_repair_points,
-            engine_repair_factor: class.engine_repair_factor,
-            per_engagement: class.per_engagement,
         }
     }
 }
@@ -1298,18 +2436,13 @@ impl Hash for RepairerClass {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct RepairerInstance {
-    pub repairerclass: Arc<RepairerClass>,
+pub struct Repairer {
+    pub class: Arc<RepairerClass>,
     pub visibility: bool,
     pub inputs: Vec<UnipotentStockpile>,
-    pub repair_points: i64,
-    pub repair_factor: f32,
-    pub engine_repair_points: i64,
-    pub engine_repair_factor: f32,
-    pub per_engagement: bool, //whether this repairer is run once per turn, or after every engagement
 }
 
-impl RepairerInstance {
+impl Repairer {
     fn process(&mut self) {
         self.inputs
             .iter_mut()
@@ -1317,9 +2450,9 @@ impl RepairerInstance {
     }
 }
 
-impl ResourceProcess for RepairerInstance {
+impl ResourceProcess for Repairer {
     fn get_state(&self) -> FactoryState {
-        let input_is_good: bool = self.inputs.iter().all(|x| x.input_is_sufficient()); //this uses the FactoryOutputInstance sufficiency method defined earlier
+        let input_is_good: bool = self.inputs.iter().all(|x| x.input_is_sufficient()); //this uses the FactoryOutput sufficiency method defined earlier
         if input_is_good {
             FactoryState::Active
         } else {
@@ -1342,127 +2475,166 @@ impl ResourceProcess for RepairerInstance {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct InterNodeWeaponClass {
+pub struct StrategicWeaponClass {
     pub id: usize,
-    pub visiblename: String,
+    pub visible_name: String,
     pub description: String,
     pub visibility: bool,
-    pub basehealth: Option<u64>,
-    pub toughnessscalar: f32,
+    pub base_health: Option<u64>,
+    pub toughness_scalar: f32,
     pub inputs: Vec<UnipotentStockpile>,
     pub forbidden_nodeflavors: Vec<Arc<NodeFlavor>>, //the weapon won't fire into nodes of these flavors
     pub forbidden_edgeflavors: Vec<Arc<EdgeFlavor>>, //the weapon won't fire across edges of these flavors
-    pub damage: (u64, u64), //lower and upper bounds for damage done by a single shot
-    pub engine_damage: (u64, u64), //lower and upper bounds for damage to engine done by a single shot
-    pub accuracy: f32, //divided by target's internodeweaponevasionscalar to get hit probability as a fraction of 1.0
+    pub damage: ((i64, i64), (f32, f32)), //lower and upper bounds for damage done by a single shot, first by points and then by factor
+    pub engine_damage: ((i64, i64), (f32, f32)), //lower and upper bounds for damage to engine done by a single shot, first by points and then by factor
+    pub strategic_weapon_damage: ((i64, i64), (f32, f32)), //lower and upper bounds for damage to strategic weapon done by a single shot, first by points and then by factor
+    pub accuracy: f32, //divided by target's strategicweaponevasionscalar to get hit probability as a fraction of 1.0
     pub range: u64,    //how many edges away the weapon can reach
     pub shots: (u64, u64), //lower and upper bounds for maximum number of shots the weapon fires each time it's activated
-    pub target_priorities_class: HashMap<Arc<ShipClassID>, f32>, //how strongly weapon will prioritize ships of each class; classes absent from list will default to 1.0
+    pub targets_enemies: bool,
+    pub targets_allies: bool,
+    pub targets_neutrals: bool,
+    pub target_relations_lower_bound: Option<f32>,
+    pub target_relations_upper_bound: Option<f32>,
+    pub target_priorities_class: HashMap<ShipClassID, f32>, //how strongly weapon will prioritize ships of each class; classes absent from list will default to 1.0
     pub target_priorities_flavor: HashMap<Arc<ShipFlavor>, f32>, //how strongly weapon will prioritize ships of each flavor; flavors absent from list will default to 1.0
 }
 
-impl InterNodeWeaponClass {
-    pub fn instantiate(class: Arc<Self>) -> InterNodeWeaponInstance {
-        InterNodeWeaponInstance {
+impl StrategicWeaponClass {
+    pub fn instantiate(class: Arc<Self>) -> StrategicWeapon {
+        StrategicWeapon {
             class: class.clone(),
             visibility: class.visibility,
-            health: class.basehealth,
+            health: class.base_health,
             inputs: class.inputs.clone(),
         }
     }
 }
 
-impl Eq for InterNodeWeaponClass {}
+impl Eq for StrategicWeaponClass {}
 
-impl Ord for InterNodeWeaponClass {
+impl Ord for StrategicWeaponClass {
     fn cmp(&self, other: &Self) -> Ordering {
         self.id.cmp(&other.id)
     }
 }
 
-impl PartialOrd for InterNodeWeaponClass {
+impl PartialOrd for StrategicWeaponClass {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.id.partial_cmp(&other.id)
     }
 }
 
-impl Hash for InterNodeWeaponClass {
+impl Hash for StrategicWeaponClass {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id.hash(state);
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct InterNodeWeaponInstance {
-    pub class: Arc<InterNodeWeaponClass>,
+pub struct StrategicWeapon {
+    pub class: Arc<StrategicWeaponClass>,
     pub visibility: bool,
     pub health: Option<u64>,
     pub inputs: Vec<UnipotentStockpile>,
 }
 
-impl InterNodeWeaponInstance {
-    fn fire<R: Rng>(
+impl StrategicWeapon {
+    fn targets_faction(
         &self,
         root: &Root,
-        mother: Arc<ShipInstance>,
-        rng: &mut R,
-    ) -> HashMap<Unit, UnitStatus> {
-        let allegiance = mother.get_allegiance();
-        let location = mother.get_mother_node();
-        let mut target_nodes = vec![location.clone()];
-        let mut node_layer = vec![location.clone()];
-        for _ in 0..self.class.range {
-            let neighbors: Vec<Arc<Node>> = node_layer
-                .iter()
-                .map(|node| {
-                    root.neighbors
-                        .get(node)
-                        .unwrap()
-                        .iter()
-                        .filter(move |rhs_node| {
-                            !(target_nodes.contains(&rhs_node)
-                                || self
-                                    .class
-                                    .forbidden_nodeflavors
-                                    .contains(&rhs_node.mutables.read().unwrap().flavor)
-                                || self.class.forbidden_edgeflavors.contains(
-                                    root.edges
-                                        .get(&(
-                                            node.min(rhs_node).clone(),
-                                            rhs_node.max(&node).clone().clone(),
-                                        ))
-                                        .unwrap(),
-                                ))
-                        })
-                })
-                .flatten()
-                .cloned()
-                .collect();
-            target_nodes.append(&mut neighbors.clone());
-            node_layer = neighbors.clone();
-        }
-
+        allegiance: &Arc<Faction>,
+        faction: &Arc<Faction>,
+    ) -> bool {
         let enemies = root
             .factions
             .iter()
-            .filter(|faction| {
+            .cloned()
+            .filter(|rhs_faction| {
                 root.wars.contains(&(
-                    faction.clone().min(&allegiance.clone().clone()).clone(),
-                    allegiance.clone().max(faction.clone().clone()).clone(),
+                    (rhs_faction).min(&allegiance).clone(),
+                    (allegiance).max(&rhs_faction).clone(),
                 ))
             })
             .collect::<Vec<_>>();
+        (self.class.targets_enemies && enemies.contains(&faction))
+            || (self.class.targets_allies && faction == allegiance)
+            || (self.class.targets_neutrals
+                && !(faction == allegiance || enemies.contains(&faction)))
+            || (self
+                .class
+                .target_relations_upper_bound
+                .map(|val| {
+                    allegiance
+                        .relations
+                        .get(&FactionID::new_from_index(faction.id))
+                        .unwrap()
+                        < &val
+                })
+                .unwrap_or(false))
+            || (self
+                .class
+                .target_relations_upper_bound
+                .map(|val| {
+                    allegiance
+                        .relations
+                        .get(&FactionID::new_from_index(faction.id))
+                        .unwrap()
+                        > &val
+                })
+                .unwrap_or(false))
+    }
+    fn fire<R: Rng>(
+        &mut self,
+        root: &Root,
+        mother: Arc<Ship>,
+        mut rng: &mut R,
+    ) -> HashMap<Unit, UnitStatus> {
+        let allegiance = &mother.get_allegiance();
+        let location = mother.get_mother_node();
 
-        let targets = target_nodes
+        let target_nodes = location.get_nodes_in_range(
+            root,
+            self.class.range,
+            &self.class.forbidden_nodeflavors,
+            &self.class.forbidden_edgeflavors,
+        );
+
+        let target_factions = root
+            .factions
+            .iter()
+            .cloned()
+            .filter(|faction| self.targets_faction(root, &allegiance, faction))
+            .collect::<Vec<_>>();
+
+        let targets: Vec<(Arc<Ship>, f32)> = target_nodes
             .iter()
             .map(|node| {
-                node.mutables
+                node.unit_container
                     .read()
                     .unwrap()
-                    .units
+                    .contents
                     .iter()
-                    .filter_map(|unit| unit.get_ship())
-                    .filter(|ship| enemies.contains(&&ship.mutables.read().unwrap().allegiance))
+                    .map(|unit| unit.get_undocked_daughters())
+                    .flatten()
+                    .filter(|ship| {
+                        target_factions.contains(&&ship.mutables.read().unwrap().allegiance)
+                            && ship.id != mother.id
+                    })
+                    .map(|ship| {
+                        (
+                            ship.clone(),
+                            self.class
+                                .target_priorities_class
+                                .get(&ShipClassID::new_from_index(ship.class.id))
+                                .unwrap_or(&0.0)
+                                + self
+                                    .class
+                                    .target_priorities_flavor
+                                    .get(&ship.class.shipflavor)
+                                    .unwrap_or(&0.0),
+                        )
+                    })
                     .collect::<Vec<_>>()
             })
             .flatten()
@@ -1470,54 +2642,91 @@ impl InterNodeWeaponInstance {
 
         let shots_fired: usize = rng.gen_range(self.class.shots.0..self.class.shots.1) as usize;
 
-        let hit_ships = targets
-            .iter()
-            .sorted_by_key(|target| {
-                NotNan::new(
-                    self.class
-                        .target_priorities_class
-                        .get(&ShipClassID::new_from_index(target.class.id))
-                        .unwrap_or(&0.0)
-                        + self
-                            .class
-                            .target_priorities_flavor
-                            .get(&target.class.shipflavor)
-                            .unwrap_or(&0.0),
-                )
-                .unwrap()
+        (0..shots_fired).for_each(|_| self.inputs.iter_mut().for_each(|sp| sp.input_process()));
+
+        let hit_ships: Vec<Arc<Ship>> = (0..shots_fired)
+            .map(|_| {
+                targets
+                    .choose_weighted(&mut rng, |(_, weight)| weight.clone())
+                    .unwrap()
             })
-            .take(shots_fired)
+            .map(|(ship, _)| ship.clone())
             .filter(|target| {
-                (self.class.accuracy / target.class.internodeweaponevasionscalar) > 1.0
+                (self.class.accuracy / target.class.strategic_weapon_evasion_scalar) > 1.0
             })
             .collect();
 
-        hit_ships.iter().map(|hit_ship| {
-            let status = UnitStatus {
-                location: hit_ship.mutables.read().unwrap().location,
-                damage: rng.gen_range(self.class.damage.0..self.class.damage.1)
-                    / hit_ship.toughnessscalar,
-                engine_damage: hit_ship
-                    .mutables
-                    .read()
-                    .unwrap()
-                    .engines
-                    .iter()
-                    .filter(|e| e.health.is_some())
-                    .map(|e| {
-                        (rng.gen_range(self.class.engine_damage.0..self.class.engine_damage.1)
-                            / e.toughnessscalar) as u64
-                    })
-                    .collect(),
-            };
-            (hit_ship, status)
-        })
+        let hit_ships_status: HashMap<Unit, UnitStatus> = hit_ships
+            .iter()
+            .map(|hit_ship| {
+                let status = UnitStatus {
+                    location: Some(hit_ship.mutables.read().unwrap().location.clone()),
+                    damage: ((rng
+                        .gen_range(self.class.damage.0 .0 as f32..self.class.damage.0 .1 as f32)
+                        / hit_ship.class.toughness_scalar)
+                        + ((rng.gen_range(
+                            self.class.damage.1 .0 as f32..self.class.damage.1 .1 as f32,
+                        ) / hit_ship.class.toughness_scalar)
+                            * hit_ship.class.base_hull as f32)) as i64,
+                    engine_damage: hit_ship
+                        .mutables
+                        .read()
+                        .unwrap()
+                        .engines
+                        .iter()
+                        .filter(|e| e.health.is_some())
+                        .map(|e| {
+                            ((rng.gen_range(
+                                self.class.engine_damage.0 .0 as f32
+                                    ..self.class.engine_damage.0 .1 as f32,
+                            ) / e.class.toughness_scalar)
+                                + ((rng.gen_range(
+                                    self.class.engine_damage.1 .0 as f32
+                                        ..self.class.engine_damage.1 .1 as f32,
+                                ) / hit_ship.class.toughness_scalar)
+                                    * e.class.base_health.unwrap() as f32))
+                                as i64
+                        })
+                        .collect(),
+                    strategic_weapon_damage: hit_ship
+                        .mutables
+                        .read()
+                        .unwrap()
+                        .strategic_weapons
+                        .iter()
+                        .filter(|w| w.health.is_some())
+                        .map(|w| {
+                            ((rng.gen_range(
+                                self.class.strategic_weapon_damage.0 .0 as f32
+                                    ..self.class.strategic_weapon_damage.0 .1 as f32,
+                            ) / w.class.toughness_scalar)
+                                + ((rng.gen_range(
+                                    self.class.strategic_weapon_damage.1 .0 as f32
+                                        ..self.class.strategic_weapon_damage.1 .1 as f32,
+                                ) / hit_ship.class.toughness_scalar)
+                                    * w.class.base_health.unwrap() as f32))
+                                as i64
+                        })
+                        .collect(),
+                };
+                (hit_ship.get_unit(), status)
+            })
+            .collect();
+        hit_ships_status.iter().for_each(|(unit, status)| {
+            unit.damage(
+                status.damage,
+                &status.engine_damage,
+                &status.strategic_weapon_damage,
+            )
+        });
+        root.remove_dead();
+        hit_ships_status
     }
 }
 
-impl ResourceProcess for InterNodeWeaponInstance {
+impl ResourceProcess for StrategicWeapon {
     fn get_state(&self) -> FactoryState {
-        let input_is_good: bool = self.inputs.iter().all(|x| x.input_is_sufficient()); //this uses the FactoryOutputInstance sufficiency method defined earlier
+        let input_is_good: bool = self.inputs.iter().all(|x| x.input_is_sufficient()); //this uses the FactoryOutput sufficiency method defined earlier
         if input_is_good {
             FactoryState::Active
         } else {
@@ -1542,7 +2751,7 @@ impl ResourceProcess for InterNodeWeaponInstance {
 #[derive(Debug, Clone)]
 pub struct FactoryClass {
     pub id: usize,
-    pub visiblename: String,
+    pub visible_name: String,
     pub description: String,
     pub visibility: bool,
     pub inputs: Vec<UnipotentStockpile>, //the data for the factory's asset consumption
@@ -1550,9 +2759,9 @@ pub struct FactoryClass {
 }
 
 impl FactoryClass {
-    pub fn instantiate(class: Arc<Self>) -> FactoryInstance {
-        FactoryInstance {
-            factoryclass: class.clone(),
+    pub fn instantiate(class: Arc<Self>) -> Factory {
+        Factory {
+            class: class.clone(),
             visibility: class.visibility,
             inputs: class.inputs.clone(),
             outputs: class.outputs.clone(),
@@ -1587,15 +2796,15 @@ impl Hash for FactoryClass {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct FactoryInstance {
+pub struct Factory {
     //this is an actual factory, derived from a factory class
-    pub factoryclass: Arc<FactoryClass>,
+    pub class: Arc<FactoryClass>,
     pub visibility: bool,
     pub inputs: Vec<UnipotentStockpile>, //the data for the factory's asset consumption
     pub outputs: Vec<UnipotentStockpile>, //the data for the factory's asset production
 }
 
-impl FactoryInstance {
+impl Factory {
     //we take an active factory and update all its inputs and outputs to add or remove resources
     fn process(&mut self, location_efficiency: f32) {
         if let FactoryState::Active = self.get_state() {
@@ -1611,7 +2820,7 @@ impl FactoryInstance {
     }
 }
 
-impl ResourceProcess for FactoryInstance {
+impl ResourceProcess for Factory {
     //FactoryState determination method
     //this determines a factory's FactoryState based on the OutputStates of its outputs
     fn get_state(&self) -> FactoryState {
@@ -1625,7 +2834,7 @@ impl ResourceProcess for FactoryInstance {
         };
         match output_state {
             OutputState::Active => {
-                let input_is_good: bool = self.inputs.iter().all(|x| x.input_is_sufficient()); //this uses the FactoryOutputInstance sufficiency method defined earlier
+                let input_is_good: bool = self.inputs.iter().all(|x| x.input_is_sufficient()); //this uses the FactoryOutput sufficiency method defined earlier
                 if input_is_good {
                     FactoryState::Active
                 } else {
@@ -1687,19 +2896,19 @@ impl OutputState {
 #[derive(Debug, Clone)]
 pub struct ShipyardClass {
     pub id: usize,
-    pub visiblename: Option<String>,
+    pub visible_name: Option<String>,
     pub description: Option<String>,
     pub visibility: bool,
     pub inputs: Vec<UnipotentStockpile>,
     pub outputs: HashMap<ShipClassID, u64>,
-    pub constructrate: u64,
+    pub construct_rate: u64,
     pub efficiency: f32,
 }
 
 impl ShipyardClass {
-    pub fn instantiate(class: Arc<Self>, shipclasses: &Vec<Arc<ShipClass>>) -> ShipyardInstance {
-        ShipyardInstance {
-            shipyardclass: class.clone(),
+    pub fn instantiate(class: Arc<Self>, shipclasses: &Vec<Arc<ShipClass>>) -> Shipyard {
+        Shipyard {
+            class: class.clone(),
             visibility: class.visibility,
             inputs: class.inputs.clone(),
             outputs: class
@@ -1716,8 +2925,7 @@ impl ShipyardClass {
                     )
                 })
                 .collect(),
-            constructpoints: 0,
-            constructrate: class.constructrate,
+            construct_points: 0,
             efficiency: 1.0,
         }
     }
@@ -1750,23 +2958,23 @@ impl Hash for ShipyardClass {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ShipyardInstance {
-    pub shipyardclass: Arc<ShipyardClass>,
+pub struct Shipyard {
+    pub class: Arc<ShipyardClass>,
     pub visibility: bool,
     pub inputs: Vec<UnipotentStockpile>,
     pub outputs: HashMap<Arc<ShipClass>, u64>,
-    pub constructpoints: u64,
-    pub constructrate: u64,
+    pub construct_points: u64,
     pub efficiency: f32,
 }
 
-impl ShipyardInstance {
+impl Shipyard {
     fn process(&mut self, location_efficiency: f32) {
         if let FactoryState::Active = self.get_state() {
             self.inputs
                 .iter_mut()
                 .for_each(|stockpile| stockpile.input_process());
-            self.constructpoints += (self.constructrate as f32 * location_efficiency) as u64;
+            self.construct_points +=
+                (self.class.construct_rate as f32 * location_efficiency) as u64;
         }
     }
 
@@ -1778,10 +2986,10 @@ impl ShipyardInstance {
             .max_by_key(|(_, weight)| *weight)
             .unwrap()
             .0;
-        let cost = shipclass.basestrength;
+        let cost = shipclass.base_strength;
         //then, if the shipyard has enough points to build it, we subtract the cost and return the ship class id
-        if self.constructpoints >= cost {
-            self.constructpoints -= cost;
+        if self.construct_points >= cost {
+            self.construct_points -= cost;
             Some(shipclass.clone())
         //otherwise we return nothing
         } else {
@@ -1802,9 +3010,9 @@ impl ShipyardInstance {
     }
 }
 
-impl ResourceProcess for ShipyardInstance {
+impl ResourceProcess for Shipyard {
     fn get_state(&self) -> FactoryState {
-        let input_is_good: bool = self.inputs.iter().all(|x| x.input_is_sufficient()); //this uses the FactoryOutputInstance sufficiency method defined earlier
+        let input_is_good: bool = self.inputs.iter().all(|x| x.input_is_sufficient()); //this uses the FactoryOutput sufficiency method defined earlier
         if input_is_good {
             FactoryState::Active
         } else {
@@ -1837,6 +3045,12 @@ pub struct ShipAI {
     pub hostile_supply_attract: f32,
     pub allegiance_demand_attract: f32,
     pub enemy_demand_attract: f32,
+    pub strategic_weapon_damage_attract: f32,
+    pub strategic_weapon_engine_damage_attract: f32,
+    pub strategic_weapon_strategic_weapon_damage_attract: f32,
+    pub strategic_weapon_healing_attract: f32,
+    pub strategic_weapon_engine_healing_attract: f32,
+    pub strategic_weapon_strategic_weapon_healing_attract: f32,
 }
 
 impl PartialEq for ShipAI {
@@ -1868,69 +3082,49 @@ impl Hash for ShipAI {
 #[derive(Debug, Clone)]
 pub enum UnitLocation {
     Node(Arc<Node>),
-    Squadron(Arc<SquadronInstance>),
-    Hangar(Arc<HangarInstance>),
+    Squadron(Arc<Squadron>),
+    Hangar(Arc<Hangar>),
 }
 
 impl UnitLocation {
-    fn check_insert(&self, unit: Unit) -> bool {
+    fn get_unit_container_lock(&self) -> RwLockWriteGuard<UnitContainer> {
+        match self {
+            UnitLocation::Node(node) => node.unit_container.write().unwrap(),
+            UnitLocation::Squadron(squadron) => squadron.unit_container.write().unwrap(),
+            UnitLocation::Hangar(hangar) => hangar.unit_container.write().unwrap(),
+        }
+    }
+    fn check_insert(&self, container: &RwLockWriteGuard<UnitContainer>, unit: Unit) -> bool {
         match self {
             UnitLocation::Node(_node) => true,
-            UnitLocation::Squadron(squadron) => squadron
-                .mutables
-                .read()
-                .unwrap()
-                .location
-                .check_insert(unit.clone()),
+            UnitLocation::Squadron(squadron) => {
+                unit.get_capacity_volume()
+                    <= squadron.class.capacity
+                        - container
+                            .contents
+                            .iter()
+                            .map(|unit| unit.get_capacity_volume())
+                            .sum::<u64>()
+            }
             UnitLocation::Hangar(hangar) => {
-                unit.get_volume() <= hangar.class.capacity - hangar.get_fullness()
+                unit.get_capacity_volume()
+                    <= hangar.class.capacity
+                        - container
+                            .contents
+                            .iter()
+                            .map(|unit| unit.get_capacity_volume())
+                            .sum::<u64>()
             }
         }
     }
-    fn check_remove(&self, unit: Unit) -> bool {
-        match self {
-            UnitLocation::Node(node) => node.mutables.read().unwrap().units.contains(&unit),
-            UnitLocation::Squadron(squadron) => squadron.get_daughters().contains(&unit),
-            UnitLocation::Hangar(hangar) => {
-                hangar.mutables.read().unwrap().contents.contains(&unit)
-            }
-        }
+    fn check_remove(&self, container: &RwLockWriteGuard<UnitContainer>, unit: Unit) -> bool {
+        container.contents.contains(&unit)
     }
-    fn insert_unit(&self, unit: Unit) {
-        match self {
-            UnitLocation::Node(node) => node.mutables.write().unwrap().units.push(unit.clone()),
-            UnitLocation::Squadron(squadron) => squadron
-                .mutables
-                .write()
-                .unwrap()
-                .daughters
-                .push(unit.clone()),
-            UnitLocation::Hangar(hangar) => {
-                hangar.mutables.write().unwrap().contents.push(unit.clone())
-            }
-        }
+    fn insert_unit(&self, container: &mut RwLockWriteGuard<UnitContainer>, unit: Unit) {
+        container.contents.push(unit.clone());
     }
-    fn remove_unit(&self, unit: Unit) {
-        match self {
-            UnitLocation::Node(node) => node
-                .mutables
-                .write()
-                .unwrap()
-                .units
-                .retain(|content| content != &unit),
-            UnitLocation::Squadron(squadron) => squadron
-                .mutables
-                .write()
-                .unwrap()
-                .daughters
-                .retain(|content| content != &unit),
-            UnitLocation::Hangar(hangar) => hangar
-                .mutables
-                .write()
-                .unwrap()
-                .contents
-                .retain(|content| content != &unit),
-        }
+    fn remove_unit(&self, container: &mut RwLockWriteGuard<UnitContainer>, unit: Unit) {
+        container.contents.retain(|content| content != &unit);
     }
 }
 
@@ -1953,8 +3147,8 @@ impl PartialEq for UnitLocation {
 pub trait Mobility {
     fn get_unit(&self) -> Unit;
     fn get_unitclass(&self) -> UnitClass;
-    fn get_ship(&self) -> Option<Arc<ShipInstance>>;
-    fn get_squadron(&self) -> Option<Arc<SquadronInstance>>;
+    fn get_ship(&self) -> Option<Arc<Ship>>;
+    fn get_squadron(&self) -> Option<Arc<Squadron>>;
     fn get_id(&self) -> u64;
     fn is_ship(&self) -> bool;
     fn get_location(&self) -> UnitLocation;
@@ -1991,19 +3185,28 @@ pub trait Mobility {
             UnitLocation::Hangar(hangar) => Some(hangar.mother.get_unit()),
         }
     }
+    fn get_base_hull(&self) -> u64;
     fn get_hull(&self) -> u64;
+    fn get_engine_base_health(&self) -> u64;
+    fn get_strategic_weapon_base_health(&self) -> u64;
     fn get_allegiance(&self) -> Arc<Faction>;
     fn get_daughters(&self) -> Vec<Unit>;
     fn get_daughters_recursive(&self) -> Vec<Unit>;
+    fn get_undocked_daughters(&self) -> Vec<Arc<Ship>>;
     fn get_morale_scalar(&self) -> f32;
     fn get_character_strength_scalar(&self) -> f32;
     fn get_interdiction_scalar(&self) -> f32;
     fn get_processordemandnavscalar(&self) -> f32;
     fn get_strength(&self, time: u64) -> u64;
-    fn get_strength_post_engagement(&self, damage: u64) -> u64;
-    fn get_volume(&self) -> u64;
+    fn get_strength_post_engagement(&self, damage: i64) -> u64;
+    fn get_real_volume(&self) -> u64;
+    fn get_real_volume_locked(
+        &self,
+        squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+    ) -> u64;
+    fn get_capacity_volume(&self) -> u64;
     fn get_ai(&self) -> NavAI;
-    fn get_navthreshold(&self) -> f32;
+    fn get_nav_threshold(&self) -> f32;
     fn get_objectives(&self) -> Vec<Objective>;
     fn get_deployment_threshold(&self) -> Option<u64>;
     fn get_deployment_status(&self) -> bool;
@@ -2013,8 +3216,8 @@ pub trait Mobility {
     fn get_resource_demand_from_stockpiles(&self, resource: Arc<Resource>) -> u64;
     fn get_resource_demand_from_processors(&self, resource: Arc<Resource>) -> u64;
     fn get_unitclass_num(&self, unitclass: UnitClass) -> u64;
-    fn get_unitclass_supply(&self, unitclass: UnitClass) -> u64;
-    fn get_unitclass_demand(&self, unitclass: UnitClass) -> u64;
+    fn get_unitclass_supply_recursive(&self, unitclass: UnitClass) -> u64;
+    fn get_unitclass_demand_recursive(&self, unitclass: UnitClass) -> u64;
     fn change_allegiance(&self, new_faction: Arc<Faction>);
     fn acyclicity_check(&self, location: UnitLocation) -> bool {
         match location.clone() {
@@ -2037,6 +3240,26 @@ pub trait Mobility {
         }
     }
     fn transfer(&self, destination: UnitLocation) -> bool;
+    fn transfer_by_containers(
+        &self,
+        source: &mut UnitLocation,
+        source_container: &mut RwLockWriteGuard<UnitContainer>,
+        destination: UnitLocation,
+        destination_container: &mut RwLockWriteGuard<UnitContainer>,
+    ) -> bool {
+        let source_static = source.clone();
+        if source_static.check_remove(&source_container, self.get_unit())
+            && destination.check_insert(&destination_container, self.get_unit())
+            && self.acyclicity_check(destination.clone())
+        {
+            source.remove_unit(source_container, self.get_unit());
+            *source = destination.clone();
+            destination.insert_unit(destination_container, self.get_unit());
+            true
+        } else {
+            false
+        }
+    }
     fn destinations_check(
         &self,
         root: &Root,
@@ -2046,7 +3269,7 @@ pub trait Mobility {
     //The ship version is used for gathering reinforcements, and assumes the ship can't make the move and its daughters will have to move independently.
     //It recurses down the tree, following that logic at every stage.
     //The squadron version is used to determine how much of the squadron can make a particular move.
-    //Since granddaughters won't leave their mothers to accompany a squadron that leaves them beihnd, this version just checks the immediate daughters.
+    //Since granddaughters won't leave their mothers to accompany a squadron that leaves them behind, this version just checks the immediate daughters.
     fn get_traversal_checked_daughters(&self, root: &Root, destination: Arc<Node>) -> Vec<Unit>;
     fn set_movement_recursive(&self, value: u64);
     fn get_moves_left(&self, turn: u64) -> u64;
@@ -2056,7 +3279,7 @@ pub trait Mobility {
         let allegiance = self.get_allegiance();
         let ai = self.get_ai();
 
-        let resource_salience = &root.globalsalience.resourcesalience.read().unwrap();
+        let resource_salience = &root.global_salience.resource_salience.read().unwrap();
 
         //this checks how much value the node holds with regards to resources the subject ship is seeking
         let resource_demand_value: f32 = ai
@@ -2088,7 +3311,7 @@ pub trait Mobility {
             })
             .sum();
 
-        let unitclass_salience = &root.globalsalience.unitclasssalience.read().unwrap();
+        let unitclass_salience = &root.global_salience.unitclass_salience.read().unwrap();
 
         let unitclass_demand_value: f32 = ai
             .ship_cargo_attract
@@ -2113,7 +3336,7 @@ pub trait Mobility {
                 let demand = unitclass_salience[allegiance.id][unitclassid.get_index()][node.id][0];
                 let supply = unitclass_salience[allegiance.id][unitclassid.get_index()][node.id][1];
                 (demand - supply)
-                    * self.get_unitclass_supply(attractive_unitclass.clone()) as f32
+                    * self.get_unitclass_supply_recursive(attractive_unitclass.clone()) as f32
                     * scalar
             })
             .sum();
@@ -2147,7 +3370,7 @@ pub trait Mobility {
                     unitclass_salience[allegiance.id][unitclassid.get_index()][location.id][0];
                 let supply = unitclass_salience[allegiance.id][unitclassid.get_index()][node.id][1];
                 (((supply * demand) + ((supply - demand) * 5.0)) / 10.0)
-                    * self.get_unitclass_demand(attractive_unitclass.clone()) as f32
+                    * self.get_unitclass_demand_recursive(attractive_unitclass.clone()) as f32
                     * scalar
             })
             .sum();
@@ -2160,7 +3383,7 @@ pub trait Mobility {
         let ship_value_generic: f32 =
             unitclass_salience[allegiance.id][0][node.id][0] * ai.ship_attract_generic;
 
-        let faction_salience = &root.globalsalience.factionsalience.read().unwrap();
+        let faction_salience = &root.global_salience.faction_salience.read().unwrap();
 
         let faction_supply = transpose(&faction_salience[allegiance.id])[node.id]
             .iter()
@@ -2202,6 +3425,52 @@ pub trait Mobility {
             .clamp(0.0, f32::MAX)
             * ai.allegiance_demand_attract;
 
+        let weapon_effect = root
+            .global_salience
+            .strategic_weapon_effect_map
+            .read()
+            .unwrap()[allegiance.id][node.id];
+
+        let strategic_weapon_damage_value =
+            (weapon_effect[0].0.clamp(0, self.get_base_hull() as i64) as f32
+                + (weapon_effect[0].1.clamp(0.0, 1.0) * self.get_base_hull() as f32))
+                * ai.strategic_weapon_damage_attract;
+
+        let strategic_weapon_engine_damage_value = (weapon_effect[1]
+            .0
+            .clamp(0, self.get_engine_base_health() as i64)
+            as f32
+            + (weapon_effect[1].1.clamp(0.0, 1.0) * self.get_engine_base_health() as f32))
+            * ai.strategic_weapon_engine_damage_attract;
+
+        let strategic_weapon_strategic_weapon_damage_value = (weapon_effect[2]
+            .0
+            .clamp(0, self.get_strategic_weapon_base_health() as i64)
+            as f32
+            + (weapon_effect[2].1.clamp(0.0, 1.0)
+                * self.get_strategic_weapon_base_health() as f32))
+            * ai.strategic_weapon_strategic_weapon_damage_attract;
+
+        let strategic_weapon_healing_value =
+            (weapon_effect[0].0.clamp(-(self.get_base_hull() as i64), 0) as f32
+                + (weapon_effect[0].1.clamp(-1.0, 0.0) * self.get_base_hull() as f32))
+                * ai.strategic_weapon_healing_attract;
+
+        let strategic_weapon_engine_healing_value = (weapon_effect[1]
+            .0
+            .clamp(-(self.get_engine_base_health() as i64), 0)
+            as f32
+            + (weapon_effect[1].1.clamp(-1.0, 0.0) * self.get_engine_base_health() as f32))
+            * ai.strategic_weapon_engine_healing_attract;
+
+        let strategic_weapon_strategic_weapon_healing_value = (weapon_effect[2]
+            .0
+            .clamp(-(self.get_strategic_weapon_base_health() as i64), 0)
+            as f32
+            + (weapon_effect[2].1.clamp(-1.0, 0.0)
+                * self.get_strategic_weapon_base_health() as f32))
+            * ai.strategic_weapon_strategic_weapon_healing_attract;
+
         NotNan::new(
             resource_demand_value
                 + resource_supply_value
@@ -2212,7 +3481,13 @@ pub trait Mobility {
                 + friendly_supply_value
                 + hostile_supply_value
                 + allegiance_demand_value
-                + enemy_demand_value,
+                + enemy_demand_value
+                + strategic_weapon_damage_value
+                + strategic_weapon_engine_damage_value
+                + strategic_weapon_strategic_weapon_damage_value
+                + strategic_weapon_healing_value
+                + strategic_weapon_engine_healing_value
+                + strategic_weapon_strategic_weapon_healing_value,
         )
         .unwrap()
     }
@@ -2243,7 +3518,7 @@ pub trait Mobility {
             .max_by_key(|(_, val)| val)
             .unwrap_or(&null_pair);
         if best_neighbor.1
-            > self.get_node_nav_attractiveness(root, location) * self.get_navthreshold()
+            > self.get_node_nav_attractiveness(root, location) * self.get_nav_threshold()
         {
             Some(best_neighbor.0.clone())
         } else {
@@ -2257,26 +3532,45 @@ pub trait Mobility {
             .get(&self.get_mother_node())
             .unwrap_or(&Vec::new())
             .clone();
-        if let Some(destinations) = self.destinations_check(root, &neighbors) {
-            let destination_option = self.navigate(root, &destinations);
-            match destination_option.clone() {
-                Some(destination) => {
-                    self.traverse(root, destination.clone());
-                    if let Some(aggressor) =
-                        root.engagement_check(destination.clone(), self.get_allegiance())
-                    {
-                        let engagement = root.internal_battle(EngagementPrep::engagement_prep(
-                            root,
-                            destination,
-                            Some(aggressor),
-                        ));
-                        engagement.battle_cleanup(root);
+        if self.is_in_node() {
+            if let Some(destinations) = self.destinations_check(root, &neighbors) {
+                let destination_option = self.navigate(root, &destinations);
+                match destination_option.clone() {
+                    Some(destination) => {
+                        self.traverse(root, destination.clone());
+                        if let Some(aggressor) =
+                            root.engagement_check(destination.clone(), self.get_allegiance())
+                        {
+                            let engagement = root.internal_battle(EngagementPrep::engagement_prep(
+                                root,
+                                destination,
+                                Some(aggressor),
+                            ));
+                            engagement.battle_cleanup(root);
+                        }
+                        self.deploy_daughters(root);
+                        if self.get_daughters_recursive().iter().any(|daughter| {
+                            daughter
+                                .get_ship()
+                                .map(|ship| {
+                                    ship.mutables.read().unwrap().strategic_weapons.len() != 0
+                                })
+                                .unwrap_or(false)
+                        }) {
+                            //NOTE: Check whether this will actually assign properly.
+                            *root
+                                .global_salience
+                                .strategic_weapon_effect_map
+                                .write()
+                                .unwrap() = root.calculate_strategic_weapon_effect_map();
+                        }
                     }
-                    self.deploy_daughters(root);
+                    None => {}
                 }
-                None => {}
+                destination_option
+            } else {
+                None
             }
-            destination_option
         } else {
             None
         }
@@ -2294,7 +3588,7 @@ pub trait Mobility {
                 daughter.transfer(UnitLocation::Node(self.get_mother_node()));
                 let mut moving = true;
                 while moving {
-                    if (!daughter.is_in_node()) || daughter.maneuver(root).is_none() {
+                    if daughter.maneuver(root).is_none() {
                         moving = false
                     }
                 }
@@ -2313,8 +3607,8 @@ pub trait Mobility {
         duration: u64,
         duration_damage_rand: f32,
         rng: &mut Hc128Rng,
-    ) -> (u64, Vec<u64>);
-    fn damage(&self, damage: u64, engine_damage: &Vec<u64>);
+    ) -> (i64, Vec<i64>, Vec<i64>);
+    fn damage(&self, damage: i64, engine_damage: &Vec<i64>, strategic_weapon_damage: &Vec<i64>);
     fn repair(&self, per_engagement: bool);
     //Checks whether the unit will defect this turn; if it will, makes the unit defect and returns the node the ship is in afterward
     //so that that node can be checked for engagements
@@ -2326,7 +3620,7 @@ pub trait Mobility {
         let local_threat_ratio: f32 = defectchance
             .iter()
             .map(|(faction, _)| {
-                root.globalsalience.factionsalience.read().unwrap()[allegiance.id][faction.id]
+                root.global_salience.faction_salience.read().unwrap()[allegiance.id][faction.id]
                     [location.id][0]
             })
             .sum();
@@ -2349,10 +3643,10 @@ pub trait Mobility {
         let defects = rng.gen_bool(defect_probability as f64);
         if defects {
             let interdiction: f32 = location
-                .mutables
+                .unit_container
                 .read()
                 .unwrap()
-                .units
+                .contents
                 .iter()
                 .filter(|unit| unit.get_allegiance() == allegiance)
                 .filter(|unit| unit.get_id() != self.get_id())
@@ -2364,7 +3658,7 @@ pub trait Mobility {
                     (
                         faction.clone(),
                         (defect_to
-                            * root.globalsalience.factionsalience.read().unwrap()[faction.id]
+                            * root.global_salience.faction_salience.read().unwrap()[faction.id]
                                 [faction.id][location.id][0]),
                     )
                 })
@@ -2385,8 +3679,8 @@ pub trait Mobility {
                         let destination = destinations
                             .iter()
                             .max_by_key(|node| {
-                                root.globalsalience.factionsalience.read().unwrap()[new_faction.id]
-                                    [new_faction.id][node.id][0]
+                                root.global_salience.faction_salience.read().unwrap()
+                                    [new_faction.id][new_faction.id][node.id][0]
                                     as i64
                             })
                             .unwrap()
@@ -2413,7 +3707,7 @@ pub trait Mobility {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShipFlavor {
     pub id: usize,
-    pub visiblename: String,
+    pub visible_name: String,
     pub description: String,
 }
 
@@ -2457,38 +3751,39 @@ impl ShipClassID {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShipClass {
     pub id: usize,
-    pub visiblename: String,
+    pub visible_name: String,
     pub description: String,
     pub shipflavor: Arc<ShipFlavor>,
-    pub basehull: u64,     //how many hull hitpoints this ship has by default
-    pub basestrength: u64, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
+    pub base_hull: u64,     //how many hull hitpoints this ship has by default
+    pub base_strength: u64, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
     pub visibility: bool,
     pub propagates: bool,
-    pub hangarvol: u64,
+    pub hangar_vol: u64,
     pub stockpiles: Vec<PluripotentStockpile>,
-    pub defaultweapons: Option<HashMap<Arc<Resource>, u64>>, //a strikecraft's default weapons, which it always has with it
+    pub default_weapons: Option<HashMap<Arc<Resource>, u64>>, //a strikecraft's default weapons, which it always has with it
     pub hangars: Vec<Arc<HangarClass>>,
     pub engines: Vec<Arc<EngineClass>>,
     pub repairers: Vec<Arc<RepairerClass>>,
-    pub internodeweapons: Vec<Arc<InterNodeWeaponClass>>,
-    pub factoryclasslist: Vec<Arc<FactoryClass>>,
-    pub shipyardclasslist: Vec<Arc<ShipyardClass>>,
-    pub aiclass: Arc<ShipAI>,
-    pub navthreshold: f32, //the value of an adjacent node must exceed (the value of the current node times navthreshold) in order for the ship to decide to move
-    pub processordemandnavscalar: f32, //multiplier for demand generated by the ship's engines, repairers, factories, and shipyards, to modify it relative to that generated by stockpiles
-    pub deploys_self: bool,            //if false, ship will not go on deployments
+    pub strategic_weapons: Vec<Arc<StrategicWeaponClass>>,
+    pub factories: Vec<Arc<FactoryClass>>,
+    pub shipyards: Vec<Arc<ShipyardClass>>,
+    pub ai_class: Arc<ShipAI>,
+    pub nav_threshold: f32, //the value of an adjacent node must exceed (the value of the current node times navthreshold) in order for the ship to decide to move
+    pub processor_demand_nav_scalar: f32, //multiplier for demand generated by the ship's engines, repairers, factories, and shipyards, to modify it relative to that generated by stockpiles
+    pub deploys_self: bool,               //if false, ship will not go on deployments
     pub deploys_daughters: Option<u64>, // if None, ship will not send its daughters on deployments; value is number of moves a daughter must be able to make to be deployed
-    pub defectchance: HashMap<Arc<Faction>, (f32, f32)>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
-    pub toughnessscalar: f32, //is used as a divisor for damage values taken by this ship in battle; a value of 2.0 will halve damage
-    pub battleescapescalar: f32, //is added to toughnessscalar in battles where this ship is on the losing side, trying to escape
-    pub defectescapescalar: f32, //influences how likely it is that a ship of this class will, if it defects, escape to an enemy-held node with no engagement taking place
-    pub interdictionscalar: f32,
+    pub defect_chance: HashMap<Arc<Faction>, (f32, f32)>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
+    pub toughness_scalar: f32, //is used as a divisor for damage values taken by this ship in battle; a value of 2.0 will halve damage
+    pub battle_escape_scalar: f32, //is added to toughness_scalar in battles where this ship is on the losing side, trying to escape
+    pub defect_escape_scalar: f32, //influences how likely it is that a ship of this class will, if it defects, escape to an enemy-held node with no engagement taking place
+    pub interdiction_scalar: f32,
+    pub strategic_weapon_evasion_scalar: f32,
     pub value_mult: f32, //how valuable the AI considers one volume point of this shipclass to be
 }
 
 impl ShipClass {
     fn get_ideal_strength(&self, root: &Root) -> u64 {
-        self.basestrength
+        self.base_strength
             + self
                 .hangars
                 .iter()
@@ -2496,12 +3791,12 @@ impl ShipClass {
                 .sum::<u64>()
     }
     fn get_ideal_volume(&self) -> u64 {
-        self.hangarvol
+        self.hangar_vol
     }
     fn get_unitclass(class: Arc<Self>) -> UnitClass {
         UnitClass::ShipClass(class.clone())
     }
-    //method to create a ship instance with this ship class
+    //method to create a ship  with this ship class
     //to avoid an infinite loop, this does not give the ship any hangars
     //we generate those in a later step with build_hangars
     fn instantiate(
@@ -2509,14 +3804,14 @@ impl ShipClass {
         location: UnitLocation,
         faction: Arc<Faction>,
         root: &Root,
-    ) -> ShipInstance {
+    ) -> Ship {
         let index = root.unitcounter.fetch_add(1, atomic::Ordering::Relaxed);
-        ShipInstance {
+        Ship {
             id: index,
-            visiblename: uuid::Uuid::new_v4().to_string(),
+            visible_name: uuid::Uuid::new_v4().to_string(),
             class: class.clone(),
-            mutables: RwLock::new(ShipInstanceMut {
-                hull: class.basehull,
+            mutables: RwLock::new(ShipMut {
+                hull: class.base_hull,
                 visibility: class.visibility,
                 stockpiles: class.stockpiles.clone(),
                 efficiency: 1.0,
@@ -2532,20 +3827,20 @@ impl ShipClass {
                     .iter()
                     .map(|repairerclass| RepairerClass::instantiate(repairerclass.clone()))
                     .collect(),
-                internodeweapons: class
-                    .internodeweapons
+                strategic_weapons: class
+                    .strategic_weapons
                     .iter()
-                    .map(|internodeweaponclass| {
-                        InterNodeWeaponClass::instantiate(internodeweaponclass.clone())
+                    .map(|strategicweaponclass| {
+                        StrategicWeaponClass::instantiate(strategicweaponclass.clone())
                     })
                     .collect(),
-                factoryinstancelist: class
-                    .factoryclasslist
+                factories: class
+                    .factories
                     .iter()
                     .map(|factoryclass| FactoryClass::instantiate(factoryclass.clone()))
                     .collect(),
-                shipyardinstancelist: class
-                    .shipyardclasslist
+                shipyards: class
+                    .shipyards
                     .iter()
                     .map(|shipyardclass| {
                         ShipyardClass::instantiate(shipyardclass.clone(), &root.shipclasses)
@@ -2554,14 +3849,14 @@ impl ShipClass {
                 location,
                 allegiance: faction,
                 objectives: Vec::new(),
-                aiclass: class.aiclass.clone(),
+                ai_class: class.ai_class.clone(),
             }),
         }
     }
     //NOTE: having this be a method feels a little odd when instantiate isn't one
     pub fn build_hangars(
         &self,
-        ship: Arc<ShipInstance>,
+        ship: Arc<Ship>,
         shipclasses: &Vec<Arc<ShipClass>>,
         counter: &Arc<AtomicU64>,
     ) {
@@ -2602,38 +3897,50 @@ impl Hash for ShipClass {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ShipInstanceMut {
+pub struct ShipMut {
     pub hull: u64, //how many hitpoints the ship has
     pub visibility: bool,
     pub stockpiles: Vec<PluripotentStockpile>,
     pub efficiency: f32,
-    pub hangars: Vec<Arc<HangarInstance>>,
-    pub engines: Vec<EngineInstance>,
-    pub movement_left: u64, //starts at one trillion each turn, gets decremented as ship moves; represents time left to move during the turn
-    pub repairers: Vec<RepairerInstance>,
-    pub internodeweapons: Vec<Arc<InterNodeWeaponClass>>,
-    pub factoryinstancelist: Vec<FactoryInstance>,
-    pub shipyardinstancelist: Vec<ShipyardInstance>,
+    pub hangars: Vec<Arc<Hangar>>,
+    pub engines: Vec<Engine>,
+    pub movement_left: u64, //starts at u64::MAX each turn, gets decremented as ship moves; represents time left to move during the turn
+    pub repairers: Vec<Repairer>,
+    pub strategic_weapons: Vec<StrategicWeapon>,
+    pub factories: Vec<Factory>,
+    pub shipyards: Vec<Shipyard>,
     pub location: UnitLocation, //where the ship is -- a node if it's unaffiliated, a squadron if it's in one
     pub allegiance: Arc<Faction>, //which faction this ship belongs to
     pub objectives: Vec<Objective>,
-    pub aiclass: Arc<ShipAI>,
+    pub ai_class: Arc<ShipAI>,
+}
+
+impl ShipMut {
+    pub fn get_speed_factor(&self, average_speed: u64, turn: u64) -> f32 {
+        self.engines
+            .iter()
+            .find(|engine| engine.check_engine_movement_only(turn))
+            .map(|engine| {
+                (engine.class.speed as f32 / engine.class.cooldown as f32) / average_speed as f32
+            })
+            .unwrap_or(0.0)
+    }
 }
 
 #[derive(Debug)]
-pub struct ShipInstance {
+pub struct Ship {
     pub id: u64,
-    pub visiblename: String,
+    pub visible_name: String,
     pub class: Arc<ShipClass>, //which class of ship this is
-    pub mutables: RwLock<ShipInstanceMut>,
+    pub mutables: RwLock<ShipMut>,
 }
 
-impl ShipInstance {
+impl Ship {
     pub fn process_factories(&self) {
         let mut mutables = self.mutables.write().unwrap();
         let efficiency = mutables.efficiency;
         mutables
-            .factoryinstancelist
+            .factories
             .iter_mut()
             .for_each(|f| f.process(efficiency));
     }
@@ -2641,7 +3948,7 @@ impl ShipInstance {
         let mut mutables = self.mutables.write().unwrap();
         let efficiency = mutables.efficiency;
         mutables
-            .shipyardinstancelist
+            .shipyards
             .iter_mut()
             .for_each(|sy| sy.process(efficiency));
     }
@@ -2654,7 +3961,7 @@ impl ShipInstance {
         let location = mutables.location.clone();
         let allegiance = mutables.allegiance.clone();
         mutables
-            .shipyardinstancelist
+            .shipyards
             .iter_mut()
             .map(|shipyard| {
                 let ship_plans = shipyard.plan_ships(efficiency, shipclasses);
@@ -2674,46 +3981,46 @@ impl ShipInstance {
     }
 }
 
-impl PartialEq for ShipInstance {
+impl PartialEq for Ship {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
-            && self.visiblename == other.visiblename
+            && self.visible_name == other.visible_name
             && self.class == other.class
             && self.mutables.read().unwrap().clone() == other.mutables.read().unwrap().clone()
     }
 }
 
-impl Eq for ShipInstance {}
+impl Eq for Ship {}
 
-impl Ord for ShipInstance {
+impl Ord for Ship {
     fn cmp(&self, other: &Self) -> Ordering {
         self.id.cmp(&other.id)
     }
 }
 
-impl PartialOrd for ShipInstance {
+impl PartialOrd for Ship {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.id.partial_cmp(&other.id)
     }
 }
 
-impl Hash for ShipInstance {
+impl Hash for Ship {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id.hash(state);
     }
 }
 
-impl Mobility for Arc<ShipInstance> {
+impl Mobility for Arc<Ship> {
     fn get_unit(&self) -> Unit {
         Unit::Ship(self.clone())
     }
     fn get_unitclass(&self) -> UnitClass {
         UnitClass::ShipClass(self.class.clone())
     }
-    fn get_ship(&self) -> Option<Arc<ShipInstance>> {
+    fn get_ship(&self) -> Option<Arc<Ship>> {
         Some(self.clone())
     }
-    fn get_squadron(&self) -> Option<Arc<SquadronInstance>> {
+    fn get_squadron(&self) -> Option<Arc<Squadron>> {
         None
     }
     fn get_id(&self) -> u64 {
@@ -2729,23 +4036,23 @@ impl Mobility for Arc<ShipInstance> {
         let mother = self.get_location();
         let sisters: Vec<_> = match mother.clone() {
             UnitLocation::Node(node) => node
-                .mutables
+                .unit_container
                 .read()
                 .unwrap()
-                .units
+                .contents
                 .iter()
                 .cloned()
                 .collect(),
             UnitLocation::Squadron(squadron) => squadron
-                .mutables
+                .unit_container
                 .read()
                 .unwrap()
-                .daughters
+                .contents
                 .iter()
                 .cloned()
                 .collect(),
             UnitLocation::Hangar(hangar) => hangar
-                .mutables
+                .unit_container
                 .read()
                 .unwrap()
                 .contents
@@ -2761,8 +4068,29 @@ impl Mobility for Arc<ShipInstance> {
             1
         );
     }
+    fn get_base_hull(&self) -> u64 {
+        self.class.base_hull
+    }
     fn get_hull(&self) -> u64 {
         self.mutables.read().unwrap().hull
+    }
+    fn get_engine_base_health(&self) -> u64 {
+        self.mutables
+            .read()
+            .unwrap()
+            .engines
+            .iter()
+            .map(|e| e.class.base_health.unwrap_or(0))
+            .sum()
+    }
+    fn get_strategic_weapon_base_health(&self) -> u64 {
+        self.mutables
+            .read()
+            .unwrap()
+            .strategic_weapons
+            .iter()
+            .map(|w| w.class.base_health.unwrap_or(0))
+            .sum()
     }
     fn get_allegiance(&self) -> Arc<Faction> {
         self.mutables.read().unwrap().allegiance.clone()
@@ -2775,7 +4103,7 @@ impl Mobility for Arc<ShipInstance> {
             .iter()
             .map(|hangar| {
                 hangar
-                    .mutables
+                    .unit_container
                     .read()
                     .unwrap()
                     .contents
@@ -2796,7 +4124,7 @@ impl Mobility for Arc<ShipInstance> {
                     .iter()
                     .map(|hangar| {
                         hangar
-                            .mutables
+                            .unit_container
                             .read()
                             .unwrap()
                             .contents
@@ -2809,6 +4137,9 @@ impl Mobility for Arc<ShipInstance> {
             )
             .collect()
     }
+    fn get_undocked_daughters(&self) -> Vec<Arc<Ship>> {
+        vec![self.clone()]
+    }
     //NOTE: Dummied out until morale system exists.
     fn get_morale_scalar(&self) -> f32 {
         1.0
@@ -2818,7 +4149,7 @@ impl Mobility for Arc<ShipInstance> {
         1.0
     }
     fn get_interdiction_scalar(&self) -> f32 {
-        self.class.interdictionscalar
+        self.class.interdiction_scalar
             * self
                 .get_daughters()
                 .iter()
@@ -2826,7 +4157,7 @@ impl Mobility for Arc<ShipInstance> {
                 .product::<f32>()
     }
     fn get_processordemandnavscalar(&self) -> f32 {
-        self.class.processordemandnavscalar
+        self.class.processor_demand_nav_scalar
     }
     fn get_strength(&self, time: u64) -> u64 {
         let mutables = self.mutables.read().unwrap();
@@ -2838,10 +4169,10 @@ impl Mobility for Arc<ShipInstance> {
         let objective_strength: f32 = mutables
             .objectives
             .iter()
-            .map(|of| of.get_scalars().strengthscalar)
+            .map(|objective| objective.strength_scalar)
             .product();
-        (self.class.basestrength as f32
-            * (mutables.hull as f32 / self.class.basehull as f32)
+        (self.class.base_strength as f32
+            * (mutables.hull as f32 / self.class.base_hull as f32)
             * self.get_character_strength_scalar()
             * objective_strength) as u64
             + daughter_strength
@@ -2849,36 +4180,54 @@ impl Mobility for Arc<ShipInstance> {
     //this one is used for checking which faction has the most strength left after a battle
     //we know how much damage the ship will take, but it hasn't actually been applied yet
     //also, we don't worry about daughters because we're evaluating all units separately
-    fn get_strength_post_engagement(&self, damage: u64) -> u64 {
+    fn get_strength_post_engagement(&self, damage: i64) -> u64 {
         let mutables = self.mutables.read().unwrap();
         let objective_strength: f32 = mutables
             .objectives
             .iter()
-            .map(|of| of.get_scalars().strengthscalar)
+            .map(|objective| objective.strength_scalar)
             .product();
-        (self.class.basestrength as f32
-            * ((mutables.hull - damage) as f32 / self.class.basehull as f32)
+        (self.class.base_strength as f32
+            * ((mutables.hull as i64 - damage).clamp(0, self.class.base_hull as i64) as f32
+                / self.class.base_hull as f32)
             * self.get_character_strength_scalar()
             * objective_strength) as u64
     }
-    fn get_volume(&self) -> u64 {
-        self.class.hangarvol
+    fn get_real_volume(&self) -> u64 {
+        self.class.hangar_vol
+    }
+    fn get_real_volume_locked(
+        &self,
+        _squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+    ) -> u64 {
+        self.class.hangar_vol
+    }
+    fn get_capacity_volume(&self) -> u64 {
+        self.class.hangar_vol
     }
     fn get_ai(&self) -> NavAI {
-        let ai = &self.mutables.read().unwrap().aiclass;
+        let ai = &self.mutables.read().unwrap().ai_class;
         NavAI {
-            ship_attract_specific: ai.ship_attract_specific.clone(),
-            ship_attract_generic: ai.ship_attract_generic.clone(),
+            ship_attract_specific: ai.ship_attract_specific,
+            ship_attract_generic: ai.ship_attract_generic,
             ship_cargo_attract: ai.ship_cargo_attract.clone(),
             resource_attract: ai.resource_attract.clone(),
-            friendly_supply_attract: ai.friendly_supply_attract.clone(),
-            hostile_supply_attract: ai.hostile_supply_attract.clone(),
-            allegiance_demand_attract: ai.allegiance_demand_attract.clone(),
-            enemy_demand_attract: ai.enemy_demand_attract.clone(),
+            friendly_supply_attract: ai.friendly_supply_attract,
+            hostile_supply_attract: ai.hostile_supply_attract,
+            allegiance_demand_attract: ai.allegiance_demand_attract,
+            enemy_demand_attract: ai.enemy_demand_attract,
+            strategic_weapon_damage_attract: ai.strategic_weapon_damage_attract,
+            strategic_weapon_engine_damage_attract: ai.strategic_weapon_engine_damage_attract,
+            strategic_weapon_strategic_weapon_damage_attract: ai
+                .strategic_weapon_strategic_weapon_damage_attract,
+            strategic_weapon_healing_attract: ai.strategic_weapon_healing_attract,
+            strategic_weapon_engine_healing_attract: ai.strategic_weapon_engine_healing_attract,
+            strategic_weapon_strategic_weapon_healing_attract: ai
+                .strategic_weapon_strategic_weapon_healing_attract,
         }
     }
-    fn get_navthreshold(&self) -> f32 {
-        self.class.navthreshold.clone()
+    fn get_nav_threshold(&self) -> f32 {
+        self.class.nav_threshold.clone()
     }
     fn get_objectives(&self) -> Vec<Objective> {
         self.mutables
@@ -2897,8 +4246,8 @@ impl Mobility for Arc<ShipInstance> {
     }
     fn get_defection_data(&self) -> (HashMap<Arc<Faction>, (f32, f32)>, f32) {
         (
-            self.class.defectchance.clone(),
-            self.class.defectescapescalar,
+            self.class.defect_chance.clone(),
+            self.class.defect_escape_scalar,
         )
     }
     fn get_resource_supply(&self, resource: Arc<Resource>) -> u64 {
@@ -2910,7 +4259,7 @@ impl Mobility for Arc<ShipInstance> {
             .map(|sp| sp.get_resource_supply(resource.clone()))
             .sum::<u64>()
             + mutables
-                .factoryinstancelist
+                .factories
                 .iter()
                 .map(|f| f.get_resource_supply_total(resource.clone()))
                 .sum::<u64>()
@@ -2939,12 +4288,12 @@ impl Mobility for Arc<ShipInstance> {
                 .map(|r| r.get_resource_demand_total(resource.clone()))
                 .sum::<u64>()
             + mutables
-                .factoryinstancelist
+                .factories
                 .iter()
                 .map(|f| f.get_resource_demand_total(resource.clone()))
                 .sum::<u64>()
             + mutables
-                .shipyardinstancelist
+                .shipyards
                 .iter()
                 .map(|s| s.get_resource_demand_total(resource.clone()))
                 .sum::<u64>()
@@ -2981,12 +4330,12 @@ impl Mobility for Arc<ShipInstance> {
                 .map(|r| r.get_resource_demand_total(resource.clone()))
                 .sum::<u64>()
             + mutables
-                .factoryinstancelist
+                .factories
                 .iter()
                 .map(|f| f.get_resource_demand_total(resource.clone()))
                 .sum::<u64>()
             + mutables
-                .shipyardinstancelist
+                .shipyards
                 .iter()
                 .map(|s| s.get_resource_demand_total(resource.clone()))
                 .sum::<u64>()
@@ -3009,13 +4358,13 @@ impl Mobility for Arc<ShipInstance> {
                 .hangars
                 .iter()
                 .filter(|hangar| hangar.class.propagates)
-                .map(|hangar| hangar.get_unitclass_num(unitclass.clone()))
+                .map(|hangar| hangar.get_unitclass_num_recursive(unitclass.clone()))
                 .sum::<u64>()
     }
     //NOTE: It's possible that this approach of gathering the volume data one ship at a time like this is less performant than filtering down the collection of units,
     //getting length, then multiplying by volume
-    fn get_unitclass_supply(&self, unitclass: UnitClass) -> u64 {
-        ((&self.get_unitclass() == &unitclass) as u64 * self.get_volume())
+    fn get_unitclass_supply_recursive(&self, unitclass: UnitClass) -> u64 {
+        ((&self.get_unitclass() == &unitclass) as u64 * self.get_real_volume())
             + self
                 .mutables
                 .read()
@@ -3023,17 +4372,17 @@ impl Mobility for Arc<ShipInstance> {
                 .hangars
                 .iter()
                 .filter(|hangar| hangar.class.propagates)
-                .map(|hangar| hangar.get_unitclass_supply(unitclass.clone()))
+                .map(|hangar| hangar.get_unitclass_supply_recursive(unitclass.clone()))
                 .sum::<u64>()
     }
-    fn get_unitclass_demand(&self, unitclass: UnitClass) -> u64 {
+    fn get_unitclass_demand_recursive(&self, unitclass: UnitClass) -> u64 {
         self.mutables
             .read()
             .unwrap()
             .hangars
             .iter()
             .filter(|hangar| hangar.class.propagates)
-            .map(|hangar| hangar.get_unitclass_demand(unitclass.clone()))
+            .map(|hangar| hangar.get_unitclass_demand_recursive(unitclass.clone()))
             .sum::<u64>()
     }
     fn change_allegiance(&self, new_faction: Arc<Faction>) {
@@ -3043,15 +4392,17 @@ impl Mobility for Arc<ShipInstance> {
             .for_each(|daughter| daughter.change_allegiance(new_faction.clone()));
     }
     fn transfer(&self, destination: UnitLocation) -> bool {
-        let source = self.get_location();
-        if source.check_remove(self.get_unit())
-            && destination.check_insert(self.get_unit())
+        let source = self.get_location().clone();
+        let mut source_container = source.get_unit_container_lock();
+        let mut self_mut = self.mutables.write().unwrap();
+        let mut destination_container = destination.get_unit_container_lock();
+        if source.check_remove(&source_container, self.get_unit())
+            && destination.check_insert(&destination_container, self.get_unit())
             && self.acyclicity_check(destination.clone())
         {
-            source.remove_unit(self.get_unit());
-            //NOTE: Make sure cloning destination here clones the arc rather than cloning the thing inside the arc
-            self.mutables.write().unwrap().location = destination.clone();
-            destination.insert_unit(self.get_unit());
+            source.remove_unit(&mut source_container, self.get_unit());
+            self_mut.location = destination.clone();
+            destination.insert_unit(&mut destination_container, self.get_unit());
             true
         } else {
             false
@@ -3086,7 +4437,7 @@ impl Mobility for Arc<ShipInstance> {
             .iter()
             .map(|hangar| {
                 let (active, passive): (Vec<Unit>, Vec<Unit>) = hangar
-                    .mutables
+                    .unit_container
                     .read()
                     .unwrap()
                     .contents
@@ -3182,7 +4533,7 @@ impl Mobility for Arc<ShipInstance> {
         duration: u64,
         duration_damage_rand: f32,
         rng: &mut Hc128Rng,
-    ) -> (u64, Vec<u64>) {
+    ) -> (i64, Vec<i64>, Vec<i64>) {
         //to calculate how much damage the ship takes
         //we first have a multiplicative damage value, which is:
         //the ship's maximum health
@@ -3199,36 +4550,36 @@ impl Mobility for Arc<ShipInstance> {
         //times the losing-ship multiplier
         //
         //then we divide all that by the sum of the ship's toughness and escape scalars
-        let rand_factor = Normal::<f32>::new(0.25, root.config.battlescalars.damage_dev)
+        let rand_factor = Normal::<f32>::new(0.25, root.config.battle_scalars.damage_dev)
             .unwrap()
             .sample(rng)
             .clamp(0.0, 10.0);
         let vae = match is_victor {
-            true => root.config.battlescalars.vae_victor,
-            false => root.config.battlescalars.vae_victis,
+            true => root.config.battle_scalars.vae_victor,
+            false => root.config.battle_scalars.vae_victis,
         };
         //we do basically the same thing for winning ships and losing ships
         //except that the strength ratio is reversed
         //we use the damage multiplier for winners or losers
         //and we don't take battleescapescalar into account for winners
-        let damage = (((self.class.basehull as f32
+        let damage = (((self.class.base_hull as f32
             * (enemy_strength / allied_strength)
-            * ((duration as f32 / root.config.battlescalars.avg_duration as f32)
-                * root.config.battlescalars.duration_damage_scalar
+            * ((duration as f32 / root.config.battle_scalars.avg_duration as f32)
+                * root.config.battle_scalars.duration_damage_scalar
                 * duration_damage_rand)
             * rand_factor
             * vae)
-            + (root.config.battlescalars.base_damage
+            + (root.config.battle_scalars.base_damage
                 * (enemy_strength / allied_strength)
-                * ((duration as f32 / root.config.battlescalars.avg_duration as f32)
-                    * root.config.battlescalars.duration_damage_scalar
+                * ((duration as f32 / root.config.battle_scalars.avg_duration as f32)
+                    * root.config.battle_scalars.duration_damage_scalar
                     * duration_damage_rand)
                 * rand_factor
                 * vae))
-            / (self.class.toughnessscalar
-                + (self.class.battleescapescalar * !is_victor as i8 as f32)))
-            as u64;
-        let engine_damage: Vec<u64> = self
+            / (self.class.toughness_scalar
+                + (self.class.battle_escape_scalar * (!is_victor as i8) as f32)))
+            as i64;
+        let engine_damage: Vec<i64> = self
             .mutables
             .read()
             .unwrap()
@@ -3237,19 +4588,37 @@ impl Mobility for Arc<ShipInstance> {
             .filter(|e| e.health.is_some())
             .map(|e| {
                 ((damage as f32
-                    * Normal::<f32>::new(1.0, root.config.battlescalars.damage_dev)
+                    * Normal::<f32>::new(1.0, root.config.battle_scalars.damage_dev)
                         .unwrap()
                         .sample(rng)
                         .clamp(0.0, 2.0)
-                    * root.config.battlescalars.engine_damage_scalar)
-                    / e.toughnessscalar) as u64
+                    * root.config.battle_scalars.engine_damage_scalar)
+                    / e.class.toughness_scalar) as i64
             })
             .collect();
-        (damage, engine_damage)
+        let strategic_weapon_damage: Vec<i64> = self
+            .mutables
+            .read()
+            .unwrap()
+            .strategic_weapons
+            .iter()
+            .filter(|w| w.health.is_some())
+            .map(|w| {
+                ((damage as f32
+                    * Normal::<f32>::new(1.0, root.config.battle_scalars.damage_dev)
+                        .unwrap()
+                        .sample(rng)
+                        .clamp(0.0, 2.0)
+                    * root.config.battle_scalars.strategic_weapon_damage_scalar)
+                    / w.class.toughness_scalar) as i64
+            })
+            .collect();
+        (damage, engine_damage, strategic_weapon_damage)
     }
-    fn damage(&self, damage: u64, engine_damage: &Vec<u64>) {
+    fn damage(&self, damage: i64, engine_damage: &Vec<i64>, strategic_weapon_damage: &Vec<i64>) {
         let mut mutables = self.mutables.write().unwrap();
-        mutables.hull = mutables.hull.saturating_sub(damage);
+        mutables.hull =
+            ((mutables.hull as i64) - (damage)).clamp(0, self.class.base_hull as i64) as u64;
         engine_damage
             .iter()
             .zip(
@@ -3259,37 +4628,59 @@ impl Mobility for Arc<ShipInstance> {
                     .filter(|engine| engine.health.is_some()),
             )
             .for_each(|(d, e)| {
-                e.health = Some(e.health.unwrap().saturating_sub(*d));
+                e.health = Some(
+                    (e.health.unwrap() as i64 - *d).clamp(0, e.class.base_health.unwrap() as i64)
+                        as u64,
+                );
+            });
+        strategic_weapon_damage
+            .iter()
+            .zip(
+                mutables
+                    .strategic_weapons
+                    .iter_mut()
+                    .filter(|weapon| weapon.health.is_some()),
+            )
+            .for_each(|(d, w)| {
+                w.health = Some(
+                    (w.health.unwrap() as i64 - *d).clamp(0, w.class.base_health.unwrap() as i64)
+                        as u64,
+                );
             });
     }
     fn repair(&self, per_engagement: bool) {
-        let mut mutables: RwLockWriteGuard<ShipInstanceMut> = self.mutables.write().unwrap();
+        let mut mutables: RwLockWriteGuard<ShipMut> = self.mutables.write().unwrap();
         let current_hull = mutables.hull;
-        if current_hull < self.class.basehull && current_hull > 0
-            || mutables.engines.iter().any(|e| e.health < e.basehealth)
+        if current_hull < self.class.base_hull && current_hull > 0
+            || mutables
+                .engines
+                .iter()
+                .any(|e| e.health < e.class.base_health)
         {
-            let [(hull_repair_points, hull_repair_factor), (engine_repair_points, engine_repair_factor)]: [(i64, f32); 2] = mutables
+            let [(hull_repair_points, hull_repair_factor), (engine_repair_points, engine_repair_factor), (strategic_weapon_repair_points, strategic_weapon_repair_factor)]: [(i64, f32); 3] = mutables
                 .repairers
                 .iter_mut()
-                .filter(|rp| rp.per_engagement == per_engagement)
+                .filter(|rp| rp.class.per_engagement == per_engagement)
                 .filter(|rp| rp.get_state() == FactoryState::Active)
                 .map(|rp| {
                     rp.process();
                     [
-                        (rp.repair_points, rp.repair_factor),
-                        (rp.engine_repair_points, rp.engine_repair_factor),
+                        (rp.class.repair_points, rp.class.repair_factor),
+                        (rp.class.engine_repair_points, rp.class.engine_repair_factor),
+                        (rp.class.strategic_weapon_repair_points, rp.class.engine_repair_factor),
                     ]
                 })
-                .fold([(0, 0.0); 2], |a, b| {
+                .fold([(0, 0.0); 3], |a, b| {
                     [
                         (a[0].0 + b[0].0, a[0].1 + b[0].1),
                         (a[1].0 + b[1].0, a[1].1 + b[1].1),
+                        (a[2].0 + b[2].0, a[2].1 + b[2].1),
                     ]
                 });
             mutables.hull = (current_hull as i64
                 + hull_repair_points
-                + (self.class.basehull as f32 * hull_repair_factor) as i64)
-                .clamp(0, self.class.basehull as i64) as u64;
+                + (self.class.base_hull as f32 * hull_repair_factor) as i64)
+                .clamp(0, self.class.base_hull as i64) as u64;
             mutables
                 .engines
                 .iter_mut()
@@ -3297,9 +4688,20 @@ impl Mobility for Arc<ShipInstance> {
                 .for_each(|e| {
                     (e.health.unwrap() as i64
                         + engine_repair_points
-                        + (e.basehealth.unwrap() as f32 * engine_repair_factor) as i64)
-                        .clamp(0, e.basehealth.unwrap() as i64) as u64;
-                })
+                        + (e.class.base_health.unwrap() as f32 * engine_repair_factor) as i64)
+                        .clamp(0, e.class.base_health.unwrap() as i64) as u64;
+                });
+            mutables
+                .strategic_weapons
+                .iter_mut()
+                .filter(|w| w.health.is_some())
+                .for_each(|w| {
+                    (w.health.unwrap() as i64
+                        + strategic_weapon_repair_points
+                        + (w.class.base_health.unwrap() as f32 * strategic_weapon_repair_factor)
+                            as i64)
+                        .clamp(0, w.class.base_health.unwrap() as i64) as u64;
+                });
         }
     }
     fn kill(&self) {
@@ -3311,7 +4713,7 @@ impl Mobility for Arc<ShipInstance> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SquadronFlavor {
     pub id: usize,
-    pub visiblename: String,
+    pub visible_name: String,
     pub description: String,
 }
 
@@ -3355,28 +4757,30 @@ impl SquadronClassID {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SquadronClass {
     pub id: usize,
-    pub visiblename: String,
+    pub visible_name: String,
     pub description: String,
     pub squadronflavor: Arc<SquadronFlavor>,
     pub visibility: bool,
-    pub propagates: bool,
-    pub strengthmod: (f32, u64),
-    pub squadronconfig: HashMap<UnitClassID, u64>,
-    pub non_ideal_supply_scalar: f32, //multiplier used for demand generated by non-ideal ships under the target limit; should be below one
+    pub capacity: u64,
     pub target: u64,
-    pub navthreshold: f32, //the value of an adjacent node must exceed (the value of the current node times navthreshold) in order for the ship to decide to move
-    pub navquorum: f32,
-    pub disbandthreshold: f32,
+    pub propagates: bool,
+    pub strength_mod: (f32, u64),
+    pub squadron_config: HashMap<UnitClassID, u64>,
+    pub sub_target_supply_scalar: f32, //multiplier used for demand generated by non-ideal ships under the target limit; should be below one
+    pub non_ideal_demand_scalar: f32, //multiplier used for demand generated for non-ideal unitclasses; should be below one
+    pub nav_threshold: f32, //the value of an adjacent node must exceed (the value of the current node times navthreshold) in order for the ship to decide to move
+    pub nav_quorum: f32,
+    pub disband_threshold: f32,
     pub deploys_self: bool, //if false, ship will not go on deployments
     pub deploys_daughters: Option<u64>, // if None, ship will not send its daughters on deployments
-    pub defectchance: HashMap<Arc<Faction>, (f32, f32)>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
-    pub defectescapescalar: f32,
+    pub defect_chance: HashMap<Arc<Faction>, (f32, f32)>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
+    pub defect_escape_scalar: f32,
     pub value_mult: f32, //how valuable the AI considers one volume point of this squadronclass to be
 }
 
 impl SquadronClass {
     pub fn get_ideal_strength(&self, root: &Root) -> u64 {
-        self.squadronconfig
+        self.squadron_config
             .iter()
             .map(|(unitclassid, v)| unitclassid.get_unitclass(root).get_ideal_strength(root) * v)
             .sum()
@@ -3392,21 +4796,21 @@ impl SquadronClass {
         location: Arc<Node>,
         faction: Arc<Faction>,
         root: &Root,
-    ) -> SquadronInstance {
+    ) -> Squadron {
         let index = root.unitcounter.fetch_add(1, atomic::Ordering::Relaxed);
-        SquadronInstance {
+        Squadron {
             id: index,
-            visiblename: uuid::Uuid::new_v4().to_string(),
+            visible_name: uuid::Uuid::new_v4().to_string(),
             class: class.clone(),
-            idealstrength: class.get_ideal_strength(root),
-            mutables: RwLock::new(SquadronInstanceMut {
+            ideal_strength: class.get_ideal_strength(root),
+            mutables: RwLock::new(SquadronMut {
                 visibility: class.visibility,
                 location: UnitLocation::Node(location),
-                daughters: Vec::new(),
                 allegiance: faction,
                 objectives: Vec::new(),
                 ghost: true,
             }),
+            unit_container: RwLock::new(UnitContainer::new()),
         }
     }
 }
@@ -3442,68 +4846,122 @@ pub struct NavAI {
     pub hostile_supply_attract: f32,
     pub allegiance_demand_attract: f32,
     pub enemy_demand_attract: f32,
+    pub strategic_weapon_damage_attract: f32,
+    pub strategic_weapon_engine_damage_attract: f32,
+    pub strategic_weapon_strategic_weapon_damage_attract: f32,
+    pub strategic_weapon_healing_attract: f32,
+    pub strategic_weapon_engine_healing_attract: f32,
+    pub strategic_weapon_strategic_weapon_healing_attract: f32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct SquadronInstanceMut {
+pub struct SquadronMut {
     pub visibility: bool,
     pub location: UnitLocation,
-    pub daughters: Vec<Unit>,
     pub allegiance: Arc<Faction>,
     pub objectives: Vec<Objective>,
     pub ghost: bool,
 }
 
 #[derive(Debug)]
-pub struct SquadronInstance {
+pub struct Squadron {
     pub id: u64,
-    pub visiblename: String,
+    pub visible_name: String,
     pub class: Arc<SquadronClass>,
-    pub idealstrength: u64,
-    pub mutables: RwLock<SquadronInstanceMut>,
+    pub ideal_strength: u64,
+    pub mutables: RwLock<SquadronMut>,
+    pub unit_container: RwLock<UnitContainer>,
 }
 
-impl PartialEq for SquadronInstance {
+impl Squadron {
+    pub fn get_unitclass_supply_local(
+        &self,
+        unit_container: &RwLockWriteGuard<UnitContainer>,
+        unitclass: UnitClass,
+        squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+    ) -> u64 {
+        unit_container
+            .contents
+            .iter()
+            .filter(|daughter| &daughter.get_unitclass() == &unitclass)
+            .map(|daughter| daughter.get_real_volume_locked(squadrons_containers_lock))
+            .sum()
+    }
+    pub fn get_unitclass_demand_local(
+        &self,
+        unit_container: &RwLockWriteGuard<UnitContainer>,
+        unitclass: UnitClass,
+        squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+    ) -> u64 {
+        let daughters = &unit_container.contents;
+        let daughter_unitclass_volume = daughters
+            .iter()
+            .filter(|unit| &unit.get_unitclass() == &unitclass)
+            .map(|unit| unit.get_real_volume_locked(squadrons_containers_lock))
+            .sum::<u64>();
+        let ideal_volume = self
+            .class
+            .squadron_config
+            .get(&UnitClassID::new_from_unitclass(&unitclass))
+            .unwrap_or(&0)
+            * unitclass.get_ideal_volume();
+        let ideal_demand = ideal_volume.saturating_sub(daughter_unitclass_volume);
+        let non_ideal_demand = (self
+            .class
+            .target
+            .saturating_sub(
+                daughters
+                    .iter()
+                    .map(|daughter| daughter.get_real_volume_locked(squadrons_containers_lock))
+                    .sum(),
+            )
+            .saturating_sub(ideal_demand) as f32
+            * self.class.non_ideal_demand_scalar) as u64;
+        ideal_demand + non_ideal_demand
+    }
+}
+
+impl PartialEq for Squadron {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
-            && self.visiblename == other.visiblename
+            && self.visible_name == other.visible_name
             && self.class == other.class
-            && self.idealstrength == other.idealstrength
+            && self.ideal_strength == other.ideal_strength
             && self.mutables.read().unwrap().clone() == other.mutables.read().unwrap().clone()
     }
 }
 
-impl Eq for SquadronInstance {}
+impl Eq for Squadron {}
 
-impl Ord for SquadronInstance {
+impl Ord for Squadron {
     fn cmp(&self, other: &Self) -> Ordering {
         self.id.cmp(&other.id)
     }
 }
 
-impl PartialOrd for SquadronInstance {
+impl PartialOrd for Squadron {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.id.partial_cmp(&other.id)
     }
 }
 
-impl Hash for SquadronInstance {
+impl Hash for Squadron {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id.hash(state);
     }
 }
 
-impl Mobility for Arc<SquadronInstance> {
+impl Mobility for Arc<Squadron> {
     fn get_unit(&self) -> Unit {
         Unit::Squadron(self.clone())
     }
     fn get_unitclass(&self) -> UnitClass {
         UnitClass::SquadronClass(self.class.clone())
     }
-    fn get_ship(&self) -> Option<Arc<ShipInstance>> {
+    fn get_ship(&self) -> Option<Arc<Ship>> {
         None
     }
-    fn get_squadron(&self) -> Option<Arc<SquadronInstance>> {
+    fn get_squadron(&self) -> Option<Arc<Squadron>> {
         Some(self.clone())
     }
     fn get_id(&self) -> u64 {
@@ -3519,23 +4977,23 @@ impl Mobility for Arc<SquadronInstance> {
         let mother = self.get_location();
         let sisters: Vec<_> = match mother.clone() {
             UnitLocation::Node(node) => node
-                .mutables
+                .unit_container
                 .read()
                 .unwrap()
-                .units
+                .contents
                 .iter()
                 .cloned()
                 .collect(),
             UnitLocation::Squadron(squadron) => squadron
-                .mutables
+                .unit_container
                 .read()
                 .unwrap()
-                .daughters
+                .contents
                 .iter()
                 .cloned()
                 .collect(),
             UnitLocation::Hangar(hangar) => hangar
-                .mutables
+                .unit_container
                 .read()
                 .unwrap()
                 .contents
@@ -3551,20 +5009,38 @@ impl Mobility for Arc<SquadronInstance> {
             1
         );
     }
+    fn get_base_hull(&self) -> u64 {
+        self.get_daughters()
+            .iter()
+            .map(|daughter| daughter.get_base_hull())
+            .sum()
+    }
     fn get_hull(&self) -> u64 {
         self.get_daughters()
             .iter()
             .map(|daughter| daughter.get_hull())
             .sum()
     }
+    fn get_engine_base_health(&self) -> u64 {
+        self.get_daughters()
+            .iter()
+            .map(|daughter| daughter.get_engine_base_health())
+            .sum()
+    }
+    fn get_strategic_weapon_base_health(&self) -> u64 {
+        self.get_daughters()
+            .iter()
+            .map(|daughter| daughter.get_strategic_weapon_base_health())
+            .sum()
+    }
     fn get_allegiance(&self) -> Arc<Faction> {
         self.mutables.read().unwrap().allegiance.clone()
     }
     fn get_daughters(&self) -> Vec<Unit> {
-        self.mutables
+        self.unit_container
             .read()
             .unwrap()
-            .daughters
+            .contents
             .iter()
             .cloned()
             .collect()
@@ -3572,14 +5048,21 @@ impl Mobility for Arc<SquadronInstance> {
     fn get_daughters_recursive(&self) -> Vec<Unit> {
         iter::once(self.clone().get_unit())
             .chain(
-                self.mutables
+                self.unit_container
                     .read()
                     .unwrap()
-                    .daughters
+                    .contents
                     .iter()
                     .map(|daughter| daughter.get_daughters_recursive())
                     .flatten(),
             )
+            .collect()
+    }
+    fn get_undocked_daughters(&self) -> Vec<Arc<Ship>> {
+        self.get_daughters()
+            .iter()
+            .map(|daughter| daughter.get_undocked_daughters())
+            .flatten()
             .collect()
     }
     fn get_morale_scalar(&self) -> f32 {
@@ -3607,7 +5090,7 @@ impl Mobility for Arc<SquadronInstance> {
             .product()
     }
     fn get_strength(&self, time: u64) -> u64 {
-        let (factor, additive) = self.class.strengthmod;
+        let (factor, additive) = self.class.strength_mod;
         let sum = self
             .get_daughters()
             .iter()
@@ -3615,14 +5098,29 @@ impl Mobility for Arc<SquadronInstance> {
             .sum::<u64>();
         (sum as f32 * factor) as u64 + additive
     }
-    fn get_strength_post_engagement(&self, _damage: u64) -> u64 {
+    fn get_strength_post_engagement(&self, _damage: i64) -> u64 {
         0
     }
-    fn get_volume(&self) -> u64 {
+    fn get_real_volume(&self) -> u64 {
         self.get_daughters()
             .iter()
-            .map(|daughter| daughter.get_volume())
+            .map(|daughter| daughter.get_real_volume())
             .sum()
+    }
+    fn get_real_volume_locked(
+        &self,
+        squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+    ) -> u64 {
+        squadrons_containers_lock
+            .get(&self.id)
+            .unwrap()
+            .contents
+            .iter()
+            .map(|daughter| daughter.get_real_volume_locked(squadrons_containers_lock))
+            .sum()
+    }
+    fn get_capacity_volume(&self) -> u64 {
+        self.class.capacity
     }
     fn get_ai(&self) -> NavAI {
         self.get_daughters().iter().fold(
@@ -3635,6 +5133,12 @@ impl Mobility for Arc<SquadronInstance> {
                 hostile_supply_attract: 1.0,
                 allegiance_demand_attract: 1.0,
                 enemy_demand_attract: 1.0,
+                strategic_weapon_damage_attract: 1.0,
+                strategic_weapon_engine_damage_attract: 1.0,
+                strategic_weapon_strategic_weapon_damage_attract: 1.0,
+                strategic_weapon_healing_attract: 1.0,
+                strategic_weapon_engine_healing_attract: 1.0,
+                strategic_weapon_strategic_weapon_healing_attract: 1.0,
             },
             |mut acc, ship| {
                 let sub_ai = ship.get_ai();
@@ -3643,15 +5147,29 @@ impl Mobility for Arc<SquadronInstance> {
                 sub_ai.ship_cargo_attract.iter().for_each(|(scid, num)| {
                     *acc.ship_cargo_attract.entry(*scid).or_insert(1.0) *= num;
                 });
-                sub_ai.ship_cargo_attract.iter().for_each(|(rid, num)| {
-                    *acc.ship_cargo_attract.entry(*rid).or_insert(1.0) *= num;
+                sub_ai.resource_attract.iter().for_each(|(resource, num)| {
+                    *acc.resource_attract.entry(resource.clone()).or_insert(1.0) *= num;
                 });
+                acc.friendly_supply_attract *= sub_ai.friendly_supply_attract;
+                acc.hostile_supply_attract *= sub_ai.hostile_supply_attract;
+                acc.allegiance_demand_attract *= sub_ai.allegiance_demand_attract;
+                acc.enemy_demand_attract *= sub_ai.enemy_demand_attract;
+                acc.strategic_weapon_damage_attract *= sub_ai.strategic_weapon_damage_attract;
+                acc.strategic_weapon_engine_damage_attract *=
+                    sub_ai.strategic_weapon_engine_damage_attract;
+                acc.strategic_weapon_strategic_weapon_damage_attract *=
+                    sub_ai.strategic_weapon_strategic_weapon_damage_attract;
+                acc.strategic_weapon_healing_attract *= sub_ai.strategic_weapon_healing_attract;
+                acc.strategic_weapon_engine_healing_attract *=
+                    sub_ai.strategic_weapon_engine_healing_attract;
+                acc.strategic_weapon_strategic_weapon_healing_attract *=
+                    sub_ai.strategic_weapon_strategic_weapon_healing_attract;
                 acc
             },
         )
     }
-    fn get_navthreshold(&self) -> f32 {
-        self.class.navthreshold.clone()
+    fn get_nav_threshold(&self) -> f32 {
+        self.class.nav_threshold.clone()
     }
     fn get_objectives(&self) -> Vec<Objective> {
         self.mutables
@@ -3670,8 +5188,8 @@ impl Mobility for Arc<SquadronInstance> {
     }
     fn get_defection_data(&self) -> (HashMap<Arc<Faction>, (f32, f32)>, f32) {
         (
-            self.class.defectchance.clone(),
-            self.class.defectescapescalar,
+            self.class.defect_chance.clone(),
+            self.class.defect_escape_scalar,
         )
     }
     fn get_resource_supply(&self, resource: Arc<Resource>) -> u64 {
@@ -3706,37 +5224,35 @@ impl Mobility for Arc<SquadronInstance> {
                 .map(|daughter| daughter.get_unitclass_num(unitclass.clone()))
                 .sum::<u64>()
     }
-    fn get_unitclass_supply(&self, unitclass: UnitClass) -> u64 {
+    fn get_unitclass_supply_recursive(&self, unitclass: UnitClass) -> u64 {
         let daughter_supply = self
             .get_daughters()
             .iter()
-            .map(|daughter| daughter.get_unitclass_supply(unitclass.clone()))
+            .map(|daughter| daughter.get_unitclass_supply_recursive(unitclass.clone()))
             .sum::<u64>();
         let ideal_volume = self
             .class
-            .squadronconfig
+            .squadron_config
             .get(&UnitClassID::new_from_unitclass(&unitclass))
             .unwrap_or(&0)
             * unitclass.get_ideal_volume();
         let non_ideal_volume = daughter_supply.saturating_sub(ideal_volume);
-        let excess_volume = self.get_volume().saturating_sub(self.class.target);
+        let excess_volume = self.get_real_volume().saturating_sub(self.class.target);
         let over_target_supply = (excess_volume).min(non_ideal_volume);
         let under_target_supply = ((non_ideal_volume.saturating_sub(over_target_supply)) as f32
-            * self.class.non_ideal_supply_scalar) as u64;
-        ((&self.get_unitclass() == &unitclass) as u64 * self.get_volume())
-            + over_target_supply
-            + under_target_supply
+            * self.class.sub_target_supply_scalar) as u64;
+        over_target_supply + under_target_supply
     }
-    fn get_unitclass_demand(&self, unitclass: UnitClass) -> u64 {
+    fn get_unitclass_demand_recursive(&self, unitclass: UnitClass) -> u64 {
         let daughter_volume = self
             .get_daughters()
             .iter()
             .filter(|unit| &unit.get_unitclass() == &unitclass)
-            .map(|unit| unit.get_volume())
+            .map(|unit| unit.get_real_volume())
             .sum::<u64>();
         let ideal_volume = self
             .class
-            .squadronconfig
+            .squadron_config
             .get(&UnitClassID::new_from_unitclass(&unitclass))
             .unwrap_or(&0)
             * unitclass.get_ideal_volume();
@@ -3744,10 +5260,9 @@ impl Mobility for Arc<SquadronInstance> {
             + self
                 .get_daughters()
                 .iter()
-                .map(|daughter| daughter.get_unitclass_demand(unitclass.clone()))
+                .map(|daughter| daughter.get_unitclass_demand_recursive(unitclass.clone()))
                 .sum::<u64>()
     }
-
     fn change_allegiance(&self, new_faction: Arc<Faction>) {
         self.mutables.write().unwrap().allegiance = new_faction.clone();
         self.get_daughters()
@@ -3755,31 +5270,20 @@ impl Mobility for Arc<SquadronInstance> {
             .for_each(|daughter| daughter.change_allegiance(new_faction.clone()));
     }
     fn transfer(&self, destination: UnitLocation) -> bool {
-        match self.mutables.read().unwrap().location.clone() {
-            UnitLocation::Node(node) => {
-                //NOTE: Make sure cloning destination here clones the arc rather than cloning the thing inside the arc
-                match destination.clone() {
-                    UnitLocation::Node(destnode) => {
-                        node.mutables
-                            .write()
-                            .unwrap()
-                            .units
-                            .retain(|unit| unit.get_id() != self.id);
-                        self.mutables.write().unwrap().location = destination.clone();
-                        destnode
-                            .mutables
-                            .write()
-                            .unwrap()
-                            .units
-                            .push(self.get_unit());
-                        true
-                    }
-                    UnitLocation::Squadron(_) => false,
-                    UnitLocation::Hangar(_) => false,
-                }
-            }
-            UnitLocation::Squadron(_) => false,
-            UnitLocation::Hangar(_) => false,
+        let source = self.get_location().clone();
+        let mut source_container = source.get_unit_container_lock();
+        let mut self_mut = self.mutables.write().unwrap();
+        let mut destination_container = destination.get_unit_container_lock();
+        if source.check_remove(&source_container, self.get_unit())
+            && destination.check_insert(&destination_container, self.get_unit())
+            && self.acyclicity_check(destination.clone())
+        {
+            source.remove_unit(&mut source_container, self.get_unit());
+            self_mut.location = destination.clone();
+            destination.insert_unit(&mut destination_container, self.get_unit());
+            true
+        } else {
+            false
         }
     }
     fn destinations_check(
@@ -3816,13 +5320,13 @@ impl Mobility for Arc<SquadronInstance> {
         //if we did, the squadron's strength modifiers would be counted only toward its total
         let failed_strength = failed_ships
             .iter()
-            .map(|ship| ship.get_strength(root.config.battlescalars.avg_duration) as f32)
+            .map(|ship| ship.get_strength(root.config.battle_scalars.avg_duration) as f32)
             .sum::<f32>();
         let total_strength = daughters
             .iter()
-            .map(|daughter| daughter.get_strength(root.config.battlescalars.avg_duration) as f32)
+            .map(|daughter| daughter.get_strength(root.config.battle_scalars.avg_duration) as f32)
             .sum::<f32>();
-        if (failed_strength / total_strength) < (1.0 - self.class.navquorum) {
+        if (failed_strength / total_strength) < (1.0 - self.class.nav_quorum) {
             passed_ships
         } else {
             Vec::new()
@@ -3872,10 +5376,10 @@ impl Mobility for Arc<SquadronInstance> {
         _duration: u64,
         _duration_damage_rand: f32,
         _rng: &mut Hc128Rng,
-    ) -> (u64, Vec<u64>) {
-        (0, Vec::new())
+    ) -> (i64, Vec<i64>, Vec<i64>) {
+        (0, Vec::new(), Vec::new())
     }
-    fn damage(&self, _damage: u64, _engine_damage: &Vec<u64>) {}
+    fn damage(&self, _damage: i64, _engine_damage: &Vec<i64>, strategic_weapon_damage: &Vec<i64>) {}
     fn repair(&self, _per_engagement: bool) {}
     fn kill(&self) {
         self.get_daughters()
@@ -3960,8 +5464,8 @@ impl UnitClass {
 
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub enum Unit {
-    Ship(Arc<ShipInstance>),
-    Squadron(Arc<SquadronInstance>),
+    Ship(Arc<Ship>),
+    Squadron(Arc<Squadron>),
 }
 
 impl Mobility for Unit {
@@ -3974,13 +5478,13 @@ impl Mobility for Unit {
             Unit::Squadron(squadron) => squadron.get_unitclass(),
         }
     }
-    fn get_ship(&self) -> Option<Arc<ShipInstance>> {
+    fn get_ship(&self) -> Option<Arc<Ship>> {
         match self {
             Unit::Ship(ship) => Some(ship.clone()),
             _ => None,
         }
     }
-    fn get_squadron(&self) -> Option<Arc<SquadronInstance>> {
+    fn get_squadron(&self) -> Option<Arc<Squadron>> {
         match self {
             Unit::Squadron(squadron) => Some(squadron.clone()),
             _ => None,
@@ -4010,10 +5514,28 @@ impl Mobility for Unit {
             Unit::Squadron(squadron) => squadron.check_location_coherency(),
         }
     }
+    fn get_base_hull(&self) -> u64 {
+        match self {
+            Unit::Ship(ship) => ship.get_base_hull(),
+            Unit::Squadron(squadron) => squadron.get_base_hull(),
+        }
+    }
     fn get_hull(&self) -> u64 {
         match self {
             Unit::Ship(ship) => ship.get_hull(),
             Unit::Squadron(squadron) => squadron.get_hull(),
+        }
+    }
+    fn get_engine_base_health(&self) -> u64 {
+        match self {
+            Unit::Ship(ship) => ship.get_engine_base_health(),
+            Unit::Squadron(squadron) => squadron.get_engine_base_health(),
+        }
+    }
+    fn get_strategic_weapon_base_health(&self) -> u64 {
+        match self {
+            Unit::Ship(ship) => ship.get_strategic_weapon_base_health(),
+            Unit::Squadron(squadron) => squadron.get_strategic_weapon_base_health(),
         }
     }
     fn get_allegiance(&self) -> Arc<Faction> {
@@ -4032,6 +5554,12 @@ impl Mobility for Unit {
         match self {
             Unit::Ship(ship) => ship.get_daughters_recursive(),
             Unit::Squadron(squadron) => squadron.get_daughters_recursive(),
+        }
+    }
+    fn get_undocked_daughters(&self) -> Vec<Arc<Ship>> {
+        match self {
+            Unit::Ship(ship) => ship.get_undocked_daughters(),
+            Unit::Squadron(squadron) => squadron.get_undocked_daughters(),
         }
     }
     fn get_morale_scalar(&self) -> f32 {
@@ -4064,16 +5592,31 @@ impl Mobility for Unit {
             Unit::Squadron(squadron) => squadron.get_strength(time),
         }
     }
-    fn get_strength_post_engagement(&self, damage: u64) -> u64 {
+    fn get_strength_post_engagement(&self, damage: i64) -> u64 {
         match self {
             Unit::Ship(ship) => ship.get_strength_post_engagement(damage),
             Unit::Squadron(squadron) => squadron.get_strength_post_engagement(damage),
         }
     }
-    fn get_volume(&self) -> u64 {
+    fn get_real_volume(&self) -> u64 {
         match self {
-            Unit::Ship(ship) => ship.get_volume(),
-            Unit::Squadron(squadron) => squadron.get_volume(),
+            Unit::Ship(ship) => ship.get_real_volume(),
+            Unit::Squadron(squadron) => squadron.get_real_volume(),
+        }
+    }
+    fn get_real_volume_locked(
+        &self,
+        squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+    ) -> u64 {
+        match self {
+            Unit::Ship(ship) => ship.get_real_volume_locked(squadrons_containers_lock),
+            Unit::Squadron(squadron) => squadron.get_real_volume_locked(squadrons_containers_lock),
+        }
+    }
+    fn get_capacity_volume(&self) -> u64 {
+        match self {
+            Unit::Ship(ship) => ship.get_capacity_volume(),
+            Unit::Squadron(squadron) => squadron.get_capacity_volume(),
         }
     }
     fn get_ai(&self) -> NavAI {
@@ -4082,10 +5625,10 @@ impl Mobility for Unit {
             Unit::Squadron(squadron) => squadron.get_ai(),
         }
     }
-    fn get_navthreshold(&self) -> f32 {
+    fn get_nav_threshold(&self) -> f32 {
         match self {
-            Unit::Ship(ship) => ship.get_navthreshold(),
-            Unit::Squadron(squadron) => squadron.get_navthreshold(),
+            Unit::Ship(ship) => ship.get_nav_threshold(),
+            Unit::Squadron(squadron) => squadron.get_nav_threshold(),
         }
     }
     fn get_objectives(&self) -> Vec<Objective> {
@@ -4142,19 +5685,18 @@ impl Mobility for Unit {
             Unit::Squadron(squadron) => squadron.get_unitclass_num(unitclass),
         }
     }
-    fn get_unitclass_supply(&self, unitclass: UnitClass) -> u64 {
+    fn get_unitclass_supply_recursive(&self, unitclass: UnitClass) -> u64 {
         match self {
-            Unit::Ship(ship) => ship.get_unitclass_supply(unitclass),
-            Unit::Squadron(squadron) => squadron.get_unitclass_supply(unitclass),
+            Unit::Ship(ship) => ship.get_unitclass_supply_recursive(unitclass),
+            Unit::Squadron(squadron) => squadron.get_unitclass_supply_recursive(unitclass),
         }
     }
-    fn get_unitclass_demand(&self, unitclass: UnitClass) -> u64 {
+    fn get_unitclass_demand_recursive(&self, unitclass: UnitClass) -> u64 {
         match self {
-            Unit::Ship(ship) => ship.get_unitclass_demand(unitclass),
-            Unit::Squadron(squadron) => squadron.get_unitclass_demand(unitclass),
+            Unit::Ship(ship) => ship.get_unitclass_demand_recursive(unitclass),
+            Unit::Squadron(squadron) => squadron.get_unitclass_demand_recursive(unitclass),
         }
     }
-
     fn change_allegiance(&self, new_faction: Arc<Faction>) {
         match self {
             Unit::Ship(ship) => ship.change_allegiance(new_faction),
@@ -4216,7 +5758,7 @@ impl Mobility for Unit {
         duration: u64,
         duration_damage_rand: f32,
         rng: &mut Hc128Rng,
-    ) -> (u64, Vec<u64>) {
+    ) -> (i64, Vec<i64>, Vec<i64>) {
         match self {
             Unit::Ship(ship) => ship.calculate_damage(
                 root,
@@ -4238,10 +5780,12 @@ impl Mobility for Unit {
             ),
         }
     }
-    fn damage(&self, damage: u64, engine_damage: &Vec<u64>) {
+    fn damage(&self, damage: i64, engine_damage: &Vec<i64>, strategic_weapon_damage: &Vec<i64>) {
         match self {
-            Unit::Ship(ship) => ship.damage(damage, engine_damage),
-            Unit::Squadron(squadron) => squadron.damage(damage, engine_damage),
+            Unit::Ship(ship) => ship.damage(damage, engine_damage, strategic_weapon_damage),
+            Unit::Squadron(squadron) => {
+                squadron.damage(damage, engine_damage, strategic_weapon_damage)
+            }
         }
     }
     fn repair(&self, per_engagement: bool) {
@@ -4258,81 +5802,39 @@ impl Mobility for Unit {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum ObjectiveTarget {
+    Node(Arc<Node>),
+    System(Arc<System>),
+    Unit(Unit),
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ObjectiveScalars {
-    pub difficulty: f32,
-    pub cost: u64,
-    pub durationscalar: f32,
-    pub strengthscalar: f32,
-    pub toughnessscalar: f32,
-    pub battleescapescalar: f32,
+pub enum ObjectiveTask {
+    Reach,
+    Kill,
+    Protect,
+    Capture,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Objective {
-    ReachNode {
-        scalars: ObjectiveScalars,
-        node: Arc<Node>,
-    },
-    ShipDeath {
-        scalars: ObjectiveScalars,
-        ship: Arc<ShipInstance>,
-    },
-    ShipSafe {
-        scalars: ObjectiveScalars,
-        ship: Arc<ShipInstance>,
-        nturns: u64,
-    },
-    SquadronDeath {
-        scalars: ObjectiveScalars,
-        squadron: Arc<SquadronInstance>,
-    },
-    SquadronSafe {
-        scalars: ObjectiveScalars,
-        squadron: Arc<SquadronInstance>,
-        nturns: u64,
-        strengthfraction: f32,
-    },
-    NodeCapture {
-        scalars: ObjectiveScalars,
-        node: Arc<Node>,
-    },
-    NodeSafe {
-        scalars: ObjectiveScalars,
-        node: Arc<Node>,
-        nturns: u64,
-    },
-    SystemCapture {
-        scalars: ObjectiveScalars,
-        system: Arc<System>,
-    },
-    SystemSafe {
-        scalars: ObjectiveScalars,
-        system: Arc<System>,
-        nturns: u64,
-        nodesfraction: f32,
-    },
-}
-
-impl Objective {
-    pub fn get_scalars(&self) -> ObjectiveScalars {
-        match self {
-            Objective::ReachNode { scalars, .. } => *scalars,
-            Objective::ShipDeath { scalars, .. } => *scalars,
-            Objective::ShipSafe { scalars, .. } => *scalars,
-            Objective::SquadronDeath { scalars, .. } => *scalars,
-            Objective::SquadronSafe { scalars, .. } => *scalars,
-            Objective::NodeCapture { scalars, .. } => *scalars,
-            Objective::NodeSafe { scalars, .. } => *scalars,
-            Objective::SystemCapture { scalars, .. } => *scalars,
-            Objective::SystemSafe { scalars, .. } => *scalars,
-        }
-    }
+pub struct Objective {
+    pub target: ObjectiveTarget,
+    pub task: ObjectiveTask,
+    pub fraction: Option<f32>,
+    pub duration: Option<u64>,
+    pub time_limit: Option<u64>,
+    pub difficulty: f32,
+    pub cost: u64,
+    pub duration_scalar: f32,
+    pub strength_scalar: f32,
+    pub toughness_scalar: f32,
+    pub battle_escape_scalar: f32,
 }
 
 #[derive(Debug)]
 pub struct Operation {
-    pub visiblename: String,
+    pub visible_name: String,
     pub objectives: Vec<Objective>,
 }
 
@@ -4345,8 +5847,9 @@ pub struct FactionForces {
 #[derive(Debug, PartialEq, Clone)]
 pub struct UnitStatus {
     pub location: Option<UnitLocation>,
-    pub damage: u64,
-    pub engine_damage: Vec<u64>,
+    pub damage: i64,
+    pub engine_damage: Vec<i64>,
+    pub strategic_weapon_damage: Vec<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -4486,7 +5989,7 @@ impl EngagementPrep {
                                 .local_forces
                                 .iter()
                                 .map(|unit| {
-                                    unit.get_strength(root.config.battlescalars.avg_duration)
+                                    unit.get_strength(root.config.battle_scalars.avg_duration)
                                 })
                                 .sum::<u64>() //sum together all the unit strengths
                         })
@@ -4530,7 +6033,7 @@ impl EngagementPrep {
                             .map(|unit| {
                                 unit.get_objectives()
                                     .iter()
-                                    .map(|objective| objective.get_scalars().durationscalar)
+                                    .map(|objective| objective.duration_scalar)
                                     .product::<f32>() //we multiply the individual objectives' scalars
                             })
                             .product::<f32>() //then the units'
@@ -4539,13 +6042,13 @@ impl EngagementPrep {
             })
             .product::<f32>(); //and finally the coalitions'
 
-        let duration: u64 = (((battle_size as f32).log(root.config.battlescalars.duration_log_exp)
-            + 300.0)
-            * objective_duration_scalar
-            * Normal::new(1.0, root.config.battlescalars.duration_dev)
-                .unwrap()
-                .sample(rng))
-        .clamp(0.0, 2.0) as u64;
+        let duration: u64 =
+            (((battle_size as f32).log(root.config.battle_scalars.duration_log_exp) + 300.0)
+                * objective_duration_scalar
+                * Normal::new(1.0, root.config.battle_scalars.duration_dev)
+                    .unwrap()
+                    .sample(rng))
+            .clamp(0.0, 2.0) as u64;
         duration
     }
     fn get_coalition_strengths(&self, duration: u64) -> HashMap<u64, u64> {
@@ -4597,7 +6100,7 @@ impl EngagementPrep {
                                 .map(|unit| {
                                     unit.get_objectives()
                                         .iter()
-                                        .map(|objective| objective.get_scalars().difficulty)
+                                        .map(|objective| objective.difficulty)
                                         .product::<f32>()
                                 })
                                 .product::<f32>()
@@ -4611,7 +6114,7 @@ impl EngagementPrep {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Engagement {
-    pub visiblename: String,
+    pub visible_name: String,
     pub turn: u64,
     pub coalitions: HashMap<u64, HashMap<Arc<Faction>, FactionForces>>,
     pub aggressor: Option<Arc<Faction>>,
@@ -4624,13 +6127,17 @@ pub struct Engagement {
 
 impl Engagement {
     pub fn battle_cleanup(&self, root: &Root) {
-        println!("{}", self.visiblename);
+        println!("{}", self.visible_name);
         self.location.mutables.write().unwrap().allegiance = self.victors.0.clone();
         self.unit_status.iter().for_each(|(_, faction_map)| {
             faction_map.iter().for_each(|(_, unit_map)| {
                 unit_map.iter().for_each(|(unit, status)| {
                     if let Some(place) = &status.location {
-                        unit.damage(status.damage, &status.engine_damage);
+                        unit.damage(
+                            status.damage,
+                            &status.engine_damage,
+                            &status.strategic_weapon_damage,
+                        );
                         unit.transfer(place.clone());
                         unit.repair(true);
                     } else {
@@ -4694,7 +6201,7 @@ pub mod polarity {
 
 pub trait Salience<P: Polarity> {
     //this retrieves the value of a specific salience in a specific node
-    fn get_value(
+    fn calculate_node_salience(
         self,
         root: &Root,
         node: Arc<Node>,
@@ -4705,7 +6212,7 @@ pub trait Salience<P: Polarity> {
 
 //this method retrieves threat value generated by a given faction
 impl Salience<polarity::Supply> for Arc<Faction> {
-    fn get_value(
+    fn calculate_node_salience(
         self,
         _root: &Root,
         node: Arc<Node>,
@@ -4725,7 +6232,7 @@ impl Salience<polarity::Supply> for Arc<Faction> {
 }
 
 impl Salience<polarity::Demand> for Arc<Faction> {
-    fn get_value(
+    fn calculate_node_salience(
         self,
         root: &Root,
         node: Arc<Node>,
@@ -4738,24 +6245,24 @@ impl Salience<polarity::Demand> for Arc<Faction> {
         //which are propagating salience into it. Not sure if this is desirable behavior.
         if faction == self {
             let resource_salience_by_node: Vec<Vec<[f32; 2]>> =
-                transpose(&root.globalsalience.resourcesalience.read().unwrap()[self.id]);
+                transpose(&root.global_salience.resource_salience.read().unwrap()[self.id]);
             let resource_supply: f32 = resource_salience_by_node[node.id]
                 .iter()
                 .map(|array| array[0])
                 .sum();
             let unitclass_salience_by_node: Vec<Vec<[f32; 2]>> =
-                transpose(&root.globalsalience.unitclasssalience.read().unwrap()[self.id]);
+                transpose(&root.global_salience.unitclass_salience.read().unwrap()[self.id]);
             let unitclass_supply: f32 = unitclass_salience_by_node[node.id]
                 .iter()
                 .map(|array| array[0])
                 .sum();
             let node_value = resource_supply + unitclass_supply;
             let node_object_faction_supply =
-                root.globalsalience.factionsalience.read().unwrap()[self.id][self.id][node.id][0];
+                root.global_salience.faction_salience.read().unwrap()[self.id][self.id][node.id][0];
             Some(
                 ((node_value
                     * self.volume_strength_ratio
-                    * root.config.saliencescalars.volume_strength_ratio)
+                    * root.config.salience_scalars.volume_strength_ratio)
                     - node_object_faction_supply.clamp(0.0, f32::MAX))
                     * self.value_mult,
             )
@@ -4767,7 +6274,7 @@ impl Salience<polarity::Demand> for Arc<Faction> {
 
 //this method tells us how much supply there is of a given resource in a given node
 impl Salience<polarity::Supply> for Arc<Resource> {
-    fn get_value(
+    fn calculate_node_salience(
         self,
         _root: &Root,
         node: Arc<Node>,
@@ -4780,7 +6287,7 @@ impl Salience<polarity::Supply> for Arc<Resource> {
             node.mutables
                 .read()
                 .unwrap()
-                .factoryinstancelist
+                .factories
                 .iter()
                 .map(|factory| factory.get_resource_supply_total(self.clone()))
                 .sum::<u64>()
@@ -4789,10 +6296,10 @@ impl Salience<polarity::Supply> for Arc<Resource> {
         };
         //then all the valid resource quantity in units
         let shipsupply: u64 = node
-            .mutables
+            .unit_container
             .read()
             .unwrap()
-            .units
+            .contents
             .iter()
             .filter(|unit| unit.get_allegiance() == faction)
             .map(|unit| unit.get_resource_supply(self.clone()))
@@ -4809,7 +6316,7 @@ impl Salience<polarity::Supply> for Arc<Resource> {
 
 //this method tells us how much demand there is for a given resource in a given node
 impl Salience<polarity::Demand> for Arc<Resource> {
-    fn get_value(
+    fn calculate_node_salience(
         self,
         _root: &Root,
         node: Arc<Node>,
@@ -4821,7 +6328,7 @@ impl Salience<polarity::Demand> for Arc<Resource> {
             node.mutables
                 .read()
                 .unwrap()
-                .factoryinstancelist
+                .factories
                 .iter()
                 .map(|factory| factory.get_resource_demand_total(self.clone()))
                 .sum::<u64>()
@@ -4833,7 +6340,7 @@ impl Salience<polarity::Demand> for Arc<Resource> {
             node.mutables
                 .read()
                 .unwrap()
-                .shipyardinstancelist
+                .shipyards
                 .iter()
                 .map(|shipyard| shipyard.get_resource_demand_total(self.clone()))
                 .sum::<u64>()
@@ -4842,10 +6349,10 @@ impl Salience<polarity::Demand> for Arc<Resource> {
         };
         //now we have to look at units in the node, since they might have stockpiles of their own
         let shipdemand: u64 = node
-            .mutables
+            .unit_container
             .read()
             .unwrap()
-            .units
+            .contents
             .iter()
             .filter(|unit| unit.get_allegiance() == faction)
             .map(|unit| unit.get_resource_demand(self.clone()))
@@ -4862,7 +6369,7 @@ impl Salience<polarity::Demand> for Arc<Resource> {
 
 //this method tells us how much supply there is of a given shipclass in a given node
 impl Salience<polarity::Supply> for UnitClass {
-    fn get_value(
+    fn calculate_node_salience(
         self,
         _root: &Root,
         node: Arc<Node>,
@@ -4870,13 +6377,13 @@ impl Salience<polarity::Supply> for UnitClass {
         _battle_duration: u64,
     ) -> Option<f32> {
         let sum = node
-            .mutables
+            .unit_container
             .read()
             .unwrap()
-            .units
+            .contents
             .iter()
             .filter(|unit| unit.get_allegiance() == faction)
-            .map(|unit| unit.get_unitclass_supply(self.clone()))
+            .map(|unit| unit.get_unitclass_supply_recursive(self.clone()))
             .sum::<u64>() as f32;
         if sum == 0_f32 {
             None
@@ -4888,7 +6395,7 @@ impl Salience<polarity::Supply> for UnitClass {
 
 //this method tells us how much demand there is for a given shipclass in a given node
 impl Salience<polarity::Demand> for UnitClass {
-    fn get_value(
+    fn calculate_node_salience(
         self,
         _root: &Root,
         node: Arc<Node>,
@@ -4896,13 +6403,13 @@ impl Salience<polarity::Demand> for UnitClass {
         _battle_duration: u64,
     ) -> Option<f32> {
         let sum = node
-            .mutables
+            .unit_container
             .read()
             .unwrap()
-            .units
+            .contents
             .iter()
             .filter(|unit| unit.get_allegiance() == faction)
-            .map(|unit| unit.get_unitclass_demand(self.clone()))
+            .map(|unit| unit.get_unitclass_demand_recursive(self.clone()))
             .sum::<u64>() as f32;
         if sum == 0_f32 {
             None
@@ -4926,9 +6433,10 @@ where
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GlobalSalience {
-    pub factionsalience: RwLock<Vec<Vec<Vec<[f32; 2]>>>>,
-    pub resourcesalience: RwLock<Vec<Vec<Vec<[f32; 2]>>>>,
-    pub unitclasssalience: RwLock<Vec<Vec<Vec<[f32; 2]>>>>,
+    pub faction_salience: RwLock<Vec<Vec<Vec<[f32; 2]>>>>,
+    pub resource_salience: RwLock<Vec<Vec<Vec<[f32; 2]>>>>,
+    pub unitclass_salience: RwLock<Vec<Vec<Vec<[f32; 2]>>>>,
+    pub strategic_weapon_effect_map: RwLock<Vec<Vec<[(i64, f32); 3]>>>,
 }
 
 #[derive(Debug)]
@@ -4944,9 +6452,10 @@ pub struct Root {
     pub wars: HashSet<(Arc<Faction>, Arc<Faction>)>,
     pub resources: Vec<Arc<Resource>>,
     pub hangarclasses: Vec<Arc<HangarClass>>,
-    pub hangarinstancecounter: Arc<AtomicU64>,
+    pub hangarcounter: Arc<AtomicU64>,
     pub engineclasses: Vec<Arc<EngineClass>>,
     pub repairerclasses: Vec<Arc<RepairerClass>>,
+    pub strategicweaponclasses: Vec<Arc<StrategicWeaponClass>>,
     pub factoryclasses: Vec<Arc<FactoryClass>>,
     pub shipyardclasses: Vec<Arc<ShipyardClass>>,
     pub shipais: Vec<Arc<ShipAI>>,
@@ -4954,11 +6463,11 @@ pub struct Root {
     pub squadronflavors: Vec<Arc<SquadronFlavor>>,
     pub shipclasses: Vec<Arc<ShipClass>>,
     pub squadronclasses: Vec<Arc<SquadronClass>>,
-    pub shipinstances: RwLock<Vec<Arc<ShipInstance>>>,
-    pub squadroninstances: RwLock<Vec<Arc<SquadronInstance>>>,
+    pub ships: RwLock<Vec<Arc<Ship>>>,
+    pub squadrons: RwLock<Vec<Arc<Squadron>>>,
     pub unitcounter: Arc<AtomicU64>,
     pub engagements: RwLock<Vec<Arc<Engagement>>>,
-    pub globalsalience: GlobalSalience,
+    pub global_salience: GlobalSalience,
     pub turn: Arc<AtomicU64>,
 }
 
@@ -4975,8 +6484,8 @@ impl PartialEq for Root {
             && self.wars == other.wars
             && self.resources == other.resources
             && self.hangarclasses == other.hangarclasses
-            && self.hangarinstancecounter.load(atomic::Ordering::Relaxed)
-                == other.hangarinstancecounter.load(atomic::Ordering::Relaxed)
+            && self.hangarcounter.load(atomic::Ordering::Relaxed)
+                == other.hangarcounter.load(atomic::Ordering::Relaxed)
             && self.engineclasses == other.engineclasses
             && self.repairerclasses == other.repairerclasses
             && self.factoryclasses == other.factoryclasses
@@ -4986,31 +6495,44 @@ impl PartialEq for Root {
             && self.squadronflavors == other.squadronflavors
             && self.shipclasses == other.shipclasses
             && self.squadronclasses == other.squadronclasses
-            && self.shipinstances.read().unwrap().clone()
-                == other.shipinstances.read().unwrap().clone()
-            && self.squadroninstances.read().unwrap().clone()
-                == other.squadroninstances.read().unwrap().clone()
+            && self.ships.read().unwrap().clone() == other.ships.read().unwrap().clone()
+            && self.squadrons.read().unwrap().clone() == other.squadrons.read().unwrap().clone()
             && self.unitcounter.load(atomic::Ordering::Relaxed)
                 == other.unitcounter.load(atomic::Ordering::Relaxed)
             && self.engagements.read().unwrap().clone() == other.engagements.read().unwrap().clone()
-            && self.globalsalience.factionsalience.read().unwrap().clone()
-                == other.globalsalience.factionsalience.read().unwrap().clone()
-            && self.globalsalience.resourcesalience.read().unwrap().clone()
-                == other
-                    .globalsalience
-                    .resourcesalience
-                    .read()
-                    .unwrap()
-                    .clone()
             && self
-                .globalsalience
-                .unitclasssalience
+                .global_salience
+                .faction_salience
                 .read()
                 .unwrap()
                 .clone()
                 == other
-                    .globalsalience
-                    .unitclasssalience
+                    .global_salience
+                    .faction_salience
+                    .read()
+                    .unwrap()
+                    .clone()
+            && self
+                .global_salience
+                .resource_salience
+                .read()
+                .unwrap()
+                .clone()
+                == other
+                    .global_salience
+                    .resource_salience
+                    .read()
+                    .unwrap()
+                    .clone()
+            && self
+                .global_salience
+                .unitclass_salience
+                .read()
+                .unwrap()
+                .clone()
+                == other
+                    .global_salience
+                    .unitclass_salience
                     .read()
                     .unwrap()
                     .clone()
@@ -5034,24 +6556,20 @@ impl Root {
         class: Arc<ShipClass>,
         location: UnitLocation,
         faction: Arc<Faction>,
-    ) -> Arc<ShipInstance> {
+    ) -> Arc<Ship> {
         //we call the shipclass instantiate method, and feed it the parameters it wants
-        //let index_lock = RwLock::new(self.shipinstances);
+        //let index_lock = RwLock::new(self.ships);
         let new_ship = Arc::new(ShipClass::instantiate(
             class.clone(),
             location.clone(),
             faction,
             self,
         ));
-        class.build_hangars(
-            new_ship.clone(),
-            &self.shipclasses,
-            &self.hangarinstancecounter,
-        );
+        class.build_hangars(new_ship.clone(), &self.shipclasses, &self.hangarcounter);
         //NOTE: Is this thread-safe? There might be enough space in here
-        //for something to go interact with the shipinstance in root and fail to get the arc from location.
-        self.shipinstances.write().unwrap().push(new_ship.clone());
-        location.insert_unit(new_ship.get_unit());
+        //for something to go interact with the ship in root and fail to get the arc from location.
+        self.ships.write().unwrap().push(new_ship.clone());
+        location.insert_unit(&mut location.get_unit_container_lock(), new_ship.get_unit());
         new_ship
     }
     pub fn engagement_check(&self, node: Arc<Node>, actor: Arc<Faction>) -> Option<Arc<Faction>> {
@@ -5090,9 +6608,9 @@ impl Root {
                     * *coalition_objective_difficulties.get(index).unwrap() as f32
                     * faction_map
                         .keys()
-                        .map(|faction| faction.battlescalar)
+                        .map(|faction| faction.battle_scalar)
                         .product::<f32>()
-                    * Normal::<f32>::new(1.0, self.config.battlescalars.attacker_chance_dev)
+                    * Normal::<f32>::new(1.0, self.config.battle_scalars.attacker_chance_dev)
                         .unwrap()
                         .sample(&mut rng)
                         .clamp(0.0, 2.0);
@@ -5108,7 +6626,7 @@ impl Root {
 
         let neighbors = self.neighbors.get(&data.location).unwrap();
 
-        let duration_damage_rand = Normal::<f32>::new(1.0, self.config.battlescalars.damage_dev)
+        let duration_damage_rand = Normal::<f32>::new(1.0, self.config.battle_scalars.damage_dev)
             .unwrap()
             .sample(&mut rng)
             .clamp(0.0, 1.0);
@@ -5176,16 +6694,17 @@ impl Root {
                                             .map(|(_, strength)| *strength)
                                             .sum::<u64>()
                                             as f32;
-                                        let (damage, engine_damage) = unit.calculate_damage(
-                                            self,
-                                            is_victor,
-                                            allied_strength,
-                                            enemy_strength,
-                                            duration,
-                                            duration_damage_rand,
-                                            &mut rng,
-                                        );
-                                        let is_alive = unit.get_hull() > damage;
+                                        let (damage, engine_damage, strategic_weapon_damage) = unit
+                                            .calculate_damage(
+                                                self,
+                                                is_victor,
+                                                allied_strength,
+                                                enemy_strength,
+                                                duration,
+                                                duration_damage_rand,
+                                                &mut rng,
+                                            );
+                                        let is_alive = unit.get_hull() as i64 > damage;
                                         (
                                             unit.clone(),
                                             UnitStatus {
@@ -5195,6 +6714,7 @@ impl Root {
                                                 },
                                                 damage,
                                                 engine_damage,
+                                                strategic_weapon_damage,
                                             },
                                         )
                                     })
@@ -5225,7 +6745,7 @@ impl Root {
             .clone();
 
         Engagement {
-            visiblename: format!("Battle of {}", data.location.visiblename.clone()),
+            visible_name: format!("Battle of {}", data.location.visible_name.clone()),
             turn: data.turn,
             coalitions: data.coalitions,
             aggressor: data.aggressor.clone(),
@@ -5237,8 +6757,8 @@ impl Root {
         }
     }
     pub fn remove_dead(&self) {
-        let dead: Vec<Arc<ShipInstance>> = self
-            .shipinstances
+        let dead: Vec<Arc<Ship>> = self
+            .ships
             .read()
             .unwrap()
             .iter()
@@ -5248,19 +6768,19 @@ impl Root {
         dead.iter()
             .for_each(|ship| match &ship.mutables.read().unwrap().location {
                 UnitLocation::Node(node) => node
-                    .mutables
+                    .unit_container
                     .write()
                     .unwrap()
-                    .units
+                    .contents
                     .retain(|unit| unit.get_id() != ship.id),
                 UnitLocation::Squadron(squadron) => squadron
-                    .mutables
+                    .unit_container
                     .write()
                     .unwrap()
-                    .daughters
+                    .contents
                     .retain(|unit| unit.get_id() != ship.id),
                 UnitLocation::Hangar(hangar) => hangar
-                    .mutables
+                    .unit_container
                     .write()
                     .unwrap()
                     .contents
@@ -5269,32 +6789,31 @@ impl Root {
         dead.iter().for_each(|ship| {
             ship.clone().kill();
         });
-        self.shipinstances
+        self.ships
             .write()
             .unwrap()
             .retain(|ship| ship.mutables.read().unwrap().hull > 0);
     }
     pub fn disband_squadrons(&self) {
         let dead = self
-            .squadroninstances
+            .squadrons
             .read()
             .unwrap()
             .iter()
             .filter(|squadron| {
-                ((squadron.get_strength(self.config.battlescalars.avg_duration) as f32)
-                    < (squadron.idealstrength as f32 * squadron.class.disbandthreshold))
+                ((squadron.get_strength(self.config.battle_scalars.avg_duration) as f32)
+                    < (squadron.ideal_strength as f32 * squadron.class.disband_threshold))
                     && !squadron.mutables.read().unwrap().ghost
             })
             .cloned()
             .collect::<Vec<_>>();
         for squadron in dead {
-            squadron
-                .get_daughters()
-                .iter()
-                .all(|daughter| daughter.transfer(UnitLocation::Node(squadron.get_mother_node())));
+            squadron.get_daughters().iter().all(|daughter| {
+                daughter.transfer(squadron.mutables.read().unwrap().location.clone())
+            });
         }
-        let remaining: Vec<Arc<SquadronInstance>> = self
-            .squadroninstances
+        let remaining: Vec<Arc<Squadron>> = self
+            .squadrons
             .read()
             .unwrap()
             .iter()
@@ -5303,13 +6822,79 @@ impl Root {
             })
             .cloned()
             .collect();
-        self.squadroninstances
+        self.squadrons
             .write()
             .unwrap()
             .retain(|squadron| remaining.contains(squadron));
     }
+    pub fn calculate_strategic_weapon_effect_map(&self) -> Vec<Vec<[(i64, f32); 3]>> {
+        self.factions
+            .iter()
+            .map(|subject_faction| {
+                self.ships
+                    .read()
+                    .unwrap()
+                    .iter()
+                    .filter(|ship| ship.mutables.read().unwrap().strategic_weapons.len() > 0)
+                    .fold(
+                        self.nodes.iter().map(|_| [(0, 0.0); 3]).collect(),
+                        |mut acc: Vec<[(i64, f32); 3]>, ship| {
+                            ship.mutables
+                                .read()
+                                .unwrap()
+                                .strategic_weapons
+                                .iter()
+                                .filter(|weapon| {
+                                    weapon.targets_faction(
+                                        &self,
+                                        &ship.get_allegiance(),
+                                        subject_faction,
+                                    )
+                                })
+                                .for_each(|weapon| {
+                                    let damage = (
+                                        (weapon.class.damage.0 .0 + weapon.class.damage.0 .1) / 2,
+                                        (weapon.class.damage.1 .0 + weapon.class.damage.1 .1) / 2.0,
+                                    );
+                                    let engine_damage = (
+                                        (weapon.class.engine_damage.0 .0
+                                            + weapon.class.engine_damage.0 .1)
+                                            / 2,
+                                        (weapon.class.engine_damage.1 .0
+                                            + weapon.class.engine_damage.1 .1)
+                                            / 2.0,
+                                    );
+                                    let strategic_weapon_damage = (
+                                        (weapon.class.strategic_weapon_damage.0 .0
+                                            + weapon.class.strategic_weapon_damage.0 .1)
+                                            / 2,
+                                        (weapon.class.strategic_weapon_damage.1 .0
+                                            + weapon.class.strategic_weapon_damage.1 .1)
+                                            / 2.0,
+                                    );
+                                    let target_nodes = ship.get_mother_node().get_nodes_in_range(
+                                        self,
+                                        weapon.class.range,
+                                        &weapon.class.forbidden_nodeflavors,
+                                        &weapon.class.forbidden_edgeflavors,
+                                    );
+                                    target_nodes.iter().for_each(|node| {
+                                        acc[node.id][0].0 += damage.0;
+                                        acc[node.id][0].1 += damage.1;
+                                        acc[node.id][1].0 += engine_damage.0;
+                                        acc[node.id][1].1 += engine_damage.1;
+                                        acc[node.id][2].0 += strategic_weapon_damage.0;
+                                        acc[node.id][2].1 += strategic_weapon_damage.1;
+                                    })
+                                });
+                            acc
+                        },
+                    )
+            })
+            .collect()
+    }
     //oh god
-    pub fn calculate_values<S: Salience<P> + Clone, P: Polarity>(
+    pub fn calculate_salience<S: Salience<P> + Clone, P: Polarity>(
         //we need a salience, which is the type of resource or shipclass or whatever we're calculating values for
         //and the faction for which we're calculating values
         //and we specify the number of times we want to calculate these values, (NOTE: uncertain) i.e. the number of edges we'll propagate across
@@ -5328,11 +6913,11 @@ impl Root {
             .filter_map(|node| {
                 salience
                     .clone()
-                    .get_value(
+                    .calculate_node_salience(
                         &self,
                         node.clone(),
                         subject_faction.clone(),
-                        self.config.battlescalars.avg_duration,
+                        self.config.battle_scalars.avg_duration,
                     )
                     .map(|v| (node.clone(), v))
             })
@@ -5341,7 +6926,7 @@ impl Root {
         //Length equals all nodes
         //This is a subjective map for subject faction
         let tagged_threats: Vec<Vec<[f32; 2]>> =
-            transpose(&self.globalsalience.factionsalience.read().unwrap()[subject_faction.id]);
+            transpose(&self.global_salience.faction_salience.read().unwrap()[subject_faction.id]);
         //this is the factor by which a salience passing through each node should be multiplied
         //we sum the tagged threats for each node -- which are valenced according to relations with the subject faction
         //then we use Alyssa's black mathemagics to convert them so that the scaling curve is correct
@@ -5414,17 +6999,17 @@ impl Root {
                     .par_iter()
                     .map(|objectfaction| {
                         if objectfaction.propagates {
-                            let supply = self.calculate_values::<Arc<Faction>, polarity::Supply>(
+                            let supply = self.calculate_salience::<Arc<Faction>, polarity::Supply>(
                                 objectfaction.clone(),
                                 subjectfaction.clone(),
-                                self.config.saliencescalars.faction_deg_mult,
-                                self.config.saliencescalars.faction_prop_iters,
+                                self.config.salience_scalars.faction_deg_mult,
+                                self.config.salience_scalars.faction_prop_iters,
                             );
-                            let demand = self.calculate_values::<Arc<Faction>, polarity::Demand>(
+                            let demand = self.calculate_salience::<Arc<Faction>, polarity::Demand>(
                                 objectfaction.clone(),
                                 subjectfaction.clone(),
-                                self.config.saliencescalars.faction_deg_mult,
-                                self.config.saliencescalars.faction_prop_iters,
+                                self.config.salience_scalars.faction_deg_mult,
+                                self.config.salience_scalars.faction_prop_iters,
                             );
                             supply
                                 .iter()
@@ -5447,18 +7032,20 @@ impl Root {
                     .par_iter()
                     .map(|resource| {
                         if resource.propagates {
-                            let supply = self.calculate_values::<Arc<Resource>, polarity::Supply>(
-                                resource.clone(),
-                                faction.clone(),
-                                self.config.saliencescalars.resource_deg_mult,
-                                self.config.saliencescalars.resource_prop_iters,
-                            );
-                            let demand = self.calculate_values::<Arc<Resource>, polarity::Demand>(
-                                resource.clone(),
-                                faction.clone(),
-                                self.config.saliencescalars.resource_deg_mult,
-                                self.config.saliencescalars.resource_prop_iters,
-                            );
+                            let supply = self
+                                .calculate_salience::<Arc<Resource>, polarity::Supply>(
+                                    resource.clone(),
+                                    faction.clone(),
+                                    self.config.salience_scalars.resource_deg_mult,
+                                    self.config.salience_scalars.resource_prop_iters,
+                                );
+                            let demand = self
+                                .calculate_salience::<Arc<Resource>, polarity::Demand>(
+                                    resource.clone(),
+                                    faction.clone(),
+                                    self.config.salience_scalars.resource_deg_mult,
+                                    self.config.salience_scalars.resource_prop_iters,
+                                );
                             supply
                                 .iter()
                                 .zip(demand.iter())
@@ -5480,17 +7067,17 @@ impl Root {
                     .par_iter()
                     .map(|shipclass| {
                         if shipclass.propagates {
-                            let supply = self.calculate_values::<UnitClass, polarity::Supply>(
+                            let supply = self.calculate_salience::<UnitClass, polarity::Supply>(
                                 ShipClass::get_unitclass(shipclass.clone()),
                                 faction.clone(),
-                                self.config.saliencescalars.unitclass_deg_mult,
-                                self.config.saliencescalars.unitclass_prop_iters,
+                                self.config.salience_scalars.unitclass_deg_mult,
+                                self.config.salience_scalars.unitclass_prop_iters,
                             );
-                            let demand = self.calculate_values::<UnitClass, polarity::Demand>(
+                            let demand = self.calculate_salience::<UnitClass, polarity::Demand>(
                                 ShipClass::get_unitclass(shipclass.clone()),
                                 faction.clone(),
-                                self.config.saliencescalars.unitclass_deg_mult,
-                                self.config.saliencescalars.unitclass_prop_iters,
+                                self.config.salience_scalars.unitclass_deg_mult,
+                                self.config.salience_scalars.unitclass_prop_iters,
                             );
                             supply
                                 .iter()
@@ -5503,17 +7090,17 @@ impl Root {
                     })
                     .chain(self.squadronclasses.par_iter().map(|squadronclass| {
                         if squadronclass.propagates {
-                            let supply = self.calculate_values::<UnitClass, polarity::Supply>(
+                            let supply = self.calculate_salience::<UnitClass, polarity::Supply>(
                                 SquadronClass::get_unitclass(squadronclass.clone()),
                                 faction.clone(),
-                                self.config.saliencescalars.unitclass_deg_mult,
-                                self.config.saliencescalars.unitclass_prop_iters,
+                                self.config.salience_scalars.unitclass_deg_mult,
+                                self.config.salience_scalars.unitclass_prop_iters,
                             );
-                            let demand = self.calculate_values::<UnitClass, polarity::Demand>(
+                            let demand = self.calculate_salience::<UnitClass, polarity::Demand>(
                                 SquadronClass::get_unitclass(squadronclass.clone()),
                                 faction.clone(),
-                                self.config.saliencescalars.unitclass_deg_mult,
-                                self.config.saliencescalars.unitclass_prop_iters,
+                                self.config.salience_scalars.unitclass_deg_mult,
+                                self.config.salience_scalars.unitclass_prop_iters,
                             );
                             supply
                                 .iter()
@@ -5535,14 +7122,14 @@ impl Root {
         println!("It is now turn {}.", turn);
 
         //reset all ships' engines
-        self.shipinstances
+        self.ships
             .write()
             .unwrap()
             .iter()
             .for_each(|ship| ship.reset_movement());
 
         //run all ship repairers
-        self.shipinstances
+        self.ships
             .write()
             .unwrap()
             .iter()
@@ -5550,7 +7137,7 @@ impl Root {
 
         //process all factories
         self.nodes.iter().for_each(|n| n.process_factories());
-        self.shipinstances
+        self.ships
             .write()
             .unwrap()
             .iter()
@@ -5558,7 +7145,7 @@ impl Root {
 
         //process all shipyards
         self.nodes.iter().for_each(|n| n.process_shipyards());
-        self.shipinstances
+        self.ships
             .write()
             .unwrap()
             .iter()
@@ -5570,7 +7157,7 @@ impl Root {
             .iter()
             .map(|node| node.clone().plan_ships(&self.shipclasses))
             .chain(
-                self.shipinstances
+                self.ships
                     .write()
                     .unwrap()
                     .iter()
@@ -5595,11 +7182,17 @@ impl Root {
         //On turn 1, we'll want to run calc faction salience several times to get the values to settle.
         let salience_propagation_start = Instant::now();
         let gfs = self.calculate_global_faction_salience();
-        *self.globalsalience.factionsalience.write().unwrap() = gfs;
+        *self.global_salience.faction_salience.write().unwrap() = gfs;
         let grs = self.calculate_global_resource_salience();
-        *self.globalsalience.resourcesalience.write().unwrap() = grs;
+        *self.global_salience.resource_salience.write().unwrap() = grs;
         let gus = self.calculate_global_unitclass_salience();
-        *self.globalsalience.unitclasssalience.write().unwrap() = gus;
+        *self.global_salience.unitclass_salience.write().unwrap() = gus;
+        let swem = self.calculate_strategic_weapon_effect_map();
+        *self
+            .global_salience
+            .strategic_weapon_effect_map
+            .write()
+            .unwrap() = swem;
         let salience_propagation_finished = salience_propagation_start.elapsed();
         dbg!(salience_propagation_finished);
 
@@ -5608,15 +7201,18 @@ impl Root {
         //move ships, one edge at a time
         //running battle checks and stockpile balancing with each traversal
         let ship_moves_start = Instant::now();
-        let shipinstances = self.shipinstances.read().unwrap().clone();
-        shipinstances.iter().for_each(|shipinstance| {
-            let mut moving = true;
-            while moving {
-                if (!shipinstance.is_in_node()) || shipinstance.maneuver(&self).is_none() {
-                    moving = false
+        let ships = self.ships.read().unwrap().clone();
+        ships
+            .iter()
+            .filter(|ship| ship.is_in_node())
+            .for_each(|ship| {
+                let mut moving = true;
+                while moving {
+                    if ship.maneuver(&self).is_none() {
+                        moving = false
+                    }
                 }
-            }
-        });
+            });
         dbg!(ship_moves_start.elapsed());
 
         //move squadrons, one edge at a time
@@ -5624,11 +7220,24 @@ impl Root {
 
         //run defection logic
 
+        //fire strategic weapons
+        let mut rng = Hc128Rng::seed_from_u64(47);
+        ships.iter().for_each(|ship| {
+            ship.mutables
+                .write()
+                .unwrap()
+                .strategic_weapons
+                .iter_mut()
+                .for_each(|weapon| {
+                    weapon.fire(&self, ship.clone(), &mut rng);
+                })
+        });
+
         //run diplomacy logic
 
         //transmit root data to frontend
 
-        let number_of_ships = &self.shipinstances.read().unwrap().len();
+        let number_of_ships = &self.ships.read().unwrap().len();
 
         dbg!(number_of_ships);
 

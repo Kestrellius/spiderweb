@@ -13,7 +13,7 @@ fn main() {
     dbg!(duration);
     let mut root_0 = json_root.hydrate();
 
-    for _i in 0..2 {
+    for _i in 0..5 {
         root_0.process_turn();
     }
 
@@ -33,12 +33,16 @@ fn main() {
 
     let mut root_3 = connection::Root::rehydrate(connection_root_2);
 
+    for _i in 0..25 {
+        root_3.process_turn();
+    }
+
     //let json_connection_root = serde_json::to_string_pretty(&connection_root_1).unwrap();
 
     //std::fs::write(&"connection_root.json", &json_connection_root);
 
-    //dbg!(root.nodes.len());
-    //dbg!(root.edges.len());
+    dbg!(root_3.nodes.len());
+    dbg!(root_3.edges.len());
 
     /*
     let nodes_w_shipyards = root

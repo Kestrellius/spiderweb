@@ -48,7 +48,7 @@ GENERAL:
 [x] Config struct on root with settings for salience propagation iters
 [x] Replace current implementation of entity locations with entity-component system or similar
 [x] Build hangar entry and exit methods
-[ ] Build balance_stockpiles
+[x] Build balance_stockpiles
 [ ] Build balance_hangars
 [ ] Build operation logic
 [x] Implement faction demand, and incorporate faction salience into navigation logic
@@ -102,7 +102,11 @@ GENERAL:
     [x] Build node templating system
 [ ] Figure out mechanics for ground assaults/ship or station capture
     [ ] Flag for nodes that can only be captured via 'special missions', which have certain conditions -- "special capture requirements", Option<Mission>?
-[ ] Add inter-node weapons
+[x] Add inter-node weapons
+    [x] Add system for checking influence of weapons when navigating
+        [x] Weapon map creation
+        [x] Add parameters to AI
+    [x] Add damage-by-factor
 [x] Add navigation threshold on ships and fleets, and check for it in navigate
 [x] Excursions!
     [x] Build method for determining how many moves left a ship has
@@ -121,9 +125,14 @@ GENERAL:
 [x] Optimize rng creation
 [x] Make sure units can't enter hangars they won't fit in by entering a squadron within a hangar -- make the fit check recurse upward
 [x] Fix the thing where ordering of lists in root gets scrambled by the hashmaps during hydration
-[ ] Remove fields that can be stored in classes from their respective instances
-[ ] Clean up struct field names -- switch to snake case, remove unnecessary qualifiers
-[ ] Stop calling everything an instance?
+[x] Remove fields that can be stored in classes from their respective instances
+[x] Clean up struct field names -- switch to snake case, remove unnecessary qualifiers
+[x] Stop calling everything an instance?
+[ ] Build fleet creation logic
+[ ] Build system for determining how many reinforcements will be sent into an engagement in progress
+[ ] Take hostile threat into account for faction demand
+[ ] Make hangar allowed an option, with none meaning no restrictions, as with pluripotent stockpiles
+[ ] Create method that recurses up unit tree and tries to transfer unit into the nearest available place, finishing at the node if necessary, for use while disbanding squadrons
 
 LONGER-TERM:
 [ ] Build system for transmitting data to FSO
@@ -149,7 +158,7 @@ QUESTIONS FOR AMARYLLIS:
 [x] process_engines short-circuiting
 [x] retain for remove_dead and disband_fleets
 [x] orphan checking/how does the all-to-all edge generation even work currently?
-[ ] figure out what objective data structure should be
+[x] figure out what objective data structure should be
 [ ] What's the best way to get the objective data for Engagement?
 [x] What's the tradeoff between storing data in the classes table and having to look it up/storing the data in the instance and having it be redundant? (Copy cheap integers, etc., into instances, leave strings in classes.)
 [x] Is there a more efficient way to handle the per-engine nodeflavor/edgeflavor checking than cloning the engine data and passing it up to traverse?
@@ -173,3 +182,4 @@ QUESTIONS FOR AMARYLLIS:
 [ ] Faction demand get_value performance.
 [ ] Best way to prune navigation logic by scalar = 0?
 [x] Hangarinstances not being in root
+[ ] Will the duplicated sequential application of damage in fn-fire work correctly, and is there a better way?

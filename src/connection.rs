@@ -9,13 +9,42 @@ use std::sync::atomic::{self, AtomicU64};
 use std::sync::Arc;
 use std::sync::RwLock;
 
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+pub struct UnitContainer {
+    contents: Vec<Unit>,
+}
+
+impl UnitContainer {
+    fn desiccate(self_entity: &internal::UnitContainer) -> UnitContainer {
+        UnitContainer {
+            contents: self_entity
+                .contents
+                .iter()
+                .map(|daughter| Unit::desiccate(daughter))
+                .collect(),
+        }
+    }
+    fn rehydrate(
+        &self,
+        shipsroot: &Vec<Arc<internal::Ship>>,
+        squadronsroot: &Vec<Arc<internal::Squadron>>,
+    ) -> internal::UnitContainer {
+        internal::UnitContainer {
+            contents: self
+                .contents
+                .iter()
+                .map(|x| x.rehydrate(shipsroot, squadronsroot))
+                .collect(),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct NodeMut {
     pub visibility: bool,
     pub flavor: usize, //type of location this node is -- planet, asteroid field, hyperspace transit zone
-    pub units: Vec<Unit>,
-    pub factoryinstancelist: Vec<FactoryInstance>, //this is populated at runtime from the factoryclasslist, not specified in json
-    pub shipyardinstancelist: Vec<ShipyardInstance>,
+    pub factory_list: Vec<Factory>, //this is populated at runtime from the factoryclasslist, not specified in json
+    pub shipyardlist: Vec<Shipyard>,
     pub allegiance: usize, //faction that currently holds the node
     pub efficiency: f32, //efficiency of any production facilities in this node; changes over time based on faction ownership
     pub balance_stockpiles: bool,
@@ -30,28 +59,23 @@ impl NodeMut {
         NodeMut {
             visibility: self_entity.visibility,
             flavor: self_entity.flavor.id,
-            units: self_entity
-                .units
+            factory_list: self_entity
+                .factories
                 .iter()
-                .map(|x| Unit::desiccate(x))
+                .map(|x| Factory::desiccate(x))
                 .collect(),
-            factoryinstancelist: self_entity
-                .factoryinstancelist
+            shipyardlist: self_entity
+                .shipyards
                 .iter()
-                .map(|x| FactoryInstance::desiccate(x))
-                .collect(),
-            shipyardinstancelist: self_entity
-                .shipyardinstancelist
-                .iter()
-                .map(|x| ShipyardInstance::desiccate(x))
+                .map(|x| Shipyard::desiccate(x))
                 .collect(),
             allegiance: self_entity.allegiance.id,
             efficiency: self_entity.efficiency,
-            balance_stockpiles: self_entity.balance_stockpiles,
-            balance_hangars: self_entity.balance_hangars,
+            balance_stockpiles: self_entity.transact_resources,
+            balance_hangars: self_entity.transact_units,
             check_for_battles: self_entity.check_for_battles,
-            stockpiles_balanced: self_entity.stockpiles_balanced,
-            hangars_balanced: self_entity.hangars_balanced,
+            stockpiles_balanced: self_entity.resources_transacted,
+            hangars_balanced: self_entity.units_transacted,
         }
     }
     fn rehydrate(
@@ -66,24 +90,23 @@ impl NodeMut {
         internal::NodeMut {
             visibility: self.visibility,
             flavor: nodeflavorsroot[self.flavor].clone(),
-            units: Vec::new(),
-            factoryinstancelist: self
-                .factoryinstancelist
+            factories: self
+                .factory_list
                 .iter()
                 .map(|x| x.rehydrate(&resourcesroot, &factoryclassesroot))
                 .collect(),
-            shipyardinstancelist: self
-                .shipyardinstancelist
+            shipyards: self
+                .shipyardlist
                 .iter()
                 .map(|x| x.rehydrate(&resourcesroot, &shipyardclassesroot, &shipclassesroot))
                 .collect(),
             allegiance: factionsroot[self.allegiance].clone(),
             efficiency: self.efficiency,
-            balance_stockpiles: self.balance_stockpiles,
-            balance_hangars: self.balance_hangars,
+            transact_resources: self.balance_stockpiles,
+            transact_units: self.balance_hangars,
             check_for_battles: self.check_for_battles,
-            stockpiles_balanced: self.stockpiles_balanced,
-            hangars_balanced: self.hangars_balanced,
+            resources_transacted: self.stockpiles_balanced,
+            units_transacted: self.hangars_balanced,
         }
     }
 }
@@ -91,24 +114,26 @@ impl NodeMut {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Node {
     pub id: usize,
-    pub visiblename: String, //location name as shown to player
+    pub visible_name: String, //location name as shown to player
     pub position: [i64; 3], //node's position in 3d space; this is used for autogenerating skyboxes and determining reinforcement delay between nodes
     pub description: String,
     pub environment: String, //name of the FRED environment to use for missions set in this node
     pub bitmap: Option<(String, f32)>, //name of the bitmap used to depict this node in other nodes' FRED environments, and a size factor
     pub mutables: NodeMut,
+    pub unit_container: UnitContainer,
 }
 
 impl Node {
     fn desiccate(self_entity: &internal::Node) -> Node {
         Node {
             id: self_entity.id,
-            visiblename: self_entity.visiblename.clone(),
+            visible_name: self_entity.visible_name.clone(),
             position: self_entity.position,
             description: self_entity.description.clone(),
             environment: self_entity.environment.clone(),
             bitmap: self_entity.bitmap.clone(),
             mutables: NodeMut::desiccate(&self_entity.mutables.read().unwrap()),
+            unit_container: UnitContainer::desiccate(&self_entity.unit_container.read().unwrap()),
         }
     }
     fn rehydrate(
@@ -122,7 +147,7 @@ impl Node {
     ) -> internal::Node {
         internal::Node {
             id: self.id,
-            visiblename: self.visiblename.clone(),
+            visible_name: self.visible_name.clone(),
             position: self.position,
             description: self.description.clone(),
             environment: self.environment.clone(),
@@ -135,19 +160,20 @@ impl Node {
                 &shipyardclassesroot,
                 &shipclassesroot,
             )),
+            unit_container: RwLock::new(internal::UnitContainer::new()),
         }
     }
     fn add_units(
         node: &Arc<internal::Node>,
         connectionnodes: &Vec<Node>,
-        shipinstancesroot: &Vec<Arc<internal::ShipInstance>>,
-        squadroninstancesroot: &Vec<Arc<internal::SquadronInstance>>,
+        shipsroot: &Vec<Arc<internal::Ship>>,
+        squadronsroot: &Vec<Arc<internal::Squadron>>,
     ) {
-        node.mutables.write().unwrap().units = connectionnodes[node.id]
-            .mutables
-            .units
+        node.unit_container.write().unwrap().contents = connectionnodes[node.id]
+            .unit_container
+            .contents
             .iter()
-            .map(|x| x.rehydrate(&shipinstancesroot, &squadroninstancesroot))
+            .map(|x| x.rehydrate(&shipsroot, &squadronsroot))
             .collect();
     }
 }
@@ -181,7 +207,7 @@ impl Hash for Node {
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct System {
     pub id: usize,
-    pub visiblename: String,
+    pub visible_name: String,
     pub description: String,
     pub visibility: bool,
     pub nodes: Vec<usize>,
@@ -191,7 +217,7 @@ impl System {
     fn desiccate(self_entity: &internal::System) -> System {
         System {
             id: self_entity.id,
-            visiblename: self_entity.visiblename.clone(),
+            visible_name: self_entity.visible_name.clone(),
             description: self_entity.description.clone(),
             visibility: self_entity.visibility.clone(),
             nodes: self_entity.nodes.iter().map(|x| x.id).collect(),
@@ -200,7 +226,7 @@ impl System {
     fn rehydrate(&self, nodesroot: &Vec<Arc<internal::Node>>) -> internal::System {
         internal::System {
             id: self.id,
-            visiblename: self.visiblename.clone(),
+            visible_name: self.visible_name.clone(),
             description: self.description.clone(),
             visibility: self.visibility.clone(),
             nodes: self.nodes.iter().map(|x| nodesroot[*x].clone()).collect(),
@@ -217,7 +243,7 @@ pub struct Edges {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UnipotentStockpile {
     pub visibility: bool,
-    pub resourcetype: usize,
+    pub resource_type: usize,
     pub contents: u64,
     pub rate: u64,
     pub target: u64,
@@ -229,7 +255,7 @@ impl UnipotentStockpile {
     fn desiccate(self_entity: &internal::UnipotentStockpile) -> UnipotentStockpile {
         UnipotentStockpile {
             visibility: self_entity.visibility,
-            resourcetype: self_entity.resourcetype.id,
+            resource_type: self_entity.resource_type.id,
             contents: self_entity.contents,
             rate: self_entity.rate,
             target: self_entity.target,
@@ -243,7 +269,7 @@ impl UnipotentStockpile {
     ) -> internal::UnipotentStockpile {
         internal::UnipotentStockpile {
             visibility: self.visibility,
-            resourcetype: resourcesroot[self.resourcetype].clone(),
+            resource_type: resourcesroot[self.resource_type].clone(),
             contents: self.contents,
             rate: self.rate,
             target: self.target,
@@ -305,7 +331,7 @@ impl PluripotentStockpile {
 
 #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SharedStockpile {
-    pub resourcetype: usize,
+    pub resource_type: usize,
     pub contents: u64,
     pub rate: u64,
     pub capacity: u64,
@@ -314,7 +340,7 @@ pub struct SharedStockpile {
 impl SharedStockpile {
     fn desiccate(self_entity: &internal::SharedStockpile) -> SharedStockpile {
         SharedStockpile {
-            resourcetype: self_entity.resourcetype.id,
+            resource_type: self_entity.resource_type.id,
             contents: self_entity.contents.load(atomic::Ordering::Relaxed),
             rate: self_entity.rate,
             capacity: self_entity.capacity,
@@ -322,7 +348,7 @@ impl SharedStockpile {
     }
     fn rehydrate(&self, resourcesroot: &Vec<Arc<internal::Resource>>) -> internal::SharedStockpile {
         internal::SharedStockpile {
-            resourcetype: resourcesroot[self.resourcetype].clone(),
+            resource_type: resourcesroot[self.resource_type].clone(),
             contents: Arc::new(AtomicU64::new(self.contents)),
             rate: self.rate,
             capacity: self.capacity,
@@ -331,69 +357,54 @@ impl SharedStockpile {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct HangarInstanceMut {
+pub struct HangarMut {
     pub visibility: bool,
-    pub contents: Vec<Unit>,
 }
 
-impl HangarInstanceMut {
-    fn desiccate(self_entity: &internal::HangarInstanceMut) -> HangarInstanceMut {
-        HangarInstanceMut {
+impl HangarMut {
+    fn desiccate(self_entity: &internal::HangarMut) -> HangarMut {
+        HangarMut {
             visibility: self_entity.visibility,
-            contents: self_entity
-                .contents
-                .iter()
-                .map(|x| Unit::desiccate(x))
-                .collect(),
         }
     }
-    fn rehydrate(
-        &self,
-        shipinstancesroot: &Vec<Arc<internal::ShipInstance>>,
-        squadroninstancesroot: &Vec<Arc<internal::SquadronInstance>>,
-    ) -> internal::HangarInstanceMut {
-        internal::HangarInstanceMut {
+    fn rehydrate(&self) -> internal::HangarMut {
+        internal::HangarMut {
             visibility: self.visibility,
-            contents: self
-                .contents
-                .iter()
-                .map(|x| x.rehydrate(&shipinstancesroot, &squadroninstancesroot))
-                .collect(),
         }
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct HangarInstance {
+pub struct Hangar {
     pub id: u64,
     pub class: usize,
     pub mother: u64,
-    pub mutables: HangarInstanceMut,
+    pub mutables: HangarMut,
+    pub unit_container: UnitContainer,
 }
 
-impl HangarInstance {
-    pub fn desiccate(self_entity: &internal::HangarInstance) -> HangarInstance {
-        HangarInstance {
+impl Hangar {
+    pub fn desiccate(self_entity: &internal::Hangar) -> Hangar {
+        Hangar {
             id: self_entity.id,
             class: self_entity.class.id,
             mother: self_entity.mother.id,
-            mutables: HangarInstanceMut::desiccate(&self_entity.mutables.read().unwrap()),
+            mutables: HangarMut::desiccate(&self_entity.mutables.read().unwrap()),
+            unit_container: UnitContainer::desiccate(&self_entity.unit_container.read().unwrap()),
         }
     }
     pub fn rehydrate(
         &self,
         hangarclassesroot: &Vec<Arc<internal::HangarClass>>,
-        shipinstancesroot: &Vec<Arc<internal::ShipInstance>>,
-        squadroninstancesroot: &Vec<Arc<internal::SquadronInstance>>,
-    ) -> internal::HangarInstance {
-        internal::HangarInstance {
+        shipsroot: &Vec<Arc<internal::Ship>>,
+        squadronsroot: &Vec<Arc<internal::Squadron>>,
+    ) -> internal::Hangar {
+        internal::Hangar {
             id: self.id,
             class: hangarclassesroot[self.class].clone(),
-            mother: shipinstancesroot[self.mother as usize].clone(),
-            mutables: RwLock::new(
-                self.mutables
-                    .rehydrate(&shipinstancesroot, &squadroninstancesroot),
-            ),
+            mother: shipsroot[self.mother as usize].clone(),
+            mutables: RwLock::new(self.mutables.rehydrate()),
+            unit_container: RwLock::new(self.unit_container.rehydrate(&shipsroot, &squadronsroot)),
         }
     }
 }
@@ -401,11 +412,11 @@ impl HangarInstance {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EngineClass {
     pub id: usize,
-    pub visiblename: String,
+    pub visible_name: String,
     pub description: String,
     pub visibility: bool,
-    pub basehealth: Option<u64>,
-    pub toughnessscalar: f32,
+    pub base_health: Option<u64>,
+    pub toughness_scalar: f32,
     pub inputs: Vec<UnipotentStockpile>,
     pub forbidden_nodeflavors: Vec<usize>, //the engine won't allow a ship to enter nodes of these flavors
     pub forbidden_edgeflavors: Vec<usize>, //the engine won't allow a ship to traverse edges of these flavors
@@ -417,11 +428,11 @@ impl EngineClass {
     pub fn desiccate(self_entity: &internal::EngineClass) -> EngineClass {
         EngineClass {
             id: self_entity.id,
-            visiblename: self_entity.visiblename.clone(),
+            visible_name: self_entity.visible_name.clone(),
             description: self_entity.description.clone(),
             visibility: self_entity.visibility,
-            basehealth: self_entity.basehealth,
-            toughnessscalar: self_entity.toughnessscalar.clone(),
+            base_health: self_entity.base_health,
+            toughness_scalar: self_entity.toughness_scalar.clone(),
             inputs: self_entity
                 .inputs
                 .iter()
@@ -449,11 +460,11 @@ impl EngineClass {
     ) -> internal::EngineClass {
         internal::EngineClass {
             id: self.id,
-            visiblename: self.visiblename.clone(),
+            visible_name: self.visible_name.clone(),
             description: self.description.clone(),
             visibility: self.visibility,
-            basehealth: self.basehealth,
-            toughnessscalar: self.toughnessscalar.clone(),
+            base_health: self.base_health,
+            toughness_scalar: self.toughness_scalar.clone(),
             inputs: self
                 .inputs
                 .iter()
@@ -476,28 +487,22 @@ impl EngineClass {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct EngineInstance {
+pub struct Engine {
     pub engineclass: usize,
     pub visibility: bool,
-    pub basehealth: Option<u64>,
     pub health: Option<u64>,
-    pub toughnessscalar: f32,
     pub inputs: Vec<UnipotentStockpile>,
     pub forbidden_nodeflavors: Vec<usize>, //the engine won't allow a ship to enter nodes of these flavors
     pub forbidden_edgeflavors: Vec<usize>, //the engine won't allow a ship to traverse edges of these flavors
-    pub speed: u64, //the number of edges this engine will allow a ship to traverse per turn, followed by the number of turns it must wait before moving again
-    pub cooldown: u64,
     pub last_move_turn: u64,
 }
 
-impl EngineInstance {
-    fn desiccate(self_entity: &internal::EngineInstance) -> EngineInstance {
-        EngineInstance {
-            engineclass: self_entity.engineclass.id,
+impl Engine {
+    fn desiccate(self_entity: &internal::Engine) -> Engine {
+        Engine {
+            engineclass: self_entity.class.id,
             visibility: self_entity.visibility,
-            basehealth: self_entity.basehealth,
             health: self_entity.health,
-            toughnessscalar: self_entity.toughnessscalar,
             inputs: self_entity
                 .inputs
                 .iter()
@@ -513,8 +518,6 @@ impl EngineInstance {
                 .iter()
                 .map(|x| x.id)
                 .collect(),
-            speed: self_entity.speed,
-            cooldown: self_entity.cooldown,
             last_move_turn: self_entity.last_move_turn,
         }
     }
@@ -524,13 +527,11 @@ impl EngineInstance {
         edgeflavorsroot: &Vec<Arc<internal::EdgeFlavor>>,
         resourcesroot: &Vec<Arc<internal::Resource>>,
         engineclassesroot: &Vec<Arc<internal::EngineClass>>,
-    ) -> internal::EngineInstance {
-        internal::EngineInstance {
-            engineclass: engineclassesroot[self.engineclass].clone(),
+    ) -> internal::Engine {
+        internal::Engine {
+            class: engineclassesroot[self.engineclass].clone(),
             visibility: self.visibility,
-            basehealth: self.basehealth,
             health: self.health,
-            toughnessscalar: self.toughnessscalar,
             inputs: self
                 .inputs
                 .iter()
@@ -546,8 +547,6 @@ impl EngineInstance {
                 .iter()
                 .map(|x| edgeflavorsroot[*x].clone())
                 .collect(),
-            speed: self.speed,
-            cooldown: self.cooldown,
             last_move_turn: self.last_move_turn,
         }
     }
@@ -556,7 +555,7 @@ impl EngineInstance {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RepairerClass {
     pub id: usize,
-    pub visiblename: String,
+    pub visible_name: String,
     pub description: String,
     pub visibility: bool,
     pub inputs: Vec<UnipotentStockpile>,
@@ -564,6 +563,8 @@ pub struct RepairerClass {
     pub repair_factor: f32,
     pub engine_repair_points: i64,
     pub engine_repair_factor: f32,
+    pub strategic_weapon_repair_points: i64,
+    pub strategic_weapon_repair_factor: f32,
     pub per_engagement: bool, //whether this repairer is run once per turn, or after every engagement
 }
 
@@ -571,7 +572,7 @@ impl RepairerClass {
     fn desiccate(self_entity: &internal::RepairerClass) -> RepairerClass {
         RepairerClass {
             id: self_entity.id,
-            visiblename: self_entity.visiblename.clone(),
+            visible_name: self_entity.visible_name.clone(),
             description: self_entity.description.clone(),
             visibility: self_entity.visibility,
             inputs: self_entity
@@ -580,16 +581,18 @@ impl RepairerClass {
                 .map(|x| UnipotentStockpile::desiccate(x))
                 .collect(),
             repair_points: self_entity.repair_points,
-            repair_factor: self_entity.repair_factor.clone(),
+            repair_factor: self_entity.repair_factor,
             engine_repair_points: self_entity.engine_repair_points,
-            engine_repair_factor: self_entity.engine_repair_factor.clone(),
+            engine_repair_factor: self_entity.engine_repair_factor,
+            strategic_weapon_repair_points: self_entity.strategic_weapon_repair_points,
+            strategic_weapon_repair_factor: self_entity.strategic_weapon_repair_factor,
             per_engagement: self_entity.per_engagement,
         }
     }
     fn rehydrate(&self, resourcesroot: &Vec<Arc<internal::Resource>>) -> internal::RepairerClass {
         internal::RepairerClass {
             id: self.id,
-            visiblename: self.visiblename.clone(),
+            visible_name: self.visible_name.clone(),
             description: self.description.clone(),
             visibility: self.visibility,
             inputs: self
@@ -601,58 +604,203 @@ impl RepairerClass {
             repair_factor: self.repair_factor.clone(),
             engine_repair_points: self.engine_repair_points,
             engine_repair_factor: self.engine_repair_factor.clone(),
+            strategic_weapon_repair_points: self.strategic_weapon_repair_points,
+            strategic_weapon_repair_factor: self.strategic_weapon_repair_factor,
             per_engagement: self.per_engagement,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RepairerInstance {
+pub struct Repairer {
     pub repairerclass: usize,
     pub visibility: bool,
     pub inputs: Vec<UnipotentStockpile>,
-    pub repair_points: i64,
-    pub repair_factor: f32,
-    pub engine_repair_points: i64,
-    pub engine_repair_factor: f32,
-    pub per_engagement: bool, //whether this repairer is run once per turn, or after every engagement
 }
 
-impl RepairerInstance {
-    fn desiccate(self_entity: &internal::RepairerInstance) -> RepairerInstance {
-        RepairerInstance {
-            repairerclass: self_entity.repairerclass.id,
+impl Repairer {
+    fn desiccate(self_entity: &internal::Repairer) -> Repairer {
+        Repairer {
+            repairerclass: self_entity.class.id,
             visibility: self_entity.visibility,
             inputs: self_entity
                 .inputs
                 .iter()
                 .map(|x| UnipotentStockpile::desiccate(x))
                 .collect(),
-            repair_points: self_entity.repair_points,
-            repair_factor: self_entity.repair_factor.clone(),
-            engine_repair_points: self_entity.engine_repair_points,
-            engine_repair_factor: self_entity.engine_repair_factor.clone(),
-            per_engagement: self_entity.per_engagement,
         }
     }
     fn rehydrate(
         &self,
         resourcesroot: &Vec<Arc<internal::Resource>>,
         repairerclassesroot: &Vec<Arc<internal::RepairerClass>>,
-    ) -> internal::RepairerInstance {
-        internal::RepairerInstance {
-            repairerclass: repairerclassesroot[self.repairerclass].clone(),
+    ) -> internal::Repairer {
+        internal::Repairer {
+            class: repairerclassesroot[self.repairerclass].clone(),
             visibility: self.visibility,
             inputs: self
                 .inputs
                 .iter()
                 .map(|x| x.rehydrate(&resourcesroot))
                 .collect(),
-            repair_points: self.repair_points,
-            repair_factor: self.repair_factor.clone(),
-            engine_repair_points: self.engine_repair_points,
-            engine_repair_factor: self.engine_repair_factor.clone(),
-            per_engagement: self.per_engagement,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StrategicWeaponClass {
+    pub id: usize,
+    pub visible_name: String,
+    pub description: String,
+    pub visibility: bool,
+    pub base_health: Option<u64>,
+    pub toughness_scalar: f32,
+    pub inputs: Vec<UnipotentStockpile>,
+    pub forbidden_nodeflavors: Vec<usize>, //the weapon won't fire into nodes of these flavors
+    pub forbidden_edgeflavors: Vec<usize>, //the weapon won't fire across edges of these flavors
+    pub damage: ((i64, i64), (f32, f32)),  //lower and upper bounds for damage done by a single shot
+    pub engine_damage: ((i64, i64), (f32, f32)), //lower and upper bounds for damage to engine done by a single shot
+    pub strategic_weapon_damage: ((i64, i64), (f32, f32)), //lower and upper bounds for damage to strategic weapon done by a single shot
+    pub accuracy: f32, //divided by target's strategicweaponevasionscalar to get hit probability as a fraction of 1.0
+    pub range: u64,    //how many edges away the weapon can reach
+    pub shots: (u64, u64), //lower and upper bounds for maximum number of shots the weapon fires each time it's activated
+    pub targets_enemies: bool,
+    pub targets_allies: bool,
+    pub targets_neutrals: bool,
+    pub target_relations_lower_bound: Option<f32>,
+    pub target_relations_upper_bound: Option<f32>,
+    pub target_priorities_class: HashMap<internal::ShipClassID, f32>, //how strongly weapon will prioritize ships of each class; classes absent from list will default to 1.0
+    pub target_priorities_flavor: HashMap<usize, f32>, //how strongly weapon will prioritize ships of each flavor; flavors absent from list will default to 1.0
+}
+
+impl StrategicWeaponClass {
+    fn desiccate(self_entity: &internal::StrategicWeaponClass) -> StrategicWeaponClass {
+        StrategicWeaponClass {
+            id: self_entity.id,
+            visible_name: self_entity.visible_name.clone(),
+            description: self_entity.description.clone(),
+            visibility: self_entity.visibility,
+            base_health: self_entity.base_health,
+            toughness_scalar: self_entity.toughness_scalar,
+            inputs: self_entity
+                .inputs
+                .iter()
+                .map(|x| UnipotentStockpile::desiccate(x))
+                .collect(),
+            forbidden_nodeflavors: self_entity
+                .forbidden_nodeflavors
+                .iter()
+                .map(|x| x.id)
+                .collect(),
+            forbidden_edgeflavors: self_entity
+                .forbidden_edgeflavors
+                .iter()
+                .map(|x| x.id)
+                .collect(),
+            damage: self_entity.damage,
+            engine_damage: self_entity.engine_damage,
+            strategic_weapon_damage: self_entity.strategic_weapon_damage,
+            accuracy: self_entity.accuracy,
+            range: self_entity.range,
+            shots: self_entity.shots,
+            targets_enemies: self_entity.targets_enemies,
+            targets_allies: self_entity.targets_allies,
+            targets_neutrals: self_entity.targets_neutrals,
+            target_relations_lower_bound: self_entity.target_relations_lower_bound,
+            target_relations_upper_bound: self_entity.target_relations_upper_bound,
+            target_priorities_class: self_entity.target_priorities_class.clone(),
+            target_priorities_flavor: self_entity
+                .target_priorities_flavor
+                .iter()
+                .map(|(flavor, val)| (flavor.id, *val))
+                .collect(),
+        }
+    }
+    fn rehydrate(
+        &self,
+        resourcesroot: &Vec<Arc<internal::Resource>>,
+        nodeflavorsroot: &Vec<Arc<internal::NodeFlavor>>,
+        edgeflavorsroot: &Vec<Arc<internal::EdgeFlavor>>,
+        shipflavorsroot: &Vec<Arc<internal::ShipFlavor>>,
+    ) -> internal::StrategicWeaponClass {
+        internal::StrategicWeaponClass {
+            id: self.id,
+            visible_name: self.visible_name.clone(),
+            description: self.description.clone(),
+            visibility: self.visibility,
+            base_health: self.base_health,
+            toughness_scalar: self.toughness_scalar,
+            inputs: self
+                .inputs
+                .iter()
+                .map(|x| x.rehydrate(&resourcesroot))
+                .collect(),
+            forbidden_nodeflavors: self
+                .forbidden_nodeflavors
+                .iter()
+                .map(|x| nodeflavorsroot[*x].clone())
+                .collect(),
+            forbidden_edgeflavors: self
+                .forbidden_edgeflavors
+                .iter()
+                .map(|x| edgeflavorsroot[*x].clone())
+                .collect(),
+            damage: self.damage,
+            engine_damage: self.engine_damage,
+            strategic_weapon_damage: self.strategic_weapon_damage,
+            accuracy: self.accuracy,
+            range: self.range,
+            shots: self.shots,
+            targets_enemies: self.targets_enemies,
+            targets_allies: self.targets_allies,
+            targets_neutrals: self.targets_neutrals,
+            target_relations_lower_bound: self.target_relations_lower_bound,
+            target_relations_upper_bound: self.target_relations_upper_bound,
+            target_priorities_class: self.target_priorities_class.clone(),
+            target_priorities_flavor: self
+                .target_priorities_flavor
+                .iter()
+                .map(|(flavor, val)| (shipflavorsroot[*flavor].clone(), *val))
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StrategicWeapon {
+    pub class: usize,
+    pub visibility: bool,
+    pub health: Option<u64>,
+    pub inputs: Vec<UnipotentStockpile>,
+}
+
+impl StrategicWeapon {
+    fn desiccate(self_entity: &internal::StrategicWeapon) -> StrategicWeapon {
+        StrategicWeapon {
+            class: self_entity.class.id,
+            visibility: self_entity.visibility,
+            health: self_entity.health,
+            inputs: self_entity
+                .inputs
+                .iter()
+                .map(|x| UnipotentStockpile::desiccate(x))
+                .collect(),
+        }
+    }
+    fn rehydrate(
+        &self,
+        resourcesroot: &Vec<Arc<internal::Resource>>,
+        strategicweaponclassesroot: &Vec<Arc<internal::StrategicWeaponClass>>,
+    ) -> internal::StrategicWeapon {
+        internal::StrategicWeapon {
+            class: strategicweaponclassesroot[self.class].clone(),
+            visibility: self.visibility,
+            health: self.health,
+            inputs: self
+                .inputs
+                .iter()
+                .map(|x| x.rehydrate(resourcesroot))
+                .collect(),
         }
     }
 }
@@ -660,7 +808,7 @@ impl RepairerInstance {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FactoryClass {
     pub id: usize,
-    pub visiblename: String,
+    pub visible_name: String,
     pub description: String,
     pub visibility: bool,
     pub inputs: Vec<UnipotentStockpile>, //the data for the factory's asset consumption
@@ -671,7 +819,7 @@ impl FactoryClass {
     fn desiccate(self_entity: &internal::FactoryClass) -> FactoryClass {
         FactoryClass {
             id: self_entity.id,
-            visiblename: self_entity.visiblename.clone(),
+            visible_name: self_entity.visible_name.clone(),
             description: self_entity.description.clone(),
             visibility: self_entity.visibility,
             inputs: self_entity
@@ -689,7 +837,7 @@ impl FactoryClass {
     fn rehydrate(&self, resourcesroot: &Vec<Arc<internal::Resource>>) -> internal::FactoryClass {
         internal::FactoryClass {
             id: self.id,
-            visiblename: self.visiblename.clone(),
+            visible_name: self.visible_name.clone(),
             description: self.description.clone(),
             visibility: self.visibility,
             inputs: self
@@ -707,7 +855,7 @@ impl FactoryClass {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct FactoryInstance {
+pub struct Factory {
     //this is an actual factory, derived from a factory class
     pub factoryclass: usize,
     pub visibility: bool,
@@ -715,10 +863,10 @@ pub struct FactoryInstance {
     pub outputs: Vec<UnipotentStockpile>, //the data for the factory's asset production
 }
 
-impl FactoryInstance {
-    fn desiccate(self_entity: &internal::FactoryInstance) -> FactoryInstance {
-        FactoryInstance {
-            factoryclass: self_entity.factoryclass.id,
+impl Factory {
+    fn desiccate(self_entity: &internal::Factory) -> Factory {
+        Factory {
+            factoryclass: self_entity.class.id,
             visibility: self_entity.visibility,
             inputs: self_entity
                 .inputs
@@ -736,9 +884,9 @@ impl FactoryInstance {
         &self,
         resourcesroot: &Vec<Arc<internal::Resource>>,
         factoryclassesroot: &Vec<Arc<internal::FactoryClass>>,
-    ) -> internal::FactoryInstance {
-        internal::FactoryInstance {
-            factoryclass: factoryclassesroot[self.factoryclass].clone(),
+    ) -> internal::Factory {
+        internal::Factory {
+            class: factoryclassesroot[self.factoryclass].clone(),
             visibility: self.visibility,
             inputs: self
                 .inputs
@@ -757,7 +905,7 @@ impl FactoryInstance {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShipyardClass {
     pub id: usize,
-    pub visiblename: Option<String>,
+    pub visible_name: Option<String>,
     pub description: Option<String>,
     pub visibility: bool,
     pub inputs: Vec<UnipotentStockpile>,
@@ -770,7 +918,7 @@ impl ShipyardClass {
     fn desiccate(self_entity: &internal::ShipyardClass) -> ShipyardClass {
         ShipyardClass {
             id: self_entity.id,
-            visiblename: self_entity.visiblename.clone(),
+            visible_name: self_entity.visible_name.clone(),
             description: self_entity.description.clone(),
             visibility: self_entity.visibility,
             inputs: self_entity
@@ -779,14 +927,14 @@ impl ShipyardClass {
                 .map(|x| UnipotentStockpile::desiccate(x))
                 .collect(),
             outputs: self_entity.outputs.clone(),
-            constructrate: self_entity.constructrate,
+            constructrate: self_entity.construct_rate,
             efficiency: self_entity.efficiency,
         }
     }
     fn rehydrate(&self, resourcesroot: &Vec<Arc<internal::Resource>>) -> internal::ShipyardClass {
         internal::ShipyardClass {
             id: self.id,
-            visiblename: self.visiblename.clone(),
+            visible_name: self.visible_name.clone(),
             description: self.description.clone(),
             visibility: self.visibility,
             inputs: self
@@ -795,27 +943,26 @@ impl ShipyardClass {
                 .map(|x| x.rehydrate(&resourcesroot))
                 .collect(),
             outputs: self.outputs.clone(),
-            constructrate: self.constructrate,
+            construct_rate: self.constructrate,
             efficiency: self.efficiency,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ShipyardInstance {
+pub struct Shipyard {
     pub shipyardclass: usize,
     pub visibility: bool,
     pub inputs: Vec<UnipotentStockpile>,
     pub outputs: HashMap<usize, u64>,
     pub constructpoints: u64,
-    pub constructrate: u64,
     pub efficiency: f32,
 }
 
-impl ShipyardInstance {
-    fn desiccate(self_entity: &internal::ShipyardInstance) -> ShipyardInstance {
-        ShipyardInstance {
-            shipyardclass: self_entity.shipyardclass.id,
+impl Shipyard {
+    fn desiccate(self_entity: &internal::Shipyard) -> Shipyard {
+        Shipyard {
+            shipyardclass: self_entity.class.id,
             visibility: self_entity.visibility,
             inputs: self_entity
                 .inputs
@@ -827,8 +974,7 @@ impl ShipyardInstance {
                 .iter()
                 .map(|(shipclass, count)| (shipclass.id, *count))
                 .collect(),
-            constructpoints: self_entity.constructpoints,
-            constructrate: self_entity.constructrate,
+            constructpoints: self_entity.construct_points,
             efficiency: self_entity.efficiency,
         }
     }
@@ -837,9 +983,9 @@ impl ShipyardInstance {
         resourcesroot: &Vec<Arc<internal::Resource>>,
         shipyardclassesroot: &Vec<Arc<internal::ShipyardClass>>,
         shipclassesroot: &Vec<Arc<internal::ShipClass>>,
-    ) -> internal::ShipyardInstance {
-        internal::ShipyardInstance {
-            shipyardclass: shipyardclassesroot[self.shipyardclass].clone(),
+    ) -> internal::Shipyard {
+        internal::Shipyard {
+            class: shipyardclassesroot[self.shipyardclass].clone(),
             visibility: self.visibility,
             inputs: self
                 .inputs
@@ -851,8 +997,7 @@ impl ShipyardInstance {
                 .iter()
                 .map(|(shipclass, count)| (shipclassesroot[*shipclass].clone(), *count))
                 .collect(),
-            constructpoints: self.constructpoints,
-            constructrate: self.constructrate,
+            construct_points: self.constructpoints,
             efficiency: self.efficiency,
         }
     }
@@ -869,6 +1014,12 @@ pub struct ShipAI {
     pub hostile_supply_attract: f32,
     pub allegiance_demand_attract: f32,
     pub enemy_demand_attract: f32,
+    pub strategic_weapon_damage_attract: f32,
+    pub strategic_weapon_engine_damage_attract: f32,
+    pub strategic_weapon_strategic_weapon_damage_attract: f32,
+    pub strategic_weapon_healing_attract: f32,
+    pub strategic_weapon_engine_healing_attract: f32,
+    pub strategic_weapon_strategic_weapon_healing_attract: f32,
 }
 
 impl ShipAI {
@@ -887,6 +1038,16 @@ impl ShipAI {
             hostile_supply_attract: self_entity.hostile_supply_attract,
             allegiance_demand_attract: self_entity.allegiance_demand_attract,
             enemy_demand_attract: self_entity.enemy_demand_attract,
+            strategic_weapon_damage_attract: self_entity.strategic_weapon_damage_attract,
+            strategic_weapon_engine_damage_attract: self_entity
+                .strategic_weapon_engine_damage_attract,
+            strategic_weapon_strategic_weapon_damage_attract: self_entity
+                .strategic_weapon_strategic_weapon_damage_attract,
+            strategic_weapon_healing_attract: self_entity.strategic_weapon_healing_attract,
+            strategic_weapon_engine_healing_attract: self_entity
+                .strategic_weapon_engine_healing_attract,
+            strategic_weapon_strategic_weapon_healing_attract: self_entity
+                .strategic_weapon_strategic_weapon_healing_attract,
         }
     }
     fn rehydrate(&self, resourcesroot: &Vec<Arc<internal::Resource>>) -> internal::ShipAI {
@@ -904,6 +1065,14 @@ impl ShipAI {
             hostile_supply_attract: self.hostile_supply_attract,
             allegiance_demand_attract: self.allegiance_demand_attract,
             enemy_demand_attract: self.enemy_demand_attract,
+            strategic_weapon_damage_attract: self.strategic_weapon_damage_attract,
+            strategic_weapon_engine_damage_attract: self.strategic_weapon_engine_damage_attract,
+            strategic_weapon_strategic_weapon_damage_attract: self
+                .strategic_weapon_strategic_weapon_damage_attract,
+            strategic_weapon_healing_attract: self.strategic_weapon_healing_attract,
+            strategic_weapon_engine_healing_attract: self.strategic_weapon_engine_healing_attract,
+            strategic_weapon_strategic_weapon_healing_attract: self
+                .strategic_weapon_strategic_weapon_healing_attract,
         }
     }
 }
@@ -926,13 +1095,13 @@ impl UnitLocation {
     fn rehydrate(
         &self,
         nodesroot: &Vec<Arc<internal::Node>>,
-        squadroninstancesroot: &Vec<Arc<internal::SquadronInstance>>,
-        hangarslist: &Vec<Arc<internal::HangarInstance>>,
+        squadronsroot: &Vec<Arc<internal::Squadron>>,
+        hangarslist: &Vec<Arc<internal::Hangar>>,
     ) -> internal::UnitLocation {
         match self {
             UnitLocation::Node(n) => internal::UnitLocation::Node(nodesroot[*n].clone()),
             UnitLocation::Squadron(s) => {
-                internal::UnitLocation::Squadron(squadroninstancesroot[*s as usize].clone())
+                internal::UnitLocation::Squadron(squadronsroot[*s as usize].clone())
             }
             UnitLocation::Hangar(h) => {
                 internal::UnitLocation::Hangar(hangarslist[*h as usize].clone())
@@ -944,7 +1113,7 @@ impl UnitLocation {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShipClass {
     pub id: usize,
-    pub visiblename: String,
+    pub visible_name: String,
     pub description: String,
     pub shipflavor: usize,
     pub basehull: u64,     //how many hull hitpoints this ship has by default
@@ -957,6 +1126,7 @@ pub struct ShipClass {
     pub hangars: Vec<usize>,
     pub engines: Vec<usize>,
     pub repairers: Vec<usize>,
+    pub strategicweapons: Vec<usize>,
     pub factoryclasslist: Vec<usize>,
     pub shipyardclasslist: Vec<usize>,
     pub aiclass: usize,
@@ -965,10 +1135,11 @@ pub struct ShipClass {
     pub deploys_self: bool,            //if false, ship will not go on deployments
     pub deploys_daughters: Option<u64>, // if None, ship will not send its daughters on deployments; value is number of moves a daughter must be able to make to be deployed
     pub defectchance: HashMap<usize, (f32, f32)>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
-    pub toughnessscalar: f32, //is used as a divisor for damage values taken by this ship in battle; a value of 2.0 will halve damage
-    pub battleescapescalar: f32, //is added to toughnessscalar in battles where this ship is on the losing side, trying to escape
+    pub toughness_scalar: f32, //is used as a divisor for damage values taken by this ship in battle; a value of 2.0 will halve damage
+    pub battleescapescalar: f32, //is added to toughness_scalar in battles where this ship is on the losing side, trying to escape
     pub defectescapescalar: f32, //influences how likely it is that a ship of this class will, if it defects, escape to an enemy-held node with no engagement taking place
     pub interdictionscalar: f32,
+    pub strategicweaponevasionscalar: f32,
     pub value_mult: f32, //how valuable the AI considers one volume point of this shipclass to be
 }
 
@@ -976,20 +1147,20 @@ impl ShipClass {
     fn desiccate(self_entity: &internal::ShipClass) -> ShipClass {
         ShipClass {
             id: self_entity.id,
-            visiblename: self_entity.visiblename.clone(),
+            visible_name: self_entity.visible_name.clone(),
             description: self_entity.description.clone(),
             shipflavor: self_entity.shipflavor.id,
-            basehull: self_entity.basehull,
-            basestrength: self_entity.basestrength,
+            basehull: self_entity.base_hull,
+            basestrength: self_entity.base_strength,
             visibility: self_entity.visibility,
             propagates: self_entity.propagates,
-            hangarvol: self_entity.hangarvol,
+            hangarvol: self_entity.hangar_vol,
             stockpiles: self_entity
                 .stockpiles
                 .iter()
                 .map(|x| PluripotentStockpile::desiccate(x))
                 .collect(),
-            defaultweapons: self_entity.defaultweapons.clone().map(|x| {
+            defaultweapons: self_entity.default_weapons.clone().map(|x| {
                 x.iter()
                     .map(|(resource, count)| (resource.id, *count))
                     .collect()
@@ -997,23 +1168,25 @@ impl ShipClass {
             hangars: self_entity.hangars.iter().map(|x| x.id).collect(),
             engines: self_entity.engines.iter().map(|x| x.id).collect(),
             repairers: self_entity.repairers.iter().map(|x| x.id).collect(),
-            factoryclasslist: self_entity.factoryclasslist.iter().map(|x| x.id).collect(),
-            shipyardclasslist: self_entity.shipyardclasslist.iter().map(|x| x.id).collect(),
-            aiclass: self_entity.aiclass.id,
-            navthreshold: self_entity.navthreshold.clone(),
-            processordemandnavscalar: self_entity.processordemandnavscalar.clone(),
+            strategicweapons: self_entity.strategic_weapons.iter().map(|x| x.id).collect(),
+            factoryclasslist: self_entity.factories.iter().map(|x| x.id).collect(),
+            shipyardclasslist: self_entity.shipyards.iter().map(|x| x.id).collect(),
+            aiclass: self_entity.ai_class.id,
+            navthreshold: self_entity.nav_threshold,
+            processordemandnavscalar: self_entity.processor_demand_nav_scalar,
             deploys_self: self_entity.deploys_self,
             deploys_daughters: self_entity.deploys_daughters,
             defectchance: self_entity
-                .defectchance
+                .defect_chance
                 .iter()
                 .map(|(faction, scalars)| (faction.id, *scalars))
                 .collect(),
-            toughnessscalar: self_entity.toughnessscalar.clone(),
-            battleescapescalar: self_entity.battleescapescalar.clone(),
-            defectescapescalar: self_entity.defectescapescalar.clone(),
-            interdictionscalar: self_entity.interdictionscalar.clone(),
-            value_mult: self_entity.value_mult.clone(),
+            toughness_scalar: self_entity.toughness_scalar,
+            battleescapescalar: self_entity.battle_escape_scalar,
+            defectescapescalar: self_entity.defect_escape_scalar,
+            interdictionscalar: self_entity.interdiction_scalar,
+            strategicweaponevasionscalar: self_entity.strategic_weapon_evasion_scalar,
+            value_mult: self_entity.value_mult,
         }
     }
     fn rehydrate(
@@ -1023,6 +1196,7 @@ impl ShipClass {
         hangarclassesroot: &Vec<Arc<internal::HangarClass>>,
         engineclassesroot: &Vec<Arc<internal::EngineClass>>,
         repairerclassesroot: &Vec<Arc<internal::RepairerClass>>,
+        strategicweaponclassesroot: &Vec<Arc<internal::StrategicWeaponClass>>,
         factoryclassesroot: &Vec<Arc<internal::FactoryClass>>,
         shipyardclassesroot: &Vec<Arc<internal::ShipyardClass>>,
         shipaisroot: &Vec<Arc<internal::ShipAI>>,
@@ -1030,20 +1204,20 @@ impl ShipClass {
     ) -> internal::ShipClass {
         internal::ShipClass {
             id: self.id,
-            visiblename: self.visiblename.clone(),
+            visible_name: self.visible_name.clone(),
             description: self.description.clone(),
             shipflavor: shipflavorsroot[self.shipflavor].clone(),
-            basehull: self.basehull,
-            basestrength: self.basestrength,
+            base_hull: self.basehull,
+            base_strength: self.basestrength,
             visibility: self.visibility,
             propagates: self.propagates,
-            hangarvol: self.hangarvol,
+            hangar_vol: self.hangarvol,
             stockpiles: self
                 .stockpiles
                 .iter()
                 .map(|x| x.rehydrate(&resourcesroot))
                 .collect(),
-            defaultweapons: self.defaultweapons.clone().map(|x| {
+            default_weapons: self.defaultweapons.clone().map(|x| {
                 x.iter()
                     .map(|(resource, count)| (resourcesroot[*resource].clone(), *count))
                     .collect()
@@ -1063,56 +1237,63 @@ impl ShipClass {
                 .iter()
                 .map(|x| repairerclassesroot[*x].clone())
                 .collect(),
-            factoryclasslist: self
+            strategic_weapons: self
+                .strategicweapons
+                .iter()
+                .map(|x| strategicweaponclassesroot[*x].clone())
+                .collect(),
+            factories: self
                 .factoryclasslist
                 .iter()
                 .map(|x| factoryclassesroot[*x].clone())
                 .collect(),
-            shipyardclasslist: self
+            shipyards: self
                 .shipyardclasslist
                 .iter()
                 .map(|x| shipyardclassesroot[*x].clone())
                 .collect(),
-            aiclass: shipaisroot[self.aiclass].clone(),
-            navthreshold: self.navthreshold.clone(),
-            processordemandnavscalar: self.processordemandnavscalar.clone(),
+            ai_class: shipaisroot[self.aiclass].clone(),
+            nav_threshold: self.navthreshold,
+            processor_demand_nav_scalar: self.processordemandnavscalar,
             deploys_self: self.deploys_self,
             deploys_daughters: self.deploys_daughters,
-            defectchance: self
+            defect_chance: self
                 .defectchance
                 .iter()
                 .map(|(faction, scalars)| (factionsroot[*faction].clone(), *scalars))
                 .collect(),
-            toughnessscalar: self.toughnessscalar.clone(),
-            battleescapescalar: self.battleescapescalar.clone(),
-            defectescapescalar: self.defectescapescalar.clone(),
-            interdictionscalar: self.interdictionscalar.clone(),
-            value_mult: self.value_mult.clone(),
+            toughness_scalar: self.toughness_scalar,
+            battle_escape_scalar: self.battleescapescalar,
+            defect_escape_scalar: self.defectescapescalar,
+            interdiction_scalar: self.interdictionscalar,
+            strategic_weapon_evasion_scalar: self.strategicweaponevasionscalar,
+            value_mult: self.value_mult,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ShipInstanceMut {
+pub struct ShipMut {
     pub hull: u64, //how many hitpoints the ship has
     pub visibility: bool,
     pub stockpiles: Vec<PluripotentStockpile>,
     pub efficiency: f32,
-    pub hangars: Vec<HangarInstance>,
-    pub engines: Vec<EngineInstance>,
+    pub hangars: Vec<Hangar>,
+    pub engines: Vec<Engine>,
     pub movement_left: u64, //starts at eighteen quintillion each turn, gets decremented as ship moves; represents time left to move during the turn
-    pub repairers: Vec<RepairerInstance>,
-    pub factoryinstancelist: Vec<FactoryInstance>,
-    pub shipyardinstancelist: Vec<ShipyardInstance>,
+    pub repairers: Vec<Repairer>,
+    pub strategicweapons: Vec<StrategicWeapon>,
+    pub factory_list: Vec<Factory>,
+    pub shipyardlist: Vec<Shipyard>,
     pub location: UnitLocation, //where the ship is -- a node if it's unaffiliated, a squadron if it's in one
     pub allegiance: usize,      //which faction this ship belongs to
     pub objectives: Vec<Objective>,
     pub aiclass: usize,
 }
 
-impl ShipInstanceMut {
-    fn desiccate(self_entity: &internal::ShipInstanceMut) -> ShipInstanceMut {
-        ShipInstanceMut {
+impl ShipMut {
+    fn desiccate(self_entity: &internal::ShipMut) -> ShipMut {
+        ShipMut {
             hull: self_entity.hull,
             visibility: self_entity.visibility,
             stockpiles: self_entity
@@ -1124,28 +1305,33 @@ impl ShipInstanceMut {
             hangars: self_entity
                 .hangars
                 .iter()
-                .map(|x| HangarInstance::desiccate(x))
+                .map(|x| Hangar::desiccate(x))
                 .collect(),
             engines: self_entity
                 .engines
                 .iter()
-                .map(|x| EngineInstance::desiccate(x))
+                .map(|x| Engine::desiccate(x))
                 .collect(),
             movement_left: self_entity.movement_left,
             repairers: self_entity
                 .repairers
                 .iter()
-                .map(|x| RepairerInstance::desiccate(x))
+                .map(|x| Repairer::desiccate(x))
                 .collect(),
-            factoryinstancelist: self_entity
-                .factoryinstancelist
+            strategicweapons: self_entity
+                .strategic_weapons
                 .iter()
-                .map(|x| FactoryInstance::desiccate(x))
+                .map(|x| StrategicWeapon::desiccate(x))
                 .collect(),
-            shipyardinstancelist: self_entity
-                .shipyardinstancelist
+            factory_list: self_entity
+                .factories
                 .iter()
-                .map(|x| ShipyardInstance::desiccate(x))
+                .map(|x| Factory::desiccate(x))
+                .collect(),
+            shipyardlist: self_entity
+                .shipyards
+                .iter()
+                .map(|x| Shipyard::desiccate(x))
                 .collect(),
             location: UnitLocation::desiccate(&self_entity.location),
             allegiance: self_entity.allegiance.id,
@@ -1154,7 +1340,7 @@ impl ShipInstanceMut {
                 .iter()
                 .map(|x| Objective::desiccate(x))
                 .collect(),
-            aiclass: self_entity.aiclass.id,
+            aiclass: self_entity.ai_class.id,
         }
     }
     fn rehydrate(
@@ -1166,12 +1352,13 @@ impl ShipInstanceMut {
         resourcesroot: &Vec<Arc<internal::Resource>>,
         engineclassesroot: &Vec<Arc<internal::EngineClass>>,
         repairerclassesroot: &Vec<Arc<internal::RepairerClass>>,
+        strategicweaponclassesroot: &Vec<Arc<internal::StrategicWeaponClass>>,
         factoryclassesroot: &Vec<Arc<internal::FactoryClass>>,
         shipyardclassesroot: &Vec<Arc<internal::ShipyardClass>>,
         shipaisroot: &Vec<Arc<internal::ShipAI>>,
         shipclassesroot: &Vec<Arc<internal::ShipClass>>,
-    ) -> internal::ShipInstanceMut {
-        internal::ShipInstanceMut {
+    ) -> internal::ShipMut {
+        internal::ShipMut {
             hull: self.hull,
             visibility: self.visibility,
             stockpiles: self
@@ -1199,39 +1386,44 @@ impl ShipInstanceMut {
                 .iter()
                 .map(|x| x.rehydrate(&resourcesroot, &repairerclassesroot))
                 .collect(),
-            factoryinstancelist: self
-                .factoryinstancelist
+            strategic_weapons: self
+                .strategicweapons
+                .iter()
+                .map(|x| x.rehydrate(&resourcesroot, &strategicweaponclassesroot))
+                .collect(),
+            factories: self
+                .factory_list
                 .iter()
                 .map(|x| x.rehydrate(&resourcesroot, &factoryclassesroot))
                 .collect(),
-            shipyardinstancelist: self
-                .shipyardinstancelist
+            shipyards: self
+                .shipyardlist
                 .iter()
                 .map(|x| x.rehydrate(&resourcesroot, &shipyardclassesroot, &shipclassesroot))
                 .collect(),
             location: internal::UnitLocation::Node(nodesroot[0].clone()),
             allegiance: factionsroot[self.allegiance].clone(),
             objectives: Vec::new(),
-            aiclass: shipaisroot[self.aiclass].clone(),
+            ai_class: shipaisroot[self.aiclass].clone(),
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ShipInstance {
+pub struct Ship {
     pub id: u64,
-    pub visiblename: String,
+    pub visible_name: String,
     pub class: usize, //which class of ship this is
-    pub mutables: ShipInstanceMut,
+    pub mutables: ShipMut,
 }
 
-impl ShipInstance {
-    fn desiccate(self_entity: &internal::ShipInstance) -> ShipInstance {
-        ShipInstance {
+impl Ship {
+    fn desiccate(self_entity: &internal::Ship) -> Ship {
+        Ship {
             id: self_entity.id,
-            visiblename: self_entity.visiblename.clone(),
+            visible_name: self_entity.visible_name.clone(),
             class: self_entity.class.id,
-            mutables: ShipInstanceMut::desiccate(&self_entity.mutables.read().unwrap()),
+            mutables: ShipMut::desiccate(&self_entity.mutables.read().unwrap()),
         }
     }
     fn rehydrate(
@@ -1243,94 +1435,84 @@ impl ShipInstance {
         resourcesroot: &Vec<Arc<internal::Resource>>,
         engineclassesroot: &Vec<Arc<internal::EngineClass>>,
         repairerclassesroot: &Vec<Arc<internal::RepairerClass>>,
+        strategicweaponclassesroot: &Vec<Arc<internal::StrategicWeaponClass>>,
         factoryclassesroot: &Vec<Arc<internal::FactoryClass>>,
         shipyardclassesroot: &Vec<Arc<internal::ShipyardClass>>,
         shipaisroot: &Vec<Arc<internal::ShipAI>>,
         shipclassesroot: &Vec<Arc<internal::ShipClass>>,
-    ) -> internal::ShipInstance {
-        internal::ShipInstance {
+    ) -> internal::Ship {
+        internal::Ship {
             id: self.id,
-            visiblename: self.visiblename.clone(),
+            visible_name: self.visible_name.clone(),
             class: shipclassesroot[self.class].clone(),
             mutables: RwLock::new(self.mutables.rehydrate(
-                &nodeflavorsroot,
-                &nodesroot,
-                &edgeflavorsroot,
-                &factionsroot,
-                &resourcesroot,
-                &engineclassesroot,
-                &repairerclassesroot,
-                &factoryclassesroot,
-                &shipyardclassesroot,
-                &shipaisroot,
-                &shipclassesroot,
+                nodeflavorsroot,
+                nodesroot,
+                edgeflavorsroot,
+                factionsroot,
+                resourcesroot,
+                engineclassesroot,
+                repairerclassesroot,
+                strategicweaponclassesroot,
+                factoryclassesroot,
+                shipyardclassesroot,
+                shipaisroot,
+                shipclassesroot,
             )),
         }
     }
     fn add_hangars_and_objectives(
-        ship: &Arc<internal::ShipInstance>,
-        connectionships: &Vec<ShipInstance>,
+        ship: &Arc<internal::Ship>,
+        connectionships: &Vec<Ship>,
         nodesroot: &Vec<Arc<internal::Node>>,
         systemsroot: &Vec<Arc<internal::System>>,
         hangarclassesroot: &Vec<Arc<internal::HangarClass>>,
-        shipinstancesroot: &Vec<Arc<internal::ShipInstance>>,
-        squadroninstancesroot: &Vec<Arc<internal::SquadronInstance>>,
-    ) -> Vec<Arc<internal::HangarInstance>> {
-        let internal_hangars: Vec<Arc<internal::HangarInstance>> = connectionships
-            [ship.id as usize]
+        shipsroot: &Vec<Arc<internal::Ship>>,
+        squadronsroot: &Vec<Arc<internal::Squadron>>,
+    ) -> Vec<Arc<internal::Hangar>> {
+        let internal_hangars: Vec<Arc<internal::Hangar>> = connectionships[ship.id as usize]
             .mutables
             .hangars
             .iter()
-            .map(|x| {
-                Arc::new(x.rehydrate(
-                    &hangarclassesroot,
-                    &shipinstancesroot,
-                    &squadroninstancesroot,
-                ))
-            })
+            .map(|x| Arc::new(x.rehydrate(&hangarclassesroot, &shipsroot, &squadronsroot)))
             .collect();
         ship.mutables.write().unwrap().hangars = internal_hangars.clone();
         ship.mutables.write().unwrap().objectives = connectionships[ship.id as usize]
             .mutables
             .objectives
             .iter()
-            .map(|x| {
-                x.rehydrate(
-                    &nodesroot,
-                    &systemsroot,
-                    &shipinstancesroot,
-                    &squadroninstancesroot,
-                )
-            })
+            .map(|x| x.rehydrate(&nodesroot, &systemsroot, &shipsroot, &squadronsroot))
             .collect();
         internal_hangars
     }
     fn set_location(
-        ship: &Arc<internal::ShipInstance>,
-        connectionships: &Vec<ShipInstance>,
+        ship: &Arc<internal::Ship>,
+        connectionships: &Vec<Ship>,
         nodesroot: &Vec<Arc<internal::Node>>,
-        squadroninstancesroot: &Vec<Arc<internal::SquadronInstance>>,
-        hangarslist: &Vec<Arc<internal::HangarInstance>>,
+        squadronsroot: &Vec<Arc<internal::Squadron>>,
+        hangarslist: &Vec<Arc<internal::Hangar>>,
     ) {
         ship.mutables.write().unwrap().location = connectionships[ship.id as usize]
             .mutables
             .location
-            .rehydrate(&nodesroot, &squadroninstancesroot, &hangarslist);
+            .rehydrate(&nodesroot, &squadronsroot, &hangarslist);
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SquadronClass {
     pub id: usize,
-    pub visiblename: String,
+    pub visible_name: String,
     pub description: String,
     pub squadronflavor: usize,
     pub visibility: bool,
+    pub capacity: u64,
+    pub target: u64,
     pub propagates: bool,
     pub strengthmod: (f32, u64),
     pub squadronconfig: HashMap<internal::UnitClassID, u64>,
-    pub non_ideal_supply_scalar: f32, //multiplier used for demand generated by non-ideal ships under the target limit; should be below one
-    pub target: u64,
+    pub sub_target_supply_scalar: f32, //multiplier used for demand generated by non-ideal ships under the target limit; should be below one
+    pub non_ideal_demand_scalar: f32, //multiplier used for demand generated for non-ideal unitclasses; should be below one
     pub navthreshold: f32, //the value of an adjacent node must exceed (the value of the current node times navthreshold) in order for the ship to decide to move
     pub navquorum: f32,
     pub disbandthreshold: f32,
@@ -1345,26 +1527,28 @@ impl SquadronClass {
     fn desiccate(self_entity: &internal::SquadronClass) -> SquadronClass {
         SquadronClass {
             id: self_entity.id,
-            visiblename: self_entity.visiblename.clone(),
+            visible_name: self_entity.visible_name.clone(),
             description: self_entity.description.clone(),
             squadronflavor: self_entity.squadronflavor.id,
             visibility: self_entity.visibility,
-            propagates: self_entity.propagates,
-            strengthmod: self_entity.strengthmod.clone(),
-            squadronconfig: self_entity.squadronconfig.clone(),
-            non_ideal_supply_scalar: self_entity.non_ideal_supply_scalar.clone(),
             target: self_entity.target,
-            navthreshold: self_entity.navthreshold.clone(),
-            navquorum: self_entity.navquorum.clone(),
-            disbandthreshold: self_entity.disbandthreshold.clone(),
+            capacity: self_entity.capacity,
+            propagates: self_entity.propagates,
+            strengthmod: self_entity.strength_mod.clone(),
+            squadronconfig: self_entity.squadron_config.clone(),
+            sub_target_supply_scalar: self_entity.sub_target_supply_scalar,
+            non_ideal_demand_scalar: self_entity.non_ideal_demand_scalar,
+            navthreshold: self_entity.nav_threshold.clone(),
+            navquorum: self_entity.nav_quorum.clone(),
+            disbandthreshold: self_entity.disband_threshold.clone(),
             deploys_self: self_entity.deploys_self,
             deploys_daughters: self_entity.deploys_daughters,
             defectchance: self_entity
-                .defectchance
+                .defect_chance
                 .iter()
                 .map(|(faction, scalars)| (faction.id, *scalars))
                 .collect(),
-            defectescapescalar: self_entity.defectescapescalar.clone(),
+            defectescapescalar: self_entity.defect_escape_scalar.clone(),
             value_mult: self_entity.value_mult.clone(),
         }
     }
@@ -1375,51 +1559,47 @@ impl SquadronClass {
     ) -> internal::SquadronClass {
         internal::SquadronClass {
             id: self.id,
-            visiblename: self.visiblename.clone(),
+            visible_name: self.visible_name.clone(),
             description: self.description.clone(),
             squadronflavor: squadronflavorsroot[self.squadronflavor].clone(),
             visibility: self.visibility,
-            propagates: self.propagates,
-            strengthmod: self.strengthmod.clone(),
-            squadronconfig: self.squadronconfig.clone(),
-            non_ideal_supply_scalar: self.non_ideal_supply_scalar.clone(),
             target: self.target,
-            navthreshold: self.navthreshold.clone(),
-            navquorum: self.navquorum.clone(),
-            disbandthreshold: self.disbandthreshold.clone(),
+            capacity: self.capacity,
+            propagates: self.propagates,
+            strength_mod: self.strengthmod.clone(),
+            squadron_config: self.squadronconfig.clone(),
+            sub_target_supply_scalar: self.sub_target_supply_scalar,
+            non_ideal_demand_scalar: self.non_ideal_demand_scalar,
+            nav_threshold: self.navthreshold.clone(),
+            nav_quorum: self.navquorum.clone(),
+            disband_threshold: self.disbandthreshold.clone(),
             deploys_self: self.deploys_self,
             deploys_daughters: self.deploys_daughters,
-            defectchance: self
+            defect_chance: self
                 .defectchance
                 .iter()
                 .map(|(faction, scalars)| (factionsroot[*faction].clone(), *scalars))
                 .collect(),
-            defectescapescalar: self.defectescapescalar.clone(),
+            defect_escape_scalar: self.defectescapescalar.clone(),
             value_mult: self.value_mult.clone(),
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SquadronInstanceMut {
+pub struct SquadronMut {
     pub visibility: bool,
     pub location: UnitLocation,
-    pub daughters: Vec<Unit>,
     pub allegiance: usize,
     pub objectives: Vec<Objective>,
     pub ghost: bool,
 }
 
-impl SquadronInstanceMut {
-    fn desiccate(self_entity: &internal::SquadronInstanceMut) -> SquadronInstanceMut {
-        SquadronInstanceMut {
+impl SquadronMut {
+    fn desiccate(self_entity: &internal::SquadronMut) -> SquadronMut {
+        SquadronMut {
             visibility: self_entity.visibility,
             location: UnitLocation::desiccate(&self_entity.location),
-            daughters: self_entity
-                .daughters
-                .iter()
-                .map(|x| Unit::desiccate(x))
-                .collect(),
             allegiance: self_entity.allegiance.id,
             objectives: self_entity
                 .objectives
@@ -1433,11 +1613,10 @@ impl SquadronInstanceMut {
         &self,
         nodesroot: &Vec<Arc<internal::Node>>,
         factionsroot: &Vec<Arc<internal::Faction>>,
-    ) -> internal::SquadronInstanceMut {
-        internal::SquadronInstanceMut {
+    ) -> internal::SquadronMut {
+        internal::SquadronMut {
             visibility: self.visibility,
             location: internal::UnitLocation::Node(nodesroot[0].clone()),
-            daughters: Vec::new(),
             allegiance: factionsroot[self.allegiance].clone(),
             objectives: Vec::new(),
             ghost: self.ghost,
@@ -1446,22 +1625,24 @@ impl SquadronInstanceMut {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SquadronInstance {
+pub struct Squadron {
     pub id: u64,
-    pub visiblename: String,
+    pub visible_name: String,
     pub class: usize,
     pub idealstrength: u64,
-    pub mutables: SquadronInstanceMut,
+    pub mutables: SquadronMut,
+    pub unit_container: UnitContainer,
 }
 
-impl SquadronInstance {
-    fn desiccate(self_entity: &internal::SquadronInstance) -> SquadronInstance {
-        SquadronInstance {
+impl Squadron {
+    fn desiccate(self_entity: &internal::Squadron) -> Squadron {
+        Squadron {
             id: self_entity.id,
-            visiblename: self_entity.visiblename.clone(),
+            visible_name: self_entity.visible_name.clone(),
             class: self_entity.class.id,
-            idealstrength: self_entity.idealstrength,
-            mutables: SquadronInstanceMut::desiccate(&self_entity.mutables.read().unwrap()),
+            idealstrength: self_entity.ideal_strength,
+            mutables: SquadronMut::desiccate(&self_entity.mutables.read().unwrap()),
+            unit_container: UnitContainer::desiccate(&self_entity.unit_container.read().unwrap()),
         }
     }
     fn rehydrate(
@@ -1469,47 +1650,42 @@ impl SquadronInstance {
         nodesroot: &Vec<Arc<internal::Node>>,
         factionsroot: &Vec<Arc<internal::Faction>>,
         squadronclassesroot: &Vec<Arc<internal::SquadronClass>>,
-    ) -> internal::SquadronInstance {
-        internal::SquadronInstance {
+    ) -> internal::Squadron {
+        internal::Squadron {
             id: self.id,
-            visiblename: self.visiblename.clone(),
+            visible_name: self.visible_name.clone(),
             class: squadronclassesroot[self.class].clone(),
-            idealstrength: self.idealstrength,
+            ideal_strength: self.idealstrength,
             mutables: RwLock::new(self.mutables.rehydrate(&nodesroot, &factionsroot)),
+            unit_container: RwLock::new(internal::UnitContainer::new()),
         }
     }
     fn add_daughters_and_objectives_set_location(
-        squadron: &Arc<internal::SquadronInstance>,
-        connectionsquadrons: &Vec<SquadronInstance>,
+        squadron: &Arc<internal::Squadron>,
+        connectionsquadrons: &Vec<Squadron>,
         nodesroot: &Vec<Arc<internal::Node>>,
         systemsroot: &Vec<Arc<internal::System>>,
-        shipinstancesroot: &Vec<Arc<internal::ShipInstance>>,
-        squadroninstancesroot: &Vec<Arc<internal::SquadronInstance>>,
-        hangarslist: &Vec<Arc<internal::HangarInstance>>,
+        shipsroot: &Vec<Arc<internal::Ship>>,
+        squadronsroot: &Vec<Arc<internal::Squadron>>,
+        hangarslist: &Vec<Arc<internal::Hangar>>,
     ) {
-        squadron.mutables.write().unwrap().daughters = connectionsquadrons[squadron.id as usize]
-            .mutables
-            .daughters
+        squadron.unit_container.write().unwrap().contents = connectionsquadrons
+            [squadron.id as usize]
+            .unit_container
+            .contents
             .iter()
-            .map(|x| x.rehydrate(&shipinstancesroot, &squadroninstancesroot))
+            .map(|x| x.rehydrate(&shipsroot, &squadronsroot))
             .collect();
         squadron.mutables.write().unwrap().objectives = connectionsquadrons[squadron.id as usize]
             .mutables
             .objectives
             .iter()
-            .map(|x| {
-                x.rehydrate(
-                    &nodesroot,
-                    &systemsroot,
-                    &shipinstancesroot,
-                    &squadroninstancesroot,
-                )
-            })
+            .map(|x| x.rehydrate(&nodesroot, &systemsroot, &shipsroot, &squadronsroot))
             .collect();
         squadron.mutables.write().unwrap().location = connectionsquadrons[squadron.id as usize]
             .mutables
             .location
-            .rehydrate(&nodesroot, &squadroninstancesroot, &hangarslist);
+            .rehydrate(&nodesroot, &squadronsroot, &hangarslist);
     }
 }
 
@@ -1557,211 +1733,120 @@ impl Unit {
     }
     fn rehydrate(
         &self,
-        shipinstancesroot: &Vec<Arc<internal::ShipInstance>>,
-        squadroninstancesroot: &Vec<Arc<internal::SquadronInstance>>,
+        shipsroot: &Vec<Arc<internal::Ship>>,
+        squadronsroot: &Vec<Arc<internal::Squadron>>,
     ) -> internal::Unit {
         match self {
-            Unit::Ship(sh) => internal::Unit::Ship(shipinstancesroot[*sh as usize].clone()),
+            Unit::Ship(sh) => internal::Unit::Ship(shipsroot[*sh as usize].clone()),
             Unit::Squadron(sq) => {
-                internal::Unit::Squadron(squadroninstancesroot[*sq as usize].clone())
+                internal::Unit::Squadron(squadronsroot[*sq as usize - shipsroot.len()].clone())
             }
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum Objective {
-    ReachNode {
-        scalars: internal::ObjectiveScalars,
-        node: usize,
-    },
-    ShipDeath {
-        scalars: internal::ObjectiveScalars,
-        ship: u64,
-    },
-    ShipSafe {
-        scalars: internal::ObjectiveScalars,
-        ship: u64,
-        nturns: u64,
-    },
-    SquadronDeath {
-        scalars: internal::ObjectiveScalars,
-        squadron: u64,
-    },
-    SquadronSafe {
-        scalars: internal::ObjectiveScalars,
-        squadron: u64,
-        nturns: u64,
-        strengthfraction: f32,
-    },
-    NodeCapture {
-        scalars: internal::ObjectiveScalars,
-        node: usize,
-    },
-    NodeSafe {
-        scalars: internal::ObjectiveScalars,
-        node: usize,
-        nturns: u64,
-    },
-    SystemCapture {
-        scalars: internal::ObjectiveScalars,
-        system: usize,
-    },
-    SystemSafe {
-        scalars: internal::ObjectiveScalars,
-        system: usize,
-        nturns: u64,
-        nodesfraction: f32,
-    },
+pub enum ObjectiveTarget {
+    Node(usize),
+    System(usize),
+    Unit(Unit),
 }
 
-impl Objective {
-    pub fn desiccate(self_entity: &internal::Objective) -> Objective {
+impl ObjectiveTarget {
+    pub fn desiccate(self_entity: &internal::ObjectiveTarget) -> ObjectiveTarget {
         match self_entity {
-            internal::Objective::ReachNode { scalars, node } => Objective::ReachNode {
-                scalars: *scalars,
-                node: node.id,
-            },
-            internal::Objective::ShipDeath { scalars, ship } => Objective::ShipDeath {
-                scalars: *scalars,
-                ship: ship.id,
-            },
-            internal::Objective::ShipSafe {
-                scalars,
-                ship,
-                nturns,
-            } => Objective::ShipSafe {
-                scalars: *scalars,
-                ship: ship.id,
-                nturns: *nturns,
-            },
-            internal::Objective::SquadronDeath { scalars, squadron } => Objective::SquadronDeath {
-                scalars: *scalars,
-                squadron: squadron.id,
-            },
-            internal::Objective::SquadronSafe {
-                scalars,
-                squadron,
-                nturns,
-                strengthfraction,
-            } => Objective::SquadronSafe {
-                scalars: *scalars,
-                squadron: squadron.id,
-                nturns: *nturns,
-                strengthfraction: strengthfraction.clone(),
-            },
-            internal::Objective::NodeCapture { scalars, node } => Objective::NodeCapture {
-                scalars: *scalars,
-                node: node.id,
-            },
-            internal::Objective::NodeSafe {
-                scalars,
-                node,
-                nturns,
-            } => Objective::NodeSafe {
-                scalars: *scalars,
-                node: node.id,
-                nturns: *nturns,
-            },
-            internal::Objective::SystemCapture { scalars, system } => Objective::SystemCapture {
-                scalars: *scalars,
-                system: system.id,
-            },
-            internal::Objective::SystemSafe {
-                scalars,
-                system,
-                nturns,
-                nodesfraction,
-            } => Objective::SystemSafe {
-                scalars: *scalars,
-                system: system.id,
-                nturns: *nturns,
-                nodesfraction: nodesfraction.clone(),
-            },
+            internal::ObjectiveTarget::Node(node) => ObjectiveTarget::Node(node.id),
+            internal::ObjectiveTarget::System(system) => ObjectiveTarget::System(system.id),
+            internal::ObjectiveTarget::Unit(unit) => ObjectiveTarget::Unit(Unit::desiccate(unit)),
         }
     }
     pub fn rehydrate(
         &self,
         nodesroot: &Vec<Arc<internal::Node>>,
         systemsroot: &Vec<Arc<internal::System>>,
-        shipinstancesroot: &Vec<Arc<internal::ShipInstance>>,
-        squadroninstancesroot: &Vec<Arc<internal::SquadronInstance>>,
-    ) -> internal::Objective {
+        shipsroot: &Vec<Arc<internal::Ship>>,
+        squadronsroot: &Vec<Arc<internal::Squadron>>,
+    ) -> internal::ObjectiveTarget {
         match self {
-            Objective::ReachNode { scalars, node } => internal::Objective::ReachNode {
-                scalars: *scalars,
-                node: nodesroot[*node].clone(),
-            },
-            Objective::ShipDeath { scalars, ship } => internal::Objective::ShipDeath {
-                scalars: *scalars,
-                ship: shipinstancesroot[*ship as usize].clone(),
-            },
-            Objective::ShipSafe {
-                scalars,
-                ship,
-                nturns,
-            } => internal::Objective::ShipSafe {
-                scalars: *scalars,
-                ship: shipinstancesroot[*ship as usize].clone(),
-                nturns: *nturns,
-            },
-            Objective::SquadronDeath { scalars, squadron } => internal::Objective::SquadronDeath {
-                scalars: *scalars,
-                squadron: squadroninstancesroot[*squadron as usize].clone(),
-            },
-            Objective::SquadronSafe {
-                scalars,
-                squadron,
-                nturns,
-                strengthfraction,
-            } => internal::Objective::SquadronSafe {
-                scalars: *scalars,
-                squadron: squadroninstancesroot[*squadron as usize].clone(),
-                nturns: *nturns,
-                strengthfraction: strengthfraction.clone(),
-            },
-            Objective::NodeCapture { scalars, node } => internal::Objective::NodeCapture {
-                scalars: *scalars,
-                node: nodesroot[*node].clone(),
-            },
-            Objective::NodeSafe {
-                scalars,
-                node,
-                nturns,
-            } => internal::Objective::NodeSafe {
-                scalars: *scalars,
-                node: nodesroot[*node].clone(),
-                nturns: *nturns,
-            },
-            Objective::SystemCapture { scalars, system } => internal::Objective::SystemCapture {
-                scalars: *scalars,
-                system: systemsroot[*system].clone(),
-            },
-            Objective::SystemSafe {
-                scalars,
-                system,
-                nturns,
-                nodesfraction,
-            } => internal::Objective::SystemSafe {
-                scalars: *scalars,
-                system: systemsroot[*system].clone(),
-                nturns: *nturns,
-                nodesfraction: nodesfraction.clone(),
-            },
+            ObjectiveTarget::Node(node) => {
+                internal::ObjectiveTarget::Node(nodesroot[*node].clone())
+            }
+            ObjectiveTarget::System(system) => {
+                internal::ObjectiveTarget::System(systemsroot[*system].clone())
+            }
+            ObjectiveTarget::Unit(unit) => {
+                internal::ObjectiveTarget::Unit(unit.rehydrate(shipsroot, squadronsroot))
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Objective {
+    pub target: ObjectiveTarget,
+    pub task: internal::ObjectiveTask,
+    pub fraction: Option<f32>,
+    pub duration: Option<u64>,
+    pub time_limit: Option<u64>,
+    pub difficulty: f32,
+    pub cost: u64,
+    pub durationscalar: f32,
+    pub strengthscalar: f32,
+    pub toughness_scalar: f32,
+    pub battleescapescalar: f32,
+}
+
+impl Objective {
+    pub fn desiccate(self_entity: &internal::Objective) -> Objective {
+        Objective {
+            target: ObjectiveTarget::desiccate(&self_entity.target),
+            task: self_entity.task,
+            fraction: self_entity.fraction,
+            duration: self_entity.duration,
+            time_limit: self_entity.time_limit,
+            difficulty: self_entity.difficulty,
+            cost: self_entity.cost,
+            durationscalar: self_entity.duration_scalar,
+            strengthscalar: self_entity.strength_scalar,
+            toughness_scalar: self_entity.toughness_scalar,
+            battleescapescalar: self_entity.battle_escape_scalar,
+        }
+    }
+    pub fn rehydrate(
+        &self,
+        nodesroot: &Vec<Arc<internal::Node>>,
+        systemsroot: &Vec<Arc<internal::System>>,
+        shipsroot: &Vec<Arc<internal::Ship>>,
+        squadronsroot: &Vec<Arc<internal::Squadron>>,
+    ) -> internal::Objective {
+        internal::Objective {
+            target: self
+                .target
+                .rehydrate(nodesroot, systemsroot, shipsroot, squadronsroot),
+            task: self.task,
+            fraction: self.fraction,
+            duration: self.duration,
+            time_limit: self.time_limit,
+            difficulty: self.difficulty,
+            cost: self.cost,
+            duration_scalar: self.durationscalar,
+            strength_scalar: self.strengthscalar,
+            toughness_scalar: self.toughness_scalar,
+            battle_escape_scalar: self.battleescapescalar,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Operation {
-    pub visiblename: String,
+    pub visible_name: String,
     pub objectives: Vec<Objective>,
 }
 
 impl Operation {
     pub fn desiccate(self_entity: &internal::Operation) -> Operation {
         Operation {
-            visiblename: self_entity.visiblename.clone(),
+            visible_name: self_entity.visible_name.clone(),
             objectives: self_entity
                 .objectives
                 .iter()
@@ -1773,22 +1858,15 @@ impl Operation {
         &self,
         nodesroot: &Vec<Arc<internal::Node>>,
         systemsroot: &Vec<Arc<internal::System>>,
-        shipinstancesroot: &Vec<Arc<internal::ShipInstance>>,
-        squadroninstancesroot: &Vec<Arc<internal::SquadronInstance>>,
+        shipsroot: &Vec<Arc<internal::Ship>>,
+        squadronsroot: &Vec<Arc<internal::Squadron>>,
     ) -> internal::Operation {
         internal::Operation {
-            visiblename: self.visiblename.clone(),
+            visible_name: self.visible_name.clone(),
             objectives: self
                 .objectives
                 .iter()
-                .map(|x| {
-                    x.rehydrate(
-                        &nodesroot,
-                        &systemsroot,
-                        &shipinstancesroot,
-                        &squadroninstancesroot,
-                    )
-                })
+                .map(|x| x.rehydrate(&nodesroot, &systemsroot, &shipsroot, &squadronsroot))
                 .collect(),
         }
     }
@@ -1822,14 +1900,14 @@ impl FactionForces {
     }
     pub fn rehydrate(
         &self,
-        shipinstancesroot: &Vec<Arc<internal::ShipInstance>>,
-        squadroninstancesroot: &Vec<Arc<internal::SquadronInstance>>,
+        shipsroot: &Vec<Arc<internal::Ship>>,
+        squadronsroot: &Vec<Arc<internal::Squadron>>,
     ) -> internal::FactionForces {
         internal::FactionForces {
             local_forces: self
                 .local_forces
                 .iter()
-                .map(|x| x.rehydrate(&shipinstancesroot, &squadroninstancesroot))
+                .map(|x| x.rehydrate(&shipsroot, &squadronsroot))
                 .collect(),
             reinforcements: self
                 .reinforcements
@@ -1839,7 +1917,7 @@ impl FactionForces {
                         *distance,
                         units
                             .iter()
-                            .map(|x| x.rehydrate(&shipinstancesroot, &squadroninstancesroot))
+                            .map(|x| x.rehydrate(&shipsroot, &squadronsroot))
                             .collect(),
                     )
                 })
@@ -1851,8 +1929,9 @@ impl FactionForces {
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct UnitStatus {
     pub location: Option<UnitLocation>,
-    pub damage: u64,
-    pub engine_damage: Vec<u64>,
+    pub damage: i64,
+    pub engine_damage: Vec<i64>,
+    pub strategic_weapon_damage: Vec<i64>,
 }
 
 impl UnitStatus {
@@ -1864,28 +1943,30 @@ impl UnitStatus {
                 .map(|x| UnitLocation::desiccate(&x)),
             damage: self_entity.damage,
             engine_damage: self_entity.engine_damage.clone(),
+            strategic_weapon_damage: self_entity.strategic_weapon_damage.clone(),
         }
     }
     pub fn rehydrate(
         &self,
         nodesroot: &Vec<Arc<internal::Node>>,
-        squadroninstancesroot: &Vec<Arc<internal::SquadronInstance>>,
-        hangarslist: &Vec<Arc<internal::HangarInstance>>,
+        squadronsroot: &Vec<Arc<internal::Squadron>>,
+        hangarslist: &Vec<Arc<internal::Hangar>>,
     ) -> internal::UnitStatus {
         internal::UnitStatus {
             location: self
                 .location
                 .clone()
-                .map(|x| x.rehydrate(&nodesroot, &squadroninstancesroot, &hangarslist)),
+                .map(|x| x.rehydrate(&nodesroot, &squadronsroot, &hangarslist)),
             damage: self.damage,
             engine_damage: self.engine_damage.clone(),
+            strategic_weapon_damage: self.strategic_weapon_damage.clone(),
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Engagement {
-    pub visiblename: String,
+    pub visible_name: String,
     pub turn: u64,
     pub coalitions: HashMap<u64, HashMap<usize, FactionForces>>,
     pub aggressor: Option<usize>,
@@ -1899,7 +1980,7 @@ pub struct Engagement {
 impl Engagement {
     pub fn desiccate(self_entity: &internal::Engagement) -> Engagement {
         Engagement {
-            visiblename: self_entity.visiblename.clone(),
+            visible_name: self_entity.visible_name.clone(),
             turn: self_entity.turn,
             coalitions: self_entity
                 .coalitions
@@ -1958,12 +2039,12 @@ impl Engagement {
         nodesroot: &Vec<Arc<internal::Node>>,
         systemsroot: &Vec<Arc<internal::System>>,
         factionsroot: &Vec<Arc<internal::Faction>>,
-        shipinstancesroot: &Vec<Arc<internal::ShipInstance>>,
-        squadroninstancesroot: &Vec<Arc<internal::SquadronInstance>>,
-        hangarslist: &Vec<Arc<internal::HangarInstance>>,
+        shipsroot: &Vec<Arc<internal::Ship>>,
+        squadronsroot: &Vec<Arc<internal::Squadron>>,
+        hangarslist: &Vec<Arc<internal::Hangar>>,
     ) -> internal::Engagement {
         internal::Engagement {
-            visiblename: self.visiblename.clone(),
+            visible_name: self.visible_name.clone(),
             turn: self.turn,
             coalitions: self
                 .coalitions
@@ -1976,7 +2057,7 @@ impl Engagement {
                             .map(|(faction, forces)| {
                                 (
                                     factionsroot[*faction].clone(),
-                                    forces.rehydrate(&shipinstancesroot, &squadroninstancesroot),
+                                    forces.rehydrate(&shipsroot, &squadronsroot),
                                 )
                             })
                             .collect(),
@@ -1992,12 +2073,7 @@ impl Engagement {
                         factionsroot[*faction].clone(),
                         objs.iter()
                             .map(|x| {
-                                x.rehydrate(
-                                    &nodesroot,
-                                    &systemsroot,
-                                    &shipinstancesroot,
-                                    &squadroninstancesroot,
-                                )
+                                x.rehydrate(&nodesroot, &systemsroot, &shipsroot, &squadronsroot)
                             })
                             .collect(),
                     )
@@ -2021,13 +2097,10 @@ impl Engagement {
                                         .iter()
                                         .map(|(u, us)| {
                                             (
-                                                u.rehydrate(
-                                                    &shipinstancesroot,
-                                                    &squadroninstancesroot,
-                                                ),
+                                                u.rehydrate(&shipsroot, &squadronsroot),
                                                 us.rehydrate(
                                                     &nodesroot,
-                                                    &squadroninstancesroot,
+                                                    &squadronsroot,
                                                     &hangarslist,
                                                 ),
                                             )
@@ -2045,24 +2118,31 @@ impl Engagement {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GlobalSalience {
-    pub factionsalience: Vec<Vec<Vec<[f32; 2]>>>,
-    pub resourcesalience: Vec<Vec<Vec<[f32; 2]>>>,
-    pub unitclasssalience: Vec<Vec<Vec<[f32; 2]>>>,
+    pub faction_salience: Vec<Vec<Vec<[f32; 2]>>>,
+    pub resource_salience: Vec<Vec<Vec<[f32; 2]>>>,
+    pub unitclass_salience: Vec<Vec<Vec<[f32; 2]>>>,
+    pub strategic_weapon_effect_map: Vec<Vec<[(i64, f32); 3]>>,
 }
 
 impl GlobalSalience {
     fn desiccate(self_entity: &internal::GlobalSalience) -> GlobalSalience {
         GlobalSalience {
-            factionsalience: self_entity.factionsalience.read().unwrap().clone(),
-            resourcesalience: self_entity.resourcesalience.read().unwrap().clone(),
-            unitclasssalience: self_entity.unitclasssalience.read().unwrap().clone(),
+            faction_salience: self_entity.faction_salience.read().unwrap().clone(),
+            resource_salience: self_entity.resource_salience.read().unwrap().clone(),
+            unitclass_salience: self_entity.unitclass_salience.read().unwrap().clone(),
+            strategic_weapon_effect_map: self_entity
+                .strategic_weapon_effect_map
+                .read()
+                .unwrap()
+                .clone(),
         }
     }
     fn rehydrate(&self) -> internal::GlobalSalience {
         internal::GlobalSalience {
-            factionsalience: RwLock::new(self.factionsalience.clone()),
-            resourcesalience: RwLock::new(self.resourcesalience.clone()),
-            unitclasssalience: RwLock::new(self.unitclasssalience.clone()),
+            faction_salience: RwLock::new(self.faction_salience.clone()),
+            resource_salience: RwLock::new(self.resource_salience.clone()),
+            unitclass_salience: RwLock::new(self.unitclass_salience.clone()),
+            strategic_weapon_effect_map: RwLock::new(self.strategic_weapon_effect_map.clone()),
         }
     }
 }
@@ -2080,9 +2160,10 @@ pub struct Root {
     pub wars: HashSet<(usize, usize)>,
     pub resources: Vec<internal::Resource>,
     pub hangarclasses: Vec<internal::HangarClass>,
-    pub hangarinstancecounter: u64,
+    pub hangarcounter: u64,
     pub engineclasses: Vec<EngineClass>,
     pub repairerclasses: Vec<RepairerClass>,
+    pub strategicweaponclasses: Vec<StrategicWeaponClass>,
     pub factoryclasses: Vec<FactoryClass>,
     pub shipyardclasses: Vec<ShipyardClass>,
     pub shipais: Vec<ShipAI>,
@@ -2090,8 +2171,8 @@ pub struct Root {
     pub squadronflavors: Vec<internal::SquadronFlavor>,
     pub shipclasses: Vec<ShipClass>,
     pub squadronclasses: Vec<SquadronClass>,
-    pub shipinstances: Vec<ShipInstance>,
-    pub squadroninstances: Vec<SquadronInstance>,
+    pub ships: Vec<Ship>,
+    pub squadrons: Vec<Squadron>,
     pub unitcounter: u64,
     pub engagements: Vec<Engagement>,
     pub globalsalience: GlobalSalience,
@@ -2152,9 +2233,7 @@ impl Root {
                 .iter()
                 .map(|x| Arc::unwrap_or_clone(x.clone()))
                 .collect(),
-            hangarinstancecounter: self_entity
-                .hangarinstancecounter
-                .load(atomic::Ordering::Relaxed),
+            hangarcounter: self_entity.hangarcounter.load(atomic::Ordering::Relaxed),
             engineclasses: self_entity
                 .engineclasses
                 .iter()
@@ -2164,6 +2243,11 @@ impl Root {
                 .repairerclasses
                 .iter()
                 .map(|x| RepairerClass::desiccate(x))
+                .collect(),
+            strategicweaponclasses: self_entity
+                .strategicweaponclasses
+                .iter()
+                .map(|x| StrategicWeaponClass::desiccate(x))
                 .collect(),
             factoryclasses: self_entity
                 .factoryclasses
@@ -2200,19 +2284,19 @@ impl Root {
                 .iter()
                 .map(|x| SquadronClass::desiccate(x))
                 .collect(),
-            shipinstances: self_entity
-                .shipinstances
+            ships: self_entity
+                .ships
                 .read()
                 .unwrap()
                 .iter()
-                .map(|x| ShipInstance::desiccate(x))
+                .map(|x| Ship::desiccate(x))
                 .collect(),
-            squadroninstances: self_entity
-                .squadroninstances
+            squadrons: self_entity
+                .squadrons
                 .read()
                 .unwrap()
                 .iter()
-                .map(|x| SquadronInstance::desiccate(x))
+                .map(|x| Squadron::desiccate(x))
                 .collect(),
             unitcounter: self_entity.unitcounter.load(atomic::Ordering::Relaxed),
             engagements: self_entity
@@ -2222,7 +2306,7 @@ impl Root {
                 .iter()
                 .map(|x| Engagement::desiccate(x))
                 .collect(),
-            globalsalience: GlobalSalience::desiccate(&self_entity.globalsalience),
+            globalsalience: GlobalSalience::desiccate(&self_entity.global_salience),
             turn: self_entity.turn.load(atomic::Ordering::Relaxed),
         }
     }
@@ -2238,7 +2322,7 @@ impl Root {
             .collect();
         let resources = self.resources.drain(0..).map(|x| Arc::new(x)).collect();
         let hangarclasses = self.hangarclasses.drain(0..).map(|x| Arc::new(x)).collect();
-        let hangarinstancecounter = Arc::new(AtomicU64::new(self.hangarinstancecounter));
+        let hangarcounter = Arc::new(AtomicU64::new(self.hangarcounter));
         let engineclasses = self
             .engineclasses
             .drain(0..)
@@ -2270,6 +2354,11 @@ impl Root {
             .drain(0..)
             .map(|x| Arc::new(x))
             .collect();
+        let strategicweaponclasses = self
+            .strategicweaponclasses
+            .drain(0..)
+            .map(|x| Arc::new(x.rehydrate(&resources, &nodeflavors, &edgeflavors, &shipflavors)))
+            .collect();
         let shipclasses = self
             .shipclasses
             .iter()
@@ -2280,6 +2369,7 @@ impl Root {
                     &hangarclasses,
                     &engineclasses,
                     &repairerclasses,
+                    &strategicweaponclasses,
                     &factoryclasses,
                     &shipyardclasses,
                     &shipais,
@@ -2331,8 +2421,8 @@ impl Root {
                 )
             })
             .collect();
-        let shipinstances: RwLock<Vec<Arc<internal::ShipInstance>>> = RwLock::new(
-            self.shipinstances
+        let ships: RwLock<Vec<Arc<internal::Ship>>> = RwLock::new(
+            self.ships
                 .iter()
                 .map(|x| {
                     Arc::new(x.rehydrate(
@@ -2343,6 +2433,7 @@ impl Root {
                         &resources,
                         &engineclasses,
                         &repairerclasses,
+                        &strategicweaponclasses,
                         &factoryclasses,
                         &shipyardclasses,
                         &shipais,
@@ -2351,62 +2442,58 @@ impl Root {
                 })
                 .collect(),
         );
-        let squadroninstances = RwLock::new(
-            self.squadroninstances
+        let squadrons = RwLock::new(
+            self.squadrons
                 .drain(0..)
                 .map(|x| Arc::new(x.rehydrate(&nodes, &factions, &squadronclasses)))
                 .collect(),
         );
-        //here we go through and add the units to the nodes, now that we have the data for unit instances
+        //here we go through and add the units to the nodes, now that we have the data for unit s
         nodes.iter().for_each(|node| {
             Node::add_units(
                 node,
                 &self.nodes,
-                &shipinstances.read().unwrap(),
-                &squadroninstances.read().unwrap(),
+                &ships.read().unwrap(),
+                &squadrons.read().unwrap(),
             )
         });
-        let hangarslist = shipinstances
+        let hangarslist = ships
             .read()
             .unwrap()
             .iter()
-            .map(|shipinstance| {
-                ShipInstance::add_hangars_and_objectives(
-                    shipinstance,
-                    &self.shipinstances,
+            .map(|ship| {
+                Ship::add_hangars_and_objectives(
+                    ship,
+                    &self.ships,
                     &nodes,
                     &systems,
                     &hangarclasses,
-                    &shipinstances.read().unwrap(),
-                    &squadroninstances.read().unwrap(),
+                    &ships.read().unwrap(),
+                    &squadrons.read().unwrap(),
                 )
             })
             .flatten()
             .collect();
-        shipinstances.read().unwrap().iter().for_each(|ship| {
-            ShipInstance::set_location(
+        ships.read().unwrap().iter().for_each(|ship| {
+            Ship::set_location(
                 ship,
-                &self.shipinstances,
+                &self.ships,
                 &nodes,
-                &squadroninstances.read().unwrap(),
+                &squadrons.read().unwrap(),
                 &hangarslist,
             )
         });
-        squadroninstances
-            .read()
-            .unwrap()
-            .iter()
-            .for_each(|squadron| {
-                SquadronInstance::add_daughters_and_objectives_set_location(
-                    squadron,
-                    &self.squadroninstances,
-                    &nodes,
-                    &systems,
-                    &shipinstances.read().unwrap(),
-                    &squadroninstances.read().unwrap(),
-                    &hangarslist,
-                )
-            });
+        squadrons.read().unwrap().iter().for_each(|squadron| {
+            Squadron::add_daughters_and_objectives_set_location(
+                squadron,
+                &self.squadrons,
+                &nodes,
+                &systems,
+                &ships.read().unwrap(),
+                &squadrons.read().unwrap(),
+                &hangarslist,
+            )
+        });
         let unitcounter = Arc::new(AtomicU64::new(self.unitcounter));
         let engagements = RwLock::new(
             self.engagements
@@ -2416,8 +2503,8 @@ impl Root {
                         &nodes,
                         &systems,
                         &factions,
-                        &shipinstances.read().unwrap(),
-                        &squadroninstances.read().unwrap(),
+                        &ships.read().unwrap(),
+                        &squadrons.read().unwrap(),
                         &hangarslist,
                     ))
                 })
@@ -2438,9 +2525,10 @@ impl Root {
             wars,
             resources,
             hangarclasses,
-            hangarinstancecounter,
+            hangarcounter,
             engineclasses,
             repairerclasses,
+            strategicweaponclasses,
             factoryclasses,
             shipyardclasses,
             shipais,
@@ -2448,11 +2536,11 @@ impl Root {
             squadronflavors,
             shipclasses,
             squadronclasses,
-            shipinstances,
-            squadroninstances,
+            ships,
+            squadrons,
             unitcounter,
             engagements,
-            globalsalience,
+            global_salience: globalsalience,
             turn,
         }
     }
