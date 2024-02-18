@@ -6,7 +6,7 @@ use std::time::Instant;
 
 fn main() {
     //env::set_var("RUST_BACKTRACE", "1");
-    let file = File::open("benchmark.json").unwrap();
+    let file = File::open("mod-specs.json").unwrap();
     let start = Instant::now();
     let json_root: json_hydration::Root = serde_json::from_reader(file).unwrap();
     let duration = start.elapsed();
@@ -34,6 +34,10 @@ fn main() {
     let mut root_3 = connection::Root::rehydrate(connection_root_2);
 
     for _i in 0..25 {
+        root_3.process_turn();
+    }
+
+    for _i in 0..70 {
         root_3.process_turn();
     }
 

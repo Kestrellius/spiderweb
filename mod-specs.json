@@ -889,16 +889,26 @@
     ],
     "edgeflavors": [
         {
-            "id": "intrasystem",
+            "id": "pure_intrasystem",
             "visible_name": "Intrasystem Path",
-            "description": "A pathway between two locations within a single star system."
+            "description": "none",
+            "propagates": false
+        },
+        {
+            "id": "semi_intrasystem",
+            "visible_name": "Intrasystem Path",
+            "description": "none",
+            "propagates": true
         },
         {
             "id": "intersystem",
-            "visible_name": "Hyperspace Route",
-            "description": "A clear path through hyperspace, connecting two star systems."
+            "visible_name": "Intersystem Path",
+            "description": "none",
+            "propagates": true
         }
     ],
+    "pure_internal_edgeflavor": "pure_intrasystem",
+    "semi_internal_edgeflavor": "semi_intrasystem",
     "edges": [
         [
             "coruscanthtz",
@@ -1167,9 +1177,12 @@
             "repair_points": 10,
             "repair_factor": 0.0,
             "engine_repair_points": 10,
-            "engine_repair_factor": 0.0
+            "engine_repair_factor": 0.0,
+            "strategic_weapon_repair_points": 10,
+            "strategic_weapon_repair_factor": 0.0
         }
     ],
+    "strategicweaponclasses": [],
     "factoryclasses": [
         {
             "id": "steelmine",
@@ -1178,7 +1191,7 @@
             "inputs": [],
             "outputs": [
                 {
-                    "resourcetype": "steel",
+                    "resource_type": "steel",
                     "contents": 100,
                     "rate": 100,
                     "target": 2000,
@@ -1192,7 +1205,7 @@
             "description": "foo fie foe fum",
             "inputs": [
                 {
-                    "resourcetype": "steel",
+                    "resource_type": "steel",
                     "contents": 100,
                     "rate": 10,
                     "target": 200,
@@ -1201,7 +1214,7 @@
             ],
             "outputs": [
                 {
-                    "resourcetype": "components",
+                    "resource_type": "components",
                     "contents": 500,
                     "rate": 30,
                     "target": 1000,
@@ -1216,7 +1229,7 @@
             "inputs": [],
             "outputs": [
                 {
-                    "resourcetype": "food",
+                    "resource_type": "food",
                     "contents": 100,
                     "rate": 50,
                     "target": 1000,
@@ -1230,7 +1243,7 @@
             "description": "foo fie foe fum",
             "inputs": [
                 {
-                    "resourcetype": "food",
+                    "resource_type": "food",
                     "contents": 1000,
                     "rate": 200,
                     "target": 400,
@@ -1239,7 +1252,7 @@
             ],
             "outputs": [
                 {
-                    "resourcetype": "personnel",
+                    "resource_type": "personnel",
                     "contents": 20,
                     "rate": 5,
                     "target": 50,
@@ -1255,8 +1268,8 @@
             "description": "foo fie foe fum",
             "inputs": [
                 {
-                    "resourcetype": "steel",
-                    "contents": 113,
+                    "resource_type": "steel",
+                    "contents": 17,
                     "rate": 17,
                     "target": 200,
                     "capacity": 500
@@ -1274,8 +1287,8 @@
             "description": "foo fie foe fum",
             "inputs": [
                 {
-                    "resourcetype": "steel",
-                    "contents": 300,
+                    "resource_type": "steel",
+                    "contents": 25,
                     "rate": 25,
                     "target": 500,
                     "capacity": 1000
@@ -1293,8 +1306,8 @@
             "description": "foo fie foe fum",
             "inputs": [
                 {
-                    "resourcetype": "steel",
-                    "contents": 5000,
+                    "resource_type": "steel",
+                    "contents": 1000,
                     "rate": 1000,
                     "target": 2000,
                     "capacity": 10000
@@ -1312,8 +1325,8 @@
             "description": "foo fie foe fum",
             "inputs": [
                 {
-                    "resourcetype": "steel",
-                    "contents": 2000,
+                    "resource_type": "steel",
+                    "contents": 500,
                     "rate": 500,
                     "target": 1500,
                     "capacity": 5000
@@ -1328,7 +1341,7 @@
     ],
     "shipflavors": [
         {
-            "id": "basicshipflavor",
+            "id": "default",
             "visible_name": "Basic Ship Type",
             "description": "foobar"
         }
@@ -1338,10 +1351,10 @@
             "id": "tieln",
             "visible_name": "TIE/ln space superiority fighter",
             "description": "Dirt-cheap mass-produced fighter of the Empire.",
-            "shipflavor": "basicshipflavor",
+            "shipflavor": "default",
             "base_hull": 1,
             "base_strength": 11,
-            "aiclass": "basicai",
+            "ai_class": "default",
             "default_weapons": {
                 "lightlaser": 1,
                 "prottorp": 4
@@ -1358,10 +1371,10 @@
             "id": "z95",
             "visible_name": "Z-95 Headhunter",
             "description": "An aging, but still effective, light starfighter used by rebels, pirates, local governments, and civilian operators.",
-            "shipflavor": "basicshipflavor",
+            "shipflavor": "default",
             "base_hull": 1,
             "base_strength": 16,
-            "aiclass": "basicai",
+            "ai_class": "default",
             "default_weapons": {
                 "lightlaser": 1,
                 "prottorp": 4
@@ -1378,10 +1391,10 @@
             "id": "isd",
             "visible_name": "Imperial II-class Star Destroyer",
             "description": "Powerful capital vessel, deployed in large numbers by the Empire.",
-            "shipflavor": "basicshipflavor",
+            "shipflavor": "default",
             "base_hull": 1000,
             "base_strength": 1000,
-            "aiclass": "basicai",
+            "ai_class": "default",
             "hangar_vol": 100000,
             "hangars": [
                 "isdhangar"
@@ -1397,10 +1410,10 @@
             "id": "nebulonb",
             "visible_name": "EF76 Nebulon-B Escort Frigate",
             "description": "A light capital ship, quick but well-armed for its size.",
-            "shipflavor": "basicshipflavor",
+            "shipflavor": "default",
             "base_hull": 100,
             "base_strength": 150,
-            "aiclass": "basicai",
+            "ai_class": "default",
             "hangar_vol": 5000,
             "engines": [
                 "basicengine"
@@ -1412,11 +1425,33 @@
     ],
     "shipais": [
         {
-            "id": "basicai",
+            "id": "default",
             "ship_attract_specific": 1.0,
             "ship_attract_generic": 1.0,
-            "ship_cargo_attract": {},
-            "resource_attract": {}
+            "ship_cargo_attract": {
+                "tieln": 1.0,
+                "z95": 1.0,
+                "isd": 1.0,
+                "nebulonb": 1.0
+            },
+            "resource_attract": {
+                "steel": 1.0,
+                "components": 1.0,
+                "food": 1.0,
+                "personnel": 1.0,
+                "lightlaser": 1.0,
+                "prottorp": 1.0
+            },
+            "friendly_supply_attract": 0.0,
+            "hostile_supply_attract": -0.1,
+            "allegiance_demand_attract": 1.0,
+            "enemy_demand_attract": 10.0,
+            "strategic_weapon_damage_attract": -1.0,
+            "strategic_weapon_engine_damage_attract": -1.0,
+            "strategic_weapon_strategic_weapon_damage_attract": -1.0,
+            "strategic_weapon_healing_attract": 1.0,
+            "strategic_weapon_engine_healing_attract": 1.0,
+            "strategic_weapon_strategic_weapon_healing_attract": 1.0
         }
     ],
     "squadronflavors": [
@@ -1431,7 +1466,7 @@
             "id": "impmedfleet",
             "visible_name": "Medium Imperial Fleet",
             "description": "A mid-sized Imperial fleet.",
-            "squadronflavor": "basicsquadronflavor",
+            "squadron_flavor": "basicsquadronflavor",
             "strength_mod": [
                 1.0,
                 100

@@ -11673,7 +11673,7 @@
                 {
                     "resource_type": "resource_9",
                     "contents": 0,
-                    "rate": 1000,
+                    "rate": 100,
                     "target": 10000,
                     "capacity": 10000
                 }
@@ -11696,7 +11696,7 @@
                 {
                     "resource_type": "resource_8",
                     "contents": 0,
-                    "rate": 1000,
+                    "rate": 100,
                     "target": 10000,
                     "capacity": 10000
                 }
@@ -11719,7 +11719,7 @@
                 {
                     "resource_type": "resource_7",
                     "contents": 0,
-                    "rate": 1000,
+                    "rate": 100,
                     "target": 10000,
                     "capacity": 10000
                 }
@@ -11742,7 +11742,7 @@
                 {
                     "resource_type": "resource_6",
                     "contents": 0,
-                    "rate": 1000,
+                    "rate": 100,
                     "target": 10000,
                     "capacity": 10000
                 }
@@ -11765,7 +11765,7 @@
                 {
                     "resource_type": "resource_5",
                     "contents": 0,
-                    "rate": 1000,
+                    "rate": 100,
                     "target": 10000,
                     "capacity": 10000
                 }
@@ -11788,7 +11788,7 @@
                 {
                     "resource_type": "resource_4",
                     "contents": 0,
-                    "rate": 1000,
+                    "rate": 100,
                     "target": 10000,
                     "capacity": 10000
                 }
@@ -11811,7 +11811,7 @@
                 {
                     "resource_type": "resource_3",
                     "contents": 0,
-                    "rate": 1000,
+                    "rate": 100,
                     "target": 10000,
                     "capacity": 10000
                 }
@@ -11834,7 +11834,7 @@
                 {
                     "resource_type": "resource_2",
                     "contents": 0,
-                    "rate": 1000,
+                    "rate": 100,
                     "target": 10000,
                     "capacity": 10000
                 }
@@ -11857,7 +11857,7 @@
                 {
                     "resource_type": "resource_1",
                     "contents": 0,
-                    "rate": 1000,
+                    "rate": 100,
                     "target": 10000,
                     "capacity": 10000
                 }
@@ -11880,7 +11880,7 @@
                 {
                     "resource_type": "resource_0",
                     "contents": 0,
-                    "rate": 1000,
+                    "rate": 100,
                     "target": 10000,
                     "capacity": 10000
                 }
