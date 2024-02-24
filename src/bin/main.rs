@@ -1,12 +1,14 @@
 use serde_json_any_key::*;
 use spiderweb::connection;
+use spiderweb::internal::Mobility;
 use spiderweb::json_hydration;
 use std::fs::File;
 use std::time::Instant;
 
 fn main() {
+    //rayon::ThreadPoolBuilder::new().num_threads(1).build_global().unwrap();
     //env::set_var("RUST_BACKTRACE", "1");
-    let file = File::open("mod-specs.json").unwrap();
+    let file = File::open("benchmark.json").unwrap();
     let start = Instant::now();
     let json_root: json_hydration::Root = serde_json::from_reader(file).unwrap();
     let duration = start.elapsed();
@@ -16,7 +18,6 @@ fn main() {
     for _i in 0..5 {
         root_0.process_turn();
     }
-
     let connection_root_0 = connection::Root::desiccate(&root_0);
 
     let mut root_1 = &mut connection_root_0.rehydrate();
@@ -33,11 +34,7 @@ fn main() {
 
     let mut root_3 = connection::Root::rehydrate(connection_root_2);
 
-    for _i in 0..25 {
-        root_3.process_turn();
-    }
-
-    for _i in 0..70 {
+    for _i in 0..20 {
         root_3.process_turn();
     }
 

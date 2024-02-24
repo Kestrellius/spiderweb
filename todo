@@ -49,7 +49,7 @@ GENERAL:
 [x] Replace current implementation of entity locations with entity-component system or similar
 [x] Build hangar entry and exit methods
 [x] Build balance_stockpiles
-[ ] Build balance_hangars
+[x] Build balance_hangars
 [ ] Build operation logic
 [x] Implement faction demand, and incorporate faction salience into navigation logic
     [x] Add scalars on faction and on config for resource/unitclass salience relative to strength of forces
@@ -133,6 +133,9 @@ GENERAL:
 [ ] Take hostile threat into account for faction demand
 [ ] Make hangar allowed an option, with none meaning no restrictions, as with pluripotent stockpiles
 [ ] Create method that recurses up unit tree and tries to transfer unit into the nearest available place, finishing at the node if necessary, for use while disbanding squadrons
+[ ] Allowed list for squadrons
+[ ] Make sure remove_dead and disband_squadrons are read-write-safe, and that they destroy all arcs including hangar parent arcs
+[ ] Think about taking average instead of product in cases like getting AI for squadrons
 
 LONGER-TERM:
 [ ] Build system for transmitting data to FSO

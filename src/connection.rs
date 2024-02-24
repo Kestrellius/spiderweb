@@ -584,8 +584,8 @@ impl RepairerClass {
             repair_factor: self_entity.repair_factor,
             engine_repair_points: self_entity.engine_repair_points,
             engine_repair_factor: self_entity.engine_repair_factor,
-            strategic_weapon_repair_points: self_entity.strategic_weapon_repair_points,
-            strategic_weapon_repair_factor: self_entity.strategic_weapon_repair_factor,
+            strategic_weapon_repair_points: self_entity.subsystem_repair_points,
+            strategic_weapon_repair_factor: self_entity.subsystem_repair_factor,
             per_engagement: self_entity.per_engagement,
         }
     }
@@ -604,8 +604,8 @@ impl RepairerClass {
             repair_factor: self.repair_factor.clone(),
             engine_repair_points: self.engine_repair_points,
             engine_repair_factor: self.engine_repair_factor.clone(),
-            strategic_weapon_repair_points: self.strategic_weapon_repair_points,
-            strategic_weapon_repair_factor: self.strategic_weapon_repair_factor,
+            subsystem_repair_points: self.strategic_weapon_repair_points,
+            subsystem_repair_factor: self.strategic_weapon_repair_factor,
             per_engagement: self.per_engagement,
         }
     }
@@ -653,8 +653,6 @@ pub struct StrategicWeaponClass {
     pub visible_name: String,
     pub description: String,
     pub visibility: bool,
-    pub base_health: Option<u64>,
-    pub toughness_scalar: f32,
     pub inputs: Vec<UnipotentStockpile>,
     pub forbidden_nodeflavors: Vec<usize>, //the weapon won't fire into nodes of these flavors
     pub forbidden_edgeflavors: Vec<usize>, //the weapon won't fire across edges of these flavors
@@ -680,8 +678,6 @@ impl StrategicWeaponClass {
             visible_name: self_entity.visible_name.clone(),
             description: self_entity.description.clone(),
             visibility: self_entity.visibility,
-            base_health: self_entity.base_health,
-            toughness_scalar: self_entity.toughness_scalar,
             inputs: self_entity
                 .inputs
                 .iter()
@@ -728,8 +724,6 @@ impl StrategicWeaponClass {
             visible_name: self.visible_name.clone(),
             description: self.description.clone(),
             visibility: self.visibility,
-            base_health: self.base_health,
-            toughness_scalar: self.toughness_scalar,
             inputs: self
                 .inputs
                 .iter()
@@ -770,7 +764,6 @@ impl StrategicWeaponClass {
 pub struct StrategicWeapon {
     pub class: usize,
     pub visibility: bool,
-    pub health: Option<u64>,
     pub inputs: Vec<UnipotentStockpile>,
 }
 
@@ -779,7 +772,6 @@ impl StrategicWeapon {
         StrategicWeapon {
             class: self_entity.class.id,
             visibility: self_entity.visibility,
-            health: self_entity.health,
             inputs: self_entity
                 .inputs
                 .iter()
@@ -795,7 +787,6 @@ impl StrategicWeapon {
         internal::StrategicWeapon {
             class: strategicweaponclassesroot[self.class].clone(),
             visibility: self.visibility,
-            health: self.health,
             inputs: self
                 .inputs
                 .iter()
@@ -951,7 +942,7 @@ impl ShipyardClass {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Shipyard {
-    pub shipyardclass: usize,
+    pub class: usize,
     pub visibility: bool,
     pub inputs: Vec<UnipotentStockpile>,
     pub outputs: HashMap<usize, u64>,
@@ -962,7 +953,7 @@ pub struct Shipyard {
 impl Shipyard {
     fn desiccate(self_entity: &internal::Shipyard) -> Shipyard {
         Shipyard {
-            shipyardclass: self_entity.class.id,
+            class: self_entity.class.id,
             visibility: self_entity.visibility,
             inputs: self_entity
                 .inputs
@@ -985,7 +976,7 @@ impl Shipyard {
         shipclassesroot: &Vec<Arc<internal::ShipClass>>,
     ) -> internal::Shipyard {
         internal::Shipyard {
-            class: shipyardclassesroot[self.shipyardclass].clone(),
+            class: shipyardclassesroot[self.class].clone(),
             visibility: self.visibility,
             inputs: self
                 .inputs
@@ -1004,8 +995,36 @@ impl Shipyard {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Subsystem {
+    pub class: usize,
+    pub visibility: bool,
+    pub health: Option<u64>,
+}
+
+impl Subsystem {
+    fn desiccate(self_entity: &internal::Subsystem) -> Subsystem {
+        Subsystem {
+            class: self_entity.class.id,
+            visibility: self_entity.visibility,
+            health: self_entity.health,
+        }
+    }
+    fn rehydrate(
+        &self,
+        subsystemclassesroot: &Vec<Arc<internal::SubsystemClass>>,
+    ) -> internal::Subsystem {
+        internal::Subsystem {
+            class: subsystemclassesroot[self.class].clone(),
+            visibility: self.visibility,
+            health: self.health,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShipAI {
     pub id: usize,
+    pub nav_threshold: f32,
     pub ship_attract_specific: f32, //a multiplier for demand gradients corresponding to the specific class of a ship using this AI
     pub ship_attract_generic: f32, //a multiplier for the extent to which a ship using this AI will follow generic ship demand gradients
     pub ship_cargo_attract: HashMap<internal::UnitClassID, f32>,
@@ -1016,16 +1035,17 @@ pub struct ShipAI {
     pub enemy_demand_attract: f32,
     pub strategic_weapon_damage_attract: f32,
     pub strategic_weapon_engine_damage_attract: f32,
-    pub strategic_weapon_strategic_weapon_damage_attract: f32,
+    pub strategic_weapon_subsystem_damage_attract: f32,
     pub strategic_weapon_healing_attract: f32,
     pub strategic_weapon_engine_healing_attract: f32,
-    pub strategic_weapon_strategic_weapon_healing_attract: f32,
+    pub strategic_weapon_subsystem_healing_attract: f32,
 }
 
 impl ShipAI {
     fn desiccate(self_entity: &internal::ShipAI) -> ShipAI {
         ShipAI {
             id: self_entity.id,
+            nav_threshold: self_entity.nav_threshold,
             ship_attract_specific: self_entity.ship_attract_specific,
             ship_attract_generic: self_entity.ship_attract_generic,
             ship_cargo_attract: self_entity.ship_cargo_attract.clone(),
@@ -1041,18 +1061,19 @@ impl ShipAI {
             strategic_weapon_damage_attract: self_entity.strategic_weapon_damage_attract,
             strategic_weapon_engine_damage_attract: self_entity
                 .strategic_weapon_engine_damage_attract,
-            strategic_weapon_strategic_weapon_damage_attract: self_entity
-                .strategic_weapon_strategic_weapon_damage_attract,
+            strategic_weapon_subsystem_damage_attract: self_entity
+                .strategic_weapon_subsystem_damage_attract,
             strategic_weapon_healing_attract: self_entity.strategic_weapon_healing_attract,
             strategic_weapon_engine_healing_attract: self_entity
                 .strategic_weapon_engine_healing_attract,
-            strategic_weapon_strategic_weapon_healing_attract: self_entity
-                .strategic_weapon_strategic_weapon_healing_attract,
+            strategic_weapon_subsystem_healing_attract: self_entity
+                .strategic_weapon_subsystem_healing_attract,
         }
     }
     fn rehydrate(&self, resourcesroot: &Vec<Arc<internal::Resource>>) -> internal::ShipAI {
         internal::ShipAI {
             id: self.id,
+            nav_threshold: self.nav_threshold,
             ship_attract_specific: self.ship_attract_specific,
             ship_attract_generic: self.ship_attract_generic,
             ship_cargo_attract: self.ship_cargo_attract.clone(),
@@ -1067,12 +1088,12 @@ impl ShipAI {
             enemy_demand_attract: self.enemy_demand_attract,
             strategic_weapon_damage_attract: self.strategic_weapon_damage_attract,
             strategic_weapon_engine_damage_attract: self.strategic_weapon_engine_damage_attract,
-            strategic_weapon_strategic_weapon_damage_attract: self
-                .strategic_weapon_strategic_weapon_damage_attract,
+            strategic_weapon_subsystem_damage_attract: self
+                .strategic_weapon_subsystem_damage_attract,
             strategic_weapon_healing_attract: self.strategic_weapon_healing_attract,
             strategic_weapon_engine_healing_attract: self.strategic_weapon_engine_healing_attract,
-            strategic_weapon_strategic_weapon_healing_attract: self
-                .strategic_weapon_strategic_weapon_healing_attract,
+            strategic_weapon_subsystem_healing_attract: self
+                .strategic_weapon_subsystem_healing_attract,
         }
     }
 }
@@ -1116,30 +1137,31 @@ pub struct ShipClass {
     pub visible_name: String,
     pub description: String,
     pub shipflavor: usize,
-    pub basehull: u64,     //how many hull hitpoints this ship has by default
-    pub basestrength: u64, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
+    pub base_hull: u64,     //how many hull hitpoints this ship has by default
+    pub base_strength: u64, //base strength score, used by AI to reason about ships' effectiveness; for an actual ship, this will be mutated based on current health and XP
     pub visibility: bool,
     pub propagates: bool,
     pub hangarvol: u64,
     pub stockpiles: Vec<PluripotentStockpile>,
-    pub defaultweapons: Option<HashMap<usize, u64>>, //a strikecraft's default weapons, which it always has with it
+    pub default_weapons: Option<HashMap<usize, u64>>, //a strikecraft's default weapons, which it always has with it
     pub hangars: Vec<usize>,
     pub engines: Vec<usize>,
     pub repairers: Vec<usize>,
     pub strategicweapons: Vec<usize>,
-    pub factoryclasslist: Vec<usize>,
-    pub shipyardclasslist: Vec<usize>,
-    pub aiclass: usize,
-    pub navthreshold: f32, //the value of an adjacent node must exceed (the value of the current node times navthreshold) in order for the ship to decide to move
-    pub processordemandnavscalar: f32, //multiplier for demand generated by the ship's engines, repairers, factories, and shipyards, to modify it relative to that generated by stockpiles
-    pub deploys_self: bool,            //if false, ship will not go on deployments
+    pub factories: Vec<usize>,
+    pub shipyards: Vec<usize>,
+    pub subsystems: Vec<usize>,
+    pub ai_class: usize,
+    pub processor_demand_nav_scalar: f32, //multiplier for demand generated by the ship's engines, repairers, factories, and shipyards, to modify it relative to that generated by stockpiles
+    pub deploys_self: bool,               //if false, ship will not go on deployments
     pub deploys_daughters: Option<u64>, // if None, ship will not send its daughters on deployments; value is number of moves a daughter must be able to make to be deployed
+    pub mother_misalignment_tolerance: Option<f32>,
     pub defectchance: HashMap<usize, (f32, f32)>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
     pub toughness_scalar: f32, //is used as a divisor for damage values taken by this ship in battle; a value of 2.0 will halve damage
-    pub battleescapescalar: f32, //is added to toughness_scalar in battles where this ship is on the losing side, trying to escape
-    pub defectescapescalar: f32, //influences how likely it is that a ship of this class will, if it defects, escape to an enemy-held node with no engagement taking place
-    pub interdictionscalar: f32,
-    pub strategicweaponevasionscalar: f32,
+    pub battle_escape_scalar: f32, //is added to toughness_scalar in battles where this ship is on the losing side, trying to escape
+    pub defect_escape_scalar: f32, //influences how likely it is that a ship of this class will, if it defects, escape to an enemy-held node with no engagement taking place
+    pub interdiction_scalar: f32,
+    pub strategic_weapon_evasion_scalar: f32,
     pub value_mult: f32, //how valuable the AI considers one volume point of this shipclass to be
 }
 
@@ -1150,8 +1172,8 @@ impl ShipClass {
             visible_name: self_entity.visible_name.clone(),
             description: self_entity.description.clone(),
             shipflavor: self_entity.shipflavor.id,
-            basehull: self_entity.base_hull,
-            basestrength: self_entity.base_strength,
+            base_hull: self_entity.base_hull,
+            base_strength: self_entity.base_strength,
             visibility: self_entity.visibility,
             propagates: self_entity.propagates,
             hangarvol: self_entity.hangar_vol,
@@ -1160,7 +1182,7 @@ impl ShipClass {
                 .iter()
                 .map(|x| PluripotentStockpile::desiccate(x))
                 .collect(),
-            defaultweapons: self_entity.default_weapons.clone().map(|x| {
+            default_weapons: self_entity.default_weapons.clone().map(|x| {
                 x.iter()
                     .map(|(resource, count)| (resource.id, *count))
                     .collect()
@@ -1169,23 +1191,24 @@ impl ShipClass {
             engines: self_entity.engines.iter().map(|x| x.id).collect(),
             repairers: self_entity.repairers.iter().map(|x| x.id).collect(),
             strategicweapons: self_entity.strategic_weapons.iter().map(|x| x.id).collect(),
-            factoryclasslist: self_entity.factories.iter().map(|x| x.id).collect(),
-            shipyardclasslist: self_entity.shipyards.iter().map(|x| x.id).collect(),
-            aiclass: self_entity.ai_class.id,
-            navthreshold: self_entity.nav_threshold,
-            processordemandnavscalar: self_entity.processor_demand_nav_scalar,
+            factories: self_entity.factories.iter().map(|x| x.id).collect(),
+            shipyards: self_entity.shipyards.iter().map(|x| x.id).collect(),
+            subsystems: self_entity.subsystems.iter().map(|x| x.id).collect(),
+            ai_class: self_entity.ai_class.id,
+            processor_demand_nav_scalar: self_entity.processor_demand_nav_scalar,
             deploys_self: self_entity.deploys_self,
             deploys_daughters: self_entity.deploys_daughters,
+            mother_misalignment_tolerance: self_entity.mother_misalignment_tolerance,
             defectchance: self_entity
                 .defect_chance
                 .iter()
                 .map(|(faction, scalars)| (faction.id, *scalars))
                 .collect(),
             toughness_scalar: self_entity.toughness_scalar,
-            battleescapescalar: self_entity.battle_escape_scalar,
-            defectescapescalar: self_entity.defect_escape_scalar,
-            interdictionscalar: self_entity.interdiction_scalar,
-            strategicweaponevasionscalar: self_entity.strategic_weapon_evasion_scalar,
+            battle_escape_scalar: self_entity.battle_escape_scalar,
+            defect_escape_scalar: self_entity.defect_escape_scalar,
+            interdiction_scalar: self_entity.interdiction_scalar,
+            strategic_weapon_evasion_scalar: self_entity.strategic_weapon_evasion_scalar,
             value_mult: self_entity.value_mult,
         }
     }
@@ -1199,6 +1222,7 @@ impl ShipClass {
         strategicweaponclassesroot: &Vec<Arc<internal::StrategicWeaponClass>>,
         factoryclassesroot: &Vec<Arc<internal::FactoryClass>>,
         shipyardclassesroot: &Vec<Arc<internal::ShipyardClass>>,
+        subsystemclassesroot: &Vec<Arc<internal::SubsystemClass>>,
         shipaisroot: &Vec<Arc<internal::ShipAI>>,
         shipflavorsroot: &Vec<Arc<internal::ShipFlavor>>,
     ) -> internal::ShipClass {
@@ -1207,8 +1231,8 @@ impl ShipClass {
             visible_name: self.visible_name.clone(),
             description: self.description.clone(),
             shipflavor: shipflavorsroot[self.shipflavor].clone(),
-            base_hull: self.basehull,
-            base_strength: self.basestrength,
+            base_hull: self.base_hull,
+            base_strength: self.base_strength,
             visibility: self.visibility,
             propagates: self.propagates,
             hangar_vol: self.hangarvol,
@@ -1217,7 +1241,7 @@ impl ShipClass {
                 .iter()
                 .map(|x| x.rehydrate(&resourcesroot))
                 .collect(),
-            default_weapons: self.defaultweapons.clone().map(|x| {
+            default_weapons: self.default_weapons.clone().map(|x| {
                 x.iter()
                     .map(|(resource, count)| (resourcesroot[*resource].clone(), *count))
                     .collect()
@@ -1243,30 +1267,35 @@ impl ShipClass {
                 .map(|x| strategicweaponclassesroot[*x].clone())
                 .collect(),
             factories: self
-                .factoryclasslist
+                .factories
                 .iter()
                 .map(|x| factoryclassesroot[*x].clone())
                 .collect(),
             shipyards: self
-                .shipyardclasslist
+                .shipyards
                 .iter()
                 .map(|x| shipyardclassesroot[*x].clone())
                 .collect(),
-            ai_class: shipaisroot[self.aiclass].clone(),
-            nav_threshold: self.navthreshold,
-            processor_demand_nav_scalar: self.processordemandnavscalar,
+            subsystems: self
+                .subsystems
+                .iter()
+                .map(|x| subsystemclassesroot[*x].clone())
+                .collect(),
+            ai_class: shipaisroot[self.ai_class].clone(),
+            processor_demand_nav_scalar: self.processor_demand_nav_scalar,
             deploys_self: self.deploys_self,
             deploys_daughters: self.deploys_daughters,
+            mother_misalignment_tolerance: self.mother_misalignment_tolerance,
             defect_chance: self
                 .defectchance
                 .iter()
                 .map(|(faction, scalars)| (factionsroot[*faction].clone(), *scalars))
                 .collect(),
             toughness_scalar: self.toughness_scalar,
-            battle_escape_scalar: self.battleescapescalar,
-            defect_escape_scalar: self.defectescapescalar,
-            interdiction_scalar: self.interdictionscalar,
-            strategic_weapon_evasion_scalar: self.strategicweaponevasionscalar,
+            battle_escape_scalar: self.battle_escape_scalar,
+            defect_escape_scalar: self.defect_escape_scalar,
+            interdiction_scalar: self.interdiction_scalar,
+            strategic_weapon_evasion_scalar: self.strategic_weapon_evasion_scalar,
             value_mult: self.value_mult,
         }
     }
@@ -1283,8 +1312,9 @@ pub struct ShipMut {
     pub movement_left: u64, //starts at eighteen quintillion each turn, gets decremented as ship moves; represents time left to move during the turn
     pub repairers: Vec<Repairer>,
     pub strategicweapons: Vec<StrategicWeapon>,
-    pub factory_list: Vec<Factory>,
-    pub shipyardlist: Vec<Shipyard>,
+    pub factories: Vec<Factory>,
+    pub shipyards: Vec<Shipyard>,
+    pub subsystems: Vec<Subsystem>,
     pub location: UnitLocation, //where the ship is -- a node if it's unaffiliated, a squadron if it's in one
     pub allegiance: usize,      //which faction this ship belongs to
     pub objectives: Vec<Objective>,
@@ -1323,15 +1353,20 @@ impl ShipMut {
                 .iter()
                 .map(|x| StrategicWeapon::desiccate(x))
                 .collect(),
-            factory_list: self_entity
+            factories: self_entity
                 .factories
                 .iter()
                 .map(|x| Factory::desiccate(x))
                 .collect(),
-            shipyardlist: self_entity
+            shipyards: self_entity
                 .shipyards
                 .iter()
                 .map(|x| Shipyard::desiccate(x))
+                .collect(),
+            subsystems: self_entity
+                .subsystems
+                .iter()
+                .map(|x| Subsystem::desiccate(x))
                 .collect(),
             location: UnitLocation::desiccate(&self_entity.location),
             allegiance: self_entity.allegiance.id,
@@ -1355,6 +1390,7 @@ impl ShipMut {
         strategicweaponclassesroot: &Vec<Arc<internal::StrategicWeaponClass>>,
         factoryclassesroot: &Vec<Arc<internal::FactoryClass>>,
         shipyardclassesroot: &Vec<Arc<internal::ShipyardClass>>,
+        subsystemclassesroot: &Vec<Arc<internal::SubsystemClass>>,
         shipaisroot: &Vec<Arc<internal::ShipAI>>,
         shipclassesroot: &Vec<Arc<internal::ShipClass>>,
     ) -> internal::ShipMut {
@@ -1392,14 +1428,19 @@ impl ShipMut {
                 .map(|x| x.rehydrate(&resourcesroot, &strategicweaponclassesroot))
                 .collect(),
             factories: self
-                .factory_list
+                .factories
                 .iter()
                 .map(|x| x.rehydrate(&resourcesroot, &factoryclassesroot))
                 .collect(),
             shipyards: self
-                .shipyardlist
+                .shipyards
                 .iter()
                 .map(|x| x.rehydrate(&resourcesroot, &shipyardclassesroot, &shipclassesroot))
+                .collect(),
+            subsystems: self
+                .subsystems
+                .iter()
+                .map(|x| x.rehydrate(&subsystemclassesroot))
                 .collect(),
             location: internal::UnitLocation::Node(nodesroot[0].clone()),
             allegiance: factionsroot[self.allegiance].clone(),
@@ -1438,6 +1479,7 @@ impl Ship {
         strategicweaponclassesroot: &Vec<Arc<internal::StrategicWeaponClass>>,
         factoryclassesroot: &Vec<Arc<internal::FactoryClass>>,
         shipyardclassesroot: &Vec<Arc<internal::ShipyardClass>>,
+        subsystemclassesroot: &Vec<Arc<internal::SubsystemClass>>,
         shipaisroot: &Vec<Arc<internal::ShipAI>>,
         shipclassesroot: &Vec<Arc<internal::ShipClass>>,
     ) -> internal::Ship {
@@ -1456,6 +1498,7 @@ impl Ship {
                 strategicweaponclassesroot,
                 factoryclassesroot,
                 shipyardclassesroot,
+                subsystemclassesroot,
                 shipaisroot,
                 shipclassesroot,
             )),
@@ -1509,17 +1552,16 @@ pub struct SquadronClass {
     pub capacity: u64,
     pub target: u64,
     pub propagates: bool,
-    pub strengthmod: (f32, u64),
-    pub squadronconfig: HashMap<internal::UnitClassID, u64>,
+    pub strength_mod: (f32, u64),
+    pub squadron_config: HashMap<internal::UnitClassID, u64>,
     pub sub_target_supply_scalar: f32, //multiplier used for demand generated by non-ideal ships under the target limit; should be below one
     pub non_ideal_demand_scalar: f32, //multiplier used for demand generated for non-ideal unitclasses; should be below one
-    pub navthreshold: f32, //the value of an adjacent node must exceed (the value of the current node times navthreshold) in order for the ship to decide to move
-    pub navquorum: f32,
-    pub disbandthreshold: f32,
+    pub nav_quorum: f32,
+    pub disband_threshold: f32,
     pub deploys_self: bool, //if false, ship will not go on deployments
     pub deploys_daughters: Option<u64>, // if None, ship will not send its daughters on deployments
-    pub defectchance: HashMap<usize, (f32, f32)>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
-    pub defectescapescalar: f32,
+    pub defect_chance: HashMap<usize, (f32, f32)>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
+    pub defect_escape_mod: f32,
     pub value_mult: f32, //how valuable the AI considers one volume point of this squadronclass to be
 }
 
@@ -1534,21 +1576,20 @@ impl SquadronClass {
             target: self_entity.target,
             capacity: self_entity.capacity,
             propagates: self_entity.propagates,
-            strengthmod: self_entity.strength_mod.clone(),
-            squadronconfig: self_entity.squadron_config.clone(),
+            strength_mod: self_entity.strength_mod.clone(),
+            squadron_config: self_entity.squadron_config.clone(),
             sub_target_supply_scalar: self_entity.sub_target_supply_scalar,
             non_ideal_demand_scalar: self_entity.non_ideal_demand_scalar,
-            navthreshold: self_entity.nav_threshold.clone(),
-            navquorum: self_entity.nav_quorum.clone(),
-            disbandthreshold: self_entity.disband_threshold.clone(),
+            nav_quorum: self_entity.nav_quorum.clone(),
+            disband_threshold: self_entity.disband_threshold.clone(),
             deploys_self: self_entity.deploys_self,
             deploys_daughters: self_entity.deploys_daughters,
-            defectchance: self_entity
+            defect_chance: self_entity
                 .defect_chance
                 .iter()
                 .map(|(faction, scalars)| (faction.id, *scalars))
                 .collect(),
-            defectescapescalar: self_entity.defect_escape_scalar.clone(),
+            defect_escape_mod: self_entity.defect_escape_mod.clone(),
             value_mult: self_entity.value_mult.clone(),
         }
     }
@@ -1566,21 +1607,20 @@ impl SquadronClass {
             target: self.target,
             capacity: self.capacity,
             propagates: self.propagates,
-            strength_mod: self.strengthmod.clone(),
-            squadron_config: self.squadronconfig.clone(),
+            strength_mod: self.strength_mod.clone(),
+            squadron_config: self.squadron_config.clone(),
             sub_target_supply_scalar: self.sub_target_supply_scalar,
             non_ideal_demand_scalar: self.non_ideal_demand_scalar,
-            nav_threshold: self.navthreshold.clone(),
-            nav_quorum: self.navquorum.clone(),
-            disband_threshold: self.disbandthreshold.clone(),
+            nav_quorum: self.nav_quorum.clone(),
+            disband_threshold: self.disband_threshold.clone(),
             deploys_self: self.deploys_self,
             deploys_daughters: self.deploys_daughters,
             defect_chance: self
-                .defectchance
+                .defect_chance
                 .iter()
                 .map(|(faction, scalars)| (factionsroot[*faction].clone(), *scalars))
                 .collect(),
-            defect_escape_scalar: self.defectescapescalar.clone(),
+            defect_escape_mod: self.defect_escape_mod.clone(),
             value_mult: self.value_mult.clone(),
         }
     }
@@ -1943,7 +1983,7 @@ impl UnitStatus {
                 .map(|x| UnitLocation::desiccate(&x)),
             damage: self_entity.damage,
             engine_damage: self_entity.engine_damage.clone(),
-            strategic_weapon_damage: self_entity.strategic_weapon_damage.clone(),
+            strategic_weapon_damage: self_entity.subsystem_damage.clone(),
         }
     }
     pub fn rehydrate(
@@ -1959,7 +1999,7 @@ impl UnitStatus {
                 .map(|x| x.rehydrate(&nodesroot, &squadronsroot, &hangarslist)),
             damage: self.damage,
             engine_damage: self.engine_damage.clone(),
-            strategic_weapon_damage: self.strategic_weapon_damage.clone(),
+            subsystem_damage: self.strategic_weapon_damage.clone(),
         }
     }
 }
@@ -2166,6 +2206,7 @@ pub struct Root {
     pub strategicweaponclasses: Vec<StrategicWeaponClass>,
     pub factoryclasses: Vec<FactoryClass>,
     pub shipyardclasses: Vec<ShipyardClass>,
+    pub subsystemclasses: Vec<internal::SubsystemClass>,
     pub shipais: Vec<ShipAI>,
     pub shipflavors: Vec<internal::ShipFlavor>,
     pub squadronflavors: Vec<internal::SquadronFlavor>,
@@ -2259,6 +2300,11 @@ impl Root {
                 .iter()
                 .map(|x| ShipyardClass::desiccate(x))
                 .collect(),
+            subsystemclasses: self_entity
+                .subsystemclasses
+                .iter()
+                .map(|x| Arc::unwrap_or_clone(x.clone()))
+                .collect(),
             shipais: self_entity
                 .shipais
                 .iter()
@@ -2343,6 +2389,11 @@ impl Root {
             .drain(0..)
             .map(|x| Arc::new(x.rehydrate(&resources)))
             .collect();
+        let subsystemclasses = self
+            .subsystemclasses
+            .drain(0..)
+            .map(|x| Arc::new(x))
+            .collect();
         let shipais = self
             .shipais
             .drain(0..)
@@ -2372,6 +2423,7 @@ impl Root {
                     &strategicweaponclasses,
                     &factoryclasses,
                     &shipyardclasses,
+                    &subsystemclasses,
                     &shipais,
                     &shipflavors,
                 ))
@@ -2436,6 +2488,7 @@ impl Root {
                         &strategicweaponclasses,
                         &factoryclasses,
                         &shipyardclasses,
+                        &subsystemclasses,
                         &shipais,
                         &shipclasses,
                     ))
@@ -2531,6 +2584,7 @@ impl Root {
             strategicweaponclasses,
             factoryclasses,
             shipyardclasses,
+            subsystemclasses,
             shipais,
             shipflavors,
             squadronflavors,
