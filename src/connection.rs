@@ -1303,7 +1303,7 @@ impl ShipClass {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShipMut {
-    pub hull: u64, //how many hitpoints the ship has
+    pub hull: internal::ShipHealth, //how many hitpoints the ship has
     pub visibility: bool,
     pub stockpiles: Vec<PluripotentStockpile>,
     pub efficiency: f32,
@@ -1785,6 +1785,41 @@ impl Unit {
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct UnitRecord {
+    id: u64,
+    visible_name: String,
+    class: UnitClass,
+    allegiance: usize,
+    daughters: Vec<u64>,
+}
+
+impl UnitRecord {
+    fn desiccate(self_entity: &internal::UnitRecord) -> UnitRecord {
+        UnitRecord {
+            id: self_entity.id,
+            visible_name: self_entity.visible_name.clone(),
+            class: UnitClass::desiccate(&self_entity.class),
+            allegiance: self_entity.allegiance.id,
+            daughters: self_entity.daughters.clone(),
+        }
+    }
+    fn rehydrate(
+        &self,
+        factionsroot: &Vec<Arc<internal::Faction>>,
+        shipclassesroot: &Vec<Arc<internal::ShipClass>>,
+        squadronclassesroot: &Vec<Arc<internal::SquadronClass>>,
+    ) -> internal::UnitRecord {
+        internal::UnitRecord {
+            id: self.id,
+            visible_name: self.visible_name.clone(),
+            class: self.class.rehydrate(shipclassesroot, squadronclassesroot),
+            allegiance: factionsroot[self.allegiance].clone(),
+            daughters: self.daughters.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ObjectiveTarget {
     Node(usize),
@@ -1913,26 +1948,34 @@ impl Operation {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct FactionForces {
-    pub local_forces: Vec<Unit>,
-    pub reinforcements: Vec<(u64, Vec<Unit>)>,
+pub struct FactionForcesRecord {
+    pub local_forces: HashMap<UnitRecord, UnitStatus>,
+    pub reinforcements: Vec<(usize, u64, HashMap<UnitRecord, UnitStatus>)>,
 }
 
-impl FactionForces {
-    pub fn desiccate(self_entity: &internal::FactionForces) -> FactionForces {
-        FactionForces {
+impl FactionForcesRecord {
+    pub fn desiccate(self_entity: &internal::FactionForcesRecord) -> FactionForcesRecord {
+        FactionForcesRecord {
             local_forces: self_entity
                 .local_forces
                 .iter()
-                .map(|x| Unit::desiccate(x))
+                .map(|(record, status)| {
+                    (UnitRecord::desiccate(record), UnitStatus::desiccate(status))
+                })
                 .collect(),
             reinforcements: self_entity
                 .reinforcements
                 .iter()
-                .map(|(distance, units)| {
+                .map(|(node, distance, units)| {
                     (
+                        node.id,
                         *distance,
-                        units.iter().map(|x| Unit::desiccate(x)).collect(),
+                        units
+                            .iter()
+                            .map(|(record, status)| {
+                                (UnitRecord::desiccate(record), UnitStatus::desiccate(status))
+                            })
+                            .collect(),
                     )
                 })
                 .collect(),
@@ -1940,24 +1983,44 @@ impl FactionForces {
     }
     pub fn rehydrate(
         &self,
+        nodesroot: &Vec<Arc<internal::Node>>,
+        factionsroot: &Vec<Arc<internal::Faction>>,
+        shipclassesroot: &Vec<Arc<internal::ShipClass>>,
+        squadronclassesroot: &Vec<Arc<internal::SquadronClass>>,
         shipsroot: &Vec<Arc<internal::Ship>>,
         squadronsroot: &Vec<Arc<internal::Squadron>>,
-    ) -> internal::FactionForces {
-        internal::FactionForces {
+        hangarslist: &Vec<Arc<internal::Hangar>>,
+    ) -> internal::FactionForcesRecord {
+        internal::FactionForcesRecord {
             local_forces: self
                 .local_forces
                 .iter()
-                .map(|x| x.rehydrate(&shipsroot, &squadronsroot))
+                .map(|(record, status)| {
+                    (
+                        record.rehydrate(factionsroot, shipclassesroot, squadronclassesroot),
+                        status.rehydrate(nodesroot, squadronsroot, hangarslist),
+                    )
+                })
                 .collect(),
             reinforcements: self
                 .reinforcements
                 .iter()
-                .map(|(distance, units)| {
+                .map(|(node, distance, units)| {
                     (
+                        nodesroot[*node].clone(),
                         *distance,
                         units
                             .iter()
-                            .map(|x| x.rehydrate(&shipsroot, &squadronsroot))
+                            .map(|(record, status)| {
+                                (
+                                    record.rehydrate(
+                                        factionsroot,
+                                        shipclassesroot,
+                                        squadronclassesroot,
+                                    ),
+                                    status.rehydrate(nodesroot, squadronsroot, hangarslist),
+                                )
+                            })
                             .collect(),
                     )
                 })
@@ -2005,21 +2068,20 @@ impl UnitStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Engagement {
+pub struct EngagementRecord {
     pub visible_name: String,
     pub turn: u64,
-    pub coalitions: HashMap<u64, HashMap<usize, FactionForces>>,
+    pub coalitions: HashMap<u64, HashMap<usize, FactionForcesRecord>>,
     pub aggressor: Option<usize>,
     pub objectives: HashMap<usize, Vec<Objective>>,
     pub location: usize,
     pub duration: u64,
     pub victors: (usize, u64),
-    pub unit_status: HashMap<u64, HashMap<usize, HashMap<Unit, UnitStatus>>>,
 }
 
-impl Engagement {
-    pub fn desiccate(self_entity: &internal::Engagement) -> Engagement {
-        Engagement {
+impl EngagementRecord {
+    pub fn desiccate(self_entity: &internal::EngagementRecord) -> EngagementRecord {
+        EngagementRecord {
             visible_name: self_entity.visible_name.clone(),
             turn: self_entity.turn,
             coalitions: self_entity
@@ -2030,7 +2092,9 @@ impl Engagement {
                         *index,
                         faction_map
                             .iter()
-                            .map(|(faction, forces)| (faction.id, FactionForces::desiccate(forces)))
+                            .map(|(faction, forces)| {
+                                (faction.id, FactionForcesRecord::desiccate(forces))
+                            })
                             .collect(),
                     )
                 })
@@ -2049,29 +2113,6 @@ impl Engagement {
             location: self_entity.location.id,
             duration: self_entity.duration,
             victors: (self_entity.victors.0.id, self_entity.victors.1),
-            unit_status: self_entity
-                .unit_status
-                .iter()
-                .map(|(index, faction_map)| {
-                    (
-                        *index,
-                        faction_map
-                            .iter()
-                            .map(|(faction, unit_map)| {
-                                (
-                                    faction.id,
-                                    unit_map
-                                        .iter()
-                                        .map(|(u, us)| {
-                                            (Unit::desiccate(u), UnitStatus::desiccate(us))
-                                        })
-                                        .collect(),
-                                )
-                            })
-                            .collect(),
-                    )
-                })
-                .collect(),
         }
     }
     pub fn rehydrate(
@@ -2079,11 +2120,13 @@ impl Engagement {
         nodesroot: &Vec<Arc<internal::Node>>,
         systemsroot: &Vec<Arc<internal::System>>,
         factionsroot: &Vec<Arc<internal::Faction>>,
+        shipclassesroot: &Vec<Arc<internal::ShipClass>>,
+        squadronclassesroot: &Vec<Arc<internal::SquadronClass>>,
         shipsroot: &Vec<Arc<internal::Ship>>,
         squadronsroot: &Vec<Arc<internal::Squadron>>,
         hangarslist: &Vec<Arc<internal::Hangar>>,
-    ) -> internal::Engagement {
-        internal::Engagement {
+    ) -> internal::EngagementRecord {
+        internal::EngagementRecord {
             visible_name: self.visible_name.clone(),
             turn: self.turn,
             coalitions: self
@@ -2097,7 +2140,15 @@ impl Engagement {
                             .map(|(faction, forces)| {
                                 (
                                     factionsroot[*faction].clone(),
-                                    forces.rehydrate(&shipsroot, &squadronsroot),
+                                    forces.rehydrate(
+                                        &nodesroot,
+                                        &factionsroot,
+                                        &shipclassesroot,
+                                        &squadronclassesroot,
+                                        &shipsroot,
+                                        &squadronsroot,
+                                        &hangarslist,
+                                    ),
                                 )
                             })
                             .collect(),
@@ -2122,36 +2173,6 @@ impl Engagement {
             location: nodesroot[self.location].clone(),
             duration: self.duration,
             victors: (factionsroot[self.victors.0].clone(), self.victors.1),
-            unit_status: self
-                .unit_status
-                .iter()
-                .map(|(index, faction_map)| {
-                    (
-                        *index,
-                        faction_map
-                            .iter()
-                            .map(|(faction, unit_map)| {
-                                (
-                                    factionsroot[*faction].clone(),
-                                    unit_map
-                                        .iter()
-                                        .map(|(u, us)| {
-                                            (
-                                                u.rehydrate(&shipsroot, &squadronsroot),
-                                                us.rehydrate(
-                                                    &nodesroot,
-                                                    &squadronsroot,
-                                                    &hangarslist,
-                                                ),
-                                            )
-                                        })
-                                        .collect(),
-                                )
-                            })
-                            .collect(),
-                    )
-                })
-                .collect(),
         }
     }
 }
@@ -2215,7 +2236,7 @@ pub struct Root {
     pub ships: Vec<Ship>,
     pub squadrons: Vec<Squadron>,
     pub unitcounter: u64,
-    pub engagements: Vec<Engagement>,
+    pub engagements: Vec<EngagementRecord>,
     pub globalsalience: GlobalSalience,
     pub turn: u64,
 }
@@ -2274,7 +2295,7 @@ impl Root {
                 .iter()
                 .map(|x| Arc::unwrap_or_clone(x.clone()))
                 .collect(),
-            hangarcounter: self_entity.hangarcounter.load(atomic::Ordering::Relaxed),
+            hangarcounter: self_entity.hangar_counter.load(atomic::Ordering::Relaxed),
             engineclasses: self_entity
                 .engineclasses
                 .iter()
@@ -2344,13 +2365,13 @@ impl Root {
                 .iter()
                 .map(|x| Squadron::desiccate(x))
                 .collect(),
-            unitcounter: self_entity.unitcounter.load(atomic::Ordering::Relaxed),
+            unitcounter: self_entity.unit_counter.load(atomic::Ordering::Relaxed),
             engagements: self_entity
                 .engagements
                 .read()
                 .unwrap()
                 .iter()
-                .map(|x| Engagement::desiccate(x))
+                .map(|x| EngagementRecord::desiccate(x))
                 .collect(),
             globalsalience: GlobalSalience::desiccate(&self_entity.global_salience),
             turn: self_entity.turn.load(atomic::Ordering::Relaxed),
@@ -2552,14 +2573,16 @@ impl Root {
             self.engagements
                 .drain(0..)
                 .map(|x| {
-                    Arc::new(x.rehydrate(
+                    x.rehydrate(
                         &nodes,
                         &systems,
                         &factions,
+                        &shipclasses,
+                        &squadronclasses,
                         &ships.read().unwrap(),
                         &squadrons.read().unwrap(),
                         &hangarslist,
-                    ))
+                    )
                 })
                 .collect(),
         );
@@ -2578,7 +2601,7 @@ impl Root {
             wars,
             resources,
             hangarclasses,
-            hangarcounter,
+            hangar_counter: hangarcounter,
             engineclasses,
             repairerclasses,
             strategicweaponclasses,
@@ -2592,7 +2615,7 @@ impl Root {
             squadronclasses,
             ships,
             squadrons,
-            unitcounter,
+            unit_counter: unitcounter,
             engagements,
             global_salience: globalsalience,
             turn,

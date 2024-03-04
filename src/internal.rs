@@ -10,7 +10,7 @@ use std::hash::{Hash, Hasher};
 use std::iter;
 use std::sync::atomic::{self, AtomicU64};
 use std::sync::Arc;
-use std::sync::{RwLock, RwLockWriteGuard};
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Instant;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -149,6 +149,7 @@ impl Node {
                     .unwrap()
                     .contents
                     .iter()
+                    .filter(|unit| !unit.is_dead())
                     .filter(|unit| unit.get_allegiance() == *faction)
                     .cloned()
                     .collect();
@@ -167,6 +168,7 @@ impl Node {
                     .unwrap()
                     .contents
                     .iter()
+                    .filter(|unit| !unit.is_dead())
                     .filter(|unit| unit.get_allegiance() == **faction)
                     .collect::<Vec<_>>()
                     .is_empty()
@@ -186,6 +188,7 @@ impl Node {
             .unwrap()
             .contents
             .iter()
+            .filter(|unit| !unit.is_dead())
             .filter(|unit| unit.get_allegiance() == factionid)
             .filter(|unit| {
                 unit.destinations_check(root, &vec![destination.clone()])
@@ -213,6 +216,7 @@ impl Node {
             .unwrap()
             .contents
             .iter()
+            .filter(|unit| !unit.is_dead())
             .filter_map(|unit| unit.get_ship())
             .filter(|ship| ship.mutables.read().unwrap().allegiance == faction)
             .collect();
@@ -222,20 +226,11 @@ impl Node {
             .unwrap()
             .contents
             .iter()
+            .filter(|unit| !unit.is_dead())
             .filter_map(|unit| unit.get_squadron())
             .filter(|squadron| squadron.mutables.read().unwrap().allegiance == faction)
             .collect();
         (squadrons, ships)
-    }
-    pub fn get_unitclass_num(&self, shipclass: Arc<ShipClass>) -> u64 {
-        self.unit_container
-            .read()
-            .unwrap()
-            .contents
-            .iter()
-            .filter_map(|unit| unit.get_ship())
-            .filter(|ship| ship.class.id == shipclass.id)
-            .count() as u64
     }
     pub fn get_system(&self, root: &Root) -> Option<Arc<System>> {
         let system = root.systems.iter().find(|system| {
@@ -442,6 +437,7 @@ impl Locality for Arc<Node> {
             let all_relevant_ships: Vec<Arc<Ship>> = node_container
                 .contents
                 .iter()
+                .filter(|unit| !unit.is_dead())
                 .filter(|unit| unit.get_allegiance().id == faction.id)
                 .map(|unit| unit.get_daughters_recursive())
                 .flatten()
@@ -579,7 +575,7 @@ impl Locality for Arc<Node> {
                                 .map(|ppsp| {
                                     (
                                         ppsp.get_resource_supply(resource.clone()),
-                                        ppsp.get_pluripotent_balance_resource_demand(
+                                        ppsp.get_pluripotent_transaction_resource_demand(
                                             resource.clone(),
                                             external_demand,
                                             ship_mut.get_speed_factor(
@@ -1082,6 +1078,7 @@ impl Locality for Arc<Node> {
             let all_units = node_container
                 .contents
                 .iter()
+                .filter(|unit| !unit.is_dead())
                 .filter(|unit| unit.get_allegiance().id == faction.id)
                 .flat_map(|unit| unit.get_daughters_recursive())
                 .collect::<Vec<_>>();
@@ -1157,7 +1154,12 @@ impl Locality for Arc<Node> {
                     .contents
                     .iter()
                     .filter(|unit| unit.get_unitclass() == unitclass.clone())
-                    .map(|unit| unit.get_real_volume_locked(&all_squadrons_containers_lock))
+                    .map(|unit| {
+                        unit.get_real_volume_locked(
+                            &all_squadrons_containers_lock,
+                            &all_ships_mut_lock,
+                        )
+                    })
                     .sum();
 
                 let squadrons_supply: HashMap<u64, u64> = all_squadrons_indexed
@@ -1168,6 +1170,7 @@ impl Locality for Arc<Node> {
                             squadron.get_unitclass_supply_local(
                                 all_squadrons_containers_lock.get(&i).unwrap(),
                                 unitclass.clone(),
+                                &all_ships_mut_lock,
                                 &all_squadrons_containers_lock,
                             ),
                         )
@@ -1182,6 +1185,7 @@ impl Locality for Arc<Node> {
                             squadron.get_unitclass_demand_local(
                                 all_squadrons_containers_lock.get(&i).unwrap(),
                                 unitclass.clone(),
+                                &all_ships_mut_lock,
                                 &all_squadrons_containers_lock,
                             ),
                         )
@@ -1196,6 +1200,7 @@ impl Locality for Arc<Node> {
                             hangar.get_unitclass_supply_local(
                                 all_hangars_containers_lock.get(&i).unwrap(),
                                 unitclass.clone(),
+                                &all_ships_mut_lock,
                                 &all_squadrons_containers_lock,
                             ),
                         )
@@ -1212,6 +1217,7 @@ impl Locality for Arc<Node> {
                                 hangar.get_unitclass_demand_local(
                                     all_hangars_containers_lock.get(&i).unwrap(),
                                     unitclass.clone(),
+                                    &all_ships_mut_lock,
                                     &all_squadrons_containers_lock,
                                 ),
                             )
@@ -1225,6 +1231,7 @@ impl Locality for Arc<Node> {
                         hangar.get_unitclass_demand_local(
                             all_hangars_containers_lock.get(&i).unwrap(),
                             unitclass.clone(),
+                            &all_ships_mut_lock,
                             &all_squadrons_containers_lock,
                         )
                     })
@@ -1244,9 +1251,10 @@ impl Locality for Arc<Node> {
                     .map(|(i, (hangar, speed_factor))| {
                         (
                             *i,
-                            hangar.get_transport_balance_unitclass_demand(
+                            hangar.get_transport_transaction_unitclass_demand(
                                 all_hangars_containers_lock.get(&i).unwrap(),
                                 unitclass.clone(),
+                                &all_ships_mut_lock,
                                 external_demand,
                                 *speed_factor,
                                 total_transport_naive_demand as f32,
@@ -1292,7 +1300,10 @@ impl Locality for Arc<Node> {
                         .map(|unit| {
                             (
                                 unit.get_id(),
-                                unit.get_real_volume_locked(&all_squadrons_containers_lock),
+                                unit.get_real_volume_locked(
+                                    &all_squadrons_containers_lock,
+                                    &all_ships_mut_lock,
+                                ),
                             )
                         })
                         .collect();
@@ -1315,7 +1326,7 @@ impl Locality for Arc<Node> {
                         };
                         let unit_location = UnitLocation::Squadron(squadron.clone());
                         contained_unit.transfer_by_containers(
-                            &unit_location,
+                            unit_location,
                             &mut container_mut,
                             UnitLocation::Node(self.clone()),
                             &mut node_container,
@@ -1345,7 +1356,10 @@ impl Locality for Arc<Node> {
                             .map(|unit| {
                                 (
                                     unit.get_id(),
-                                    unit.get_real_volume_locked(&all_squadrons_containers_lock),
+                                    unit.get_real_volume_locked(
+                                        &all_squadrons_containers_lock,
+                                        &all_ships_mut_lock,
+                                    ),
                                 )
                             })
                             .collect();
@@ -1368,7 +1382,7 @@ impl Locality for Arc<Node> {
                             };
                             let unit_location = UnitLocation::Hangar(hangar.clone());
                             contained_unit.transfer_by_containers(
-                                &unit_location,
+                                unit_location,
                                 &mut container_mut,
                                 UnitLocation::Node(self.clone()),
                                 &mut node_container,
@@ -1385,7 +1399,12 @@ impl Locality for Arc<Node> {
                         .contents
                         .iter()
                         .filter(|unit| &unit.get_unitclass() == unitclass)
-                        .map(|unit| unit.get_real_volume_locked(&all_squadrons_containers_lock))
+                        .map(|unit| {
+                            unit.get_real_volume_locked(
+                                &all_squadrons_containers_lock,
+                                &all_ships_mut_lock,
+                            )
+                        })
                         .sum();
                     let proper_quantity: u64 =
                         (*squadrons_demand.get(index).unwrap() as f32 * supply_demand_ratio) as u64;
@@ -1397,7 +1416,10 @@ impl Locality for Arc<Node> {
                         .map(|unit| {
                             (
                                 unit.get_id(),
-                                unit.get_real_volume_locked(&all_squadrons_containers_lock),
+                                unit.get_real_volume_locked(
+                                    &all_squadrons_containers_lock,
+                                    &all_ships_mut_lock,
+                                ),
                             )
                         })
                         .collect();
@@ -1422,7 +1444,7 @@ impl Locality for Arc<Node> {
                         };
                         let unit_location = UnitLocation::Node(self.clone());
                         contained_unit.transfer_by_containers(
-                            &unit_location,
+                            unit_location,
                             &mut node_container,
                             UnitLocation::Squadron(squadron.clone()),
                             &mut squadron_container_mut,
@@ -1441,7 +1463,12 @@ impl Locality for Arc<Node> {
                             .contents
                             .iter()
                             .filter(|unit| &unit.get_unitclass() == unitclass)
-                            .map(|unit| unit.get_real_volume_locked(&all_squadrons_containers_lock))
+                            .map(|unit| {
+                                unit.get_real_volume_locked(
+                                    &all_squadrons_containers_lock,
+                                    &all_ships_mut_lock,
+                                )
+                            })
                             .sum();
                         let proper_quantity: u64 = if hangar.class.transport {
                             (*transport_hangars_demand.get(index).unwrap() as f32
@@ -1458,7 +1485,10 @@ impl Locality for Arc<Node> {
                             .map(|unit| {
                                 (
                                     unit.get_id(),
-                                    unit.get_real_volume_locked(&all_squadrons_containers_lock),
+                                    unit.get_real_volume_locked(
+                                        &all_squadrons_containers_lock,
+                                        &all_ships_mut_lock,
+                                    ),
                                 )
                             })
                             .collect();
@@ -1483,7 +1513,7 @@ impl Locality for Arc<Node> {
                             };
                             let unit_location = UnitLocation::Node(self.clone());
                             contained_unit.transfer_by_containers(
-                                &unit_location,
+                                unit_location,
                                 &mut node_container,
                                 UnitLocation::Hangar(hangar.clone()),
                                 &mut hangar_container_mut,
@@ -1695,7 +1725,7 @@ pub trait Stockpileness {
     fn get_allowed(&self) -> Option<Vec<Arc<Resource>>>;
     fn get_resource_supply(&self, resourceid: Arc<Resource>) -> u64;
     fn get_resource_demand(&self, resourceid: Arc<Resource>) -> u64;
-    fn get_pluripotent_balance_resource_demand(
+    fn get_pluripotent_transaction_resource_demand(
         &self,
         resource: Arc<Resource>,
         external_demand: f32,
@@ -1745,19 +1775,19 @@ impl<A: Stockpileness, B: Stockpileness> Stockpileness for (A, B) {
     fn get_resource_demand(&self, resource: Arc<Resource>) -> u64 {
         self.0.get_resource_demand(resource.clone()) + self.1.get_resource_demand(resource.clone())
     }
-    fn get_pluripotent_balance_resource_demand(
+    fn get_pluripotent_transaction_resource_demand(
         &self,
         resource: Arc<Resource>,
         external_demand: f32,
         speed_factor: f32,
         total_target: f32,
     ) -> u64 {
-        self.0.get_pluripotent_balance_resource_demand(
+        self.0.get_pluripotent_transaction_resource_demand(
             resource.clone(),
             external_demand,
             speed_factor,
             total_target,
-        ) + self.1.get_pluripotent_balance_resource_demand(
+        ) + self.1.get_pluripotent_transaction_resource_demand(
             resource.clone(),
             external_demand,
             speed_factor,
@@ -1856,7 +1886,7 @@ impl Stockpileness for UnipotentStockpile {
             0
         }
     }
-    fn get_pluripotent_balance_resource_demand(
+    fn get_pluripotent_transaction_resource_demand(
         &self,
         _resource: Arc<Resource>,
         _external_demand: f32,
@@ -1935,7 +1965,7 @@ impl Stockpileness for PluripotentStockpile {
             0
         }
     }
-    fn get_pluripotent_balance_resource_demand(
+    fn get_pluripotent_transaction_resource_demand(
         &self,
         resource: Arc<Resource>,
         external_demand: f32,
@@ -2038,7 +2068,7 @@ impl Stockpileness for SharedStockpile {
     fn get_resource_demand(&self, _resourceid: Arc<Resource>) -> u64 {
         0
     }
-    fn get_pluripotent_balance_resource_demand(
+    fn get_pluripotent_transaction_resource_demand(
         &self,
         _resource: Arc<Resource>,
         _external_demand: f32,
@@ -2178,7 +2208,8 @@ impl Hangar {
             .unwrap()
             .contents
             .iter()
-            .map(|ship| ship.get_strength(time))
+            .filter(|unit| !unit.is_dead())
+            .map(|unit| unit.get_strength(time))
             .sum::<u64>() as f32;
         let contents_vol = self
             .unit_container
@@ -2186,6 +2217,7 @@ impl Hangar {
             .unwrap()
             .contents
             .iter()
+            .filter(|unit| !unit.is_dead())
             .map(|unit| unit.get_real_volume())
             .sum::<u64>() as f32;
         //we calculate how much of its complement the hangar can launch during a battle a certain number of seconds long
@@ -2200,6 +2232,7 @@ impl Hangar {
             .unwrap()
             .contents
             .iter()
+            .filter(|unit| !unit.is_dead())
             .map(|unit| unit.get_real_volume())
             .sum()
     }
@@ -2209,6 +2242,7 @@ impl Hangar {
             .unwrap()
             .contents
             .iter()
+            .filter(|unit| !unit.is_dead())
             .map(|daughter| daughter.get_unitclass_num(unitclass.clone()))
             .sum::<u64>()
     }
@@ -2219,6 +2253,7 @@ impl Hangar {
             .unwrap()
             .contents
             .iter()
+            .filter(|unit| !unit.is_dead())
             .map(|daughter| daughter.get_unitclass_supply_recursive(unitclass.clone()))
             .sum::<u64>();
         let ideal_volume = self
@@ -2238,13 +2273,21 @@ impl Hangar {
         &self,
         unit_container: &RwLockWriteGuard<UnitContainer>,
         unitclass: UnitClass,
+        ships_mut_lock: &HashMap<u64, RwLockWriteGuard<ShipMut>>,
         squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
     ) -> u64 {
         unit_container
             .contents
             .iter()
+            .filter(|unit| {
+                unit.get_ship()
+                    .map(|ship| ships_mut_lock.get(&ship.id).unwrap().hull.get() > 0)
+                    .unwrap_or(true)
+            })
             .filter(|daughter| &daughter.get_unitclass() == &unitclass)
-            .map(|daughter| daughter.get_real_volume_locked(squadrons_containers_lock))
+            .map(|daughter| {
+                daughter.get_real_volume_locked(squadrons_containers_lock, ships_mut_lock)
+            })
             .sum()
     }
     pub fn get_unitclass_demand_recursive(&self, unitclass: UnitClass) -> u64 {
@@ -2252,6 +2295,7 @@ impl Hangar {
         let daughter_volume = unit_container
             .contents
             .iter()
+            .filter(|unit| !unit.is_dead())
             .filter(|unit| &unit.get_unitclass() == &unitclass)
             .map(|unit| unit.get_real_volume())
             .sum::<u64>();
@@ -2273,6 +2317,7 @@ impl Hangar {
             + unit_container
                 .contents
                 .iter()
+                .filter(|unit| !unit.is_dead())
                 .map(|daughter| daughter.get_unitclass_demand_recursive(unitclass.clone()))
                 .sum::<u64>()
     }
@@ -2280,13 +2325,19 @@ impl Hangar {
         &self,
         unit_container: &RwLockWriteGuard<UnitContainer>,
         unitclass: UnitClass,
+        ships_mut_lock: &HashMap<u64, RwLockWriteGuard<ShipMut>>,
         squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
     ) -> u64 {
         let daughter_volume = unit_container
             .contents
             .iter()
+            .filter(|unit| {
+                unit.get_ship()
+                    .map(|ship| ships_mut_lock.get(&ship.id).unwrap().hull.get() > 0)
+                    .unwrap_or(true)
+            })
             .filter(|unit| &unit.get_unitclass() == &unitclass)
-            .map(|unit| unit.get_real_volume_locked(squadrons_containers_lock))
+            .map(|unit| unit.get_real_volume_locked(squadrons_containers_lock, ships_mut_lock))
             .sum::<u64>();
         let ideal_volume = self
             .class
@@ -2302,17 +2353,25 @@ impl Hangar {
                 unit_container
                     .contents
                     .iter()
-                    .map(|unit| unit.get_real_volume_locked(squadrons_containers_lock))
+                    .filter(|unit| {
+                        unit.get_ship()
+                            .map(|ship| ships_mut_lock.get(&ship.id).unwrap().hull.get() > 0)
+                            .unwrap_or(true)
+                    })
+                    .map(|unit| {
+                        unit.get_real_volume_locked(squadrons_containers_lock, ships_mut_lock)
+                    })
                     .sum::<u64>(),
             )
             .saturating_sub(ideal_demand) as f32
             * self.class.non_ideal_demand_scalar) as u64;
         ideal_demand + non_ideal_demand
     }
-    pub fn get_transport_balance_unitclass_demand(
+    pub fn get_transport_transaction_unitclass_demand(
         &self,
         unit_container: &RwLockWriteGuard<UnitContainer>,
         unitclass: UnitClass,
+        ships_mut_lock: &HashMap<u64, RwLockWriteGuard<ShipMut>>,
         external_demand: f32,
         speed_factor: f32,
         total_naive_demand: f32,
@@ -2325,6 +2384,11 @@ impl Hangar {
                 unit_container
                     .contents
                     .iter()
+                    .filter(|unit| {
+                        unit.get_ship()
+                            .map(|ship| ships_mut_lock.get(&ship.id).unwrap().hull.get() > 0)
+                            .unwrap_or(true)
+                    })
                     .filter(|unit| unit.get_unitclass().get_id() != unitclass.get_id())
                     .map(|unit| unit.get_real_volume())
                     .sum(),
@@ -2779,6 +2843,7 @@ impl StrategicWeapon {
                     .iter()
                     .map(|unit| unit.get_undocked_daughters())
                     .flatten()
+                    .filter(|ship| !ship.is_dead())
                     .filter(|ship| {
                         target_factions.contains(&&ship.mutables.read().unwrap().allegiance)
                             && ship.id != mother.id
@@ -3278,11 +3343,30 @@ pub enum UnitLocation {
 }
 
 impl UnitLocation {
-    fn get_unit_container_lock(&self) -> RwLockWriteGuard<UnitContainer> {
+    fn get_unit_container_write(&self) -> RwLockWriteGuard<UnitContainer> {
         match self {
             UnitLocation::Node(node) => node.unit_container.write().unwrap(),
             UnitLocation::Squadron(squadron) => squadron.unit_container.write().unwrap(),
             UnitLocation::Hangar(hangar) => hangar.unit_container.write().unwrap(),
+        }
+    }
+    fn get_ship_mut_read(&self) -> Option<RwLockReadGuard<ShipMut>> {
+        match self {
+            UnitLocation::Node(_) => None,
+            UnitLocation::Squadron(_) => None,
+            UnitLocation::Hangar(hangar) => Some(hangar.mother.mutables.read().unwrap()),
+        }
+    }
+    fn check_health_locked(
+        &self,
+        ships_mut_lock: &HashMap<u64, RwLockWriteGuard<ShipMut>>,
+    ) -> bool {
+        match self {
+            UnitLocation::Node(_) => true,
+            UnitLocation::Squadron(_) => true,
+            UnitLocation::Hangar(hangar) => {
+                ships_mut_lock.get(&hangar.mother.id).unwrap().hull.get() > 0
+            }
         }
     }
     fn check_insert(&self, container: &RwLockWriteGuard<UnitContainer>, unit: Unit) -> bool {
@@ -3398,6 +3482,7 @@ pub trait Mobility {
     fn get_real_volume_locked(
         &self,
         squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+        ships_mut_lock: &HashMap<u64, RwLockWriteGuard<ShipMut>>,
     ) -> u64;
     fn get_capacity_volume(&self) -> u64;
     fn get_ai(&self) -> NavAI;
@@ -3474,15 +3559,20 @@ pub trait Mobility {
     fn transfer(&self, destination: UnitLocation) -> bool;
     fn transfer_by_containers(
         &self,
-        source: &UnitLocation,
+        source: UnitLocation,
         source_container: &mut RwLockWriteGuard<UnitContainer>,
         destination: UnitLocation,
         destination_container: &mut RwLockWriteGuard<UnitContainer>,
         ships_mut_lock: &mut HashMap<u64, RwLockWriteGuard<ShipMut>>,
         squadrons_mut_lock: &mut HashMap<u64, RwLockWriteGuard<SquadronMut>>,
     ) -> bool {
-        let source_static = source.clone();
-        if source_static.check_remove(&source_container, self.get_unit())
+        if self
+            .get_ship()
+            .map(|ship| ships_mut_lock.get(&ship.id).unwrap().hull.get() > 0)
+            .unwrap_or(true)
+            && source.check_health_locked(ships_mut_lock)
+            && destination.check_health_locked(ships_mut_lock)
+            && source.check_remove(&source_container, self.get_unit())
             && destination.check_insert(&destination_container, self.get_unit())
             && self.acyclicity_check_locked(destination.clone(), ships_mut_lock, squadrons_mut_lock)
         {
@@ -3685,12 +3775,12 @@ pub trait Mobility {
             + (weapon_effect[1].1.clamp(0.0, 1.0) * self.get_engine_base_health() as f32))
             * ai.strategic_weapon_engine_damage_attract;
 
-        let strategic_weapon_strategic_weapon_damage_value = (weapon_effect[2]
+        let strategic_weapon_subsystem_damage_value = (weapon_effect[2]
             .0
             .clamp(0, self.get_subsystem_base_health() as i64)
             as f32
             + (weapon_effect[2].1.clamp(0.0, 1.0) * self.get_subsystem_base_health() as f32))
-            * ai.strategic_weapon_strategic_weapon_damage_attract;
+            * ai.strategic_weapon_subsystem_damage_attract;
 
         let strategic_weapon_healing_value =
             (weapon_effect[0].0.clamp(-(self.get_base_hull() as i64), 0) as f32
@@ -3704,12 +3794,12 @@ pub trait Mobility {
             + (weapon_effect[1].1.clamp(-1.0, 0.0) * self.get_engine_base_health() as f32))
             * ai.strategic_weapon_engine_healing_attract;
 
-        let strategic_weapon_strategic_weapon_healing_value = (weapon_effect[2]
+        let strategic_weapon_subsystem_healing_value = (weapon_effect[2]
             .0
             .clamp(-(self.get_subsystem_base_health() as i64), 0)
             as f32
             + (weapon_effect[2].1.clamp(-1.0, 0.0) * self.get_subsystem_base_health() as f32))
-            * ai.strategic_weapon_strategic_weapon_healing_attract;
+            * ai.strategic_weapon_subsystem_healing_attract;
 
         NotNan::new(
             resource_demand_value
@@ -3724,10 +3814,10 @@ pub trait Mobility {
                 + enemy_demand_value
                 + strategic_weapon_damage_value
                 + strategic_weapon_engine_damage_value
-                + strategic_weapon_strategic_weapon_damage_value
+                + strategic_weapon_subsystem_damage_value
                 + strategic_weapon_healing_value
                 + strategic_weapon_engine_healing_value
-                + strategic_weapon_strategic_weapon_healing_value,
+                + strategic_weapon_subsystem_healing_value,
         )
         .unwrap()
     }
@@ -3772,7 +3862,7 @@ pub trait Mobility {
             .get(&self.get_mother_node())
             .unwrap_or(&Vec::new())
             .clone();
-        if self.is_in_node() {
+        if (!self.is_dead()) && self.is_in_node() {
             if let Some(destinations) = self.destinations_check(root, &neighbors) {
                 let destination_option = self.navigate(root, &destinations);
                 match destination_option.clone() {
@@ -3890,6 +3980,7 @@ pub trait Mobility {
                 .unwrap()
                 .contents
                 .iter()
+                .filter(|unit| !unit.is_dead())
                 .filter(|unit| unit.get_allegiance() == allegiance)
                 .filter(|unit| unit.get_id() != self.get_id())
                 .map(|unit| unit.get_interdiction_scalar())
@@ -3944,6 +4035,8 @@ pub trait Mobility {
         }
     }
     fn kill(&self);
+    fn is_dead(&self) -> bool;
+    fn record(&self) -> UnitRecord;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -4048,13 +4141,13 @@ impl ShipClass {
         faction: Arc<Faction>,
         root: &Root,
     ) -> Ship {
-        let index = root.unitcounter.fetch_add(1, atomic::Ordering::Relaxed);
+        let index = root.unit_counter.fetch_add(1, atomic::Ordering::Relaxed);
         Ship {
             id: index,
             visible_name: uuid::Uuid::new_v4().to_string(),
             class: class.clone(),
             mutables: RwLock::new(ShipMut {
-                hull: class.base_hull,
+                hull: ShipHealth::new(class.base_hull),
                 visibility: class.visibility,
                 stockpiles: class.stockpiles.clone(),
                 efficiency: 1.0,
@@ -4144,9 +4237,36 @@ impl Hash for ShipClass {
     }
 }
 
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Serialize, Deserialize)]
+pub struct ShipHealth {
+    health: u64,
+}
+
+impl ShipHealth {
+    fn new(val: u64) -> Self {
+        ShipHealth { health: val }
+    }
+    fn get(&self) -> u64 {
+        self.health
+    }
+    fn set(&mut self, val: u64) {
+        if self.health > 0 {
+            self.health = val
+        }
+    }
+    fn add(&mut self, val: u64) {
+        if self.health > 0 {
+            self.health += val
+        }
+    }
+    fn sub(&mut self, val: u64) {
+        self.health = self.health.saturating_sub(val)
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct ShipMut {
-    pub hull: u64, //how many hitpoints the ship has
+    pub hull: ShipHealth, //how many hitpoints the ship has
     pub visibility: bool,
     pub stockpiles: Vec<PluripotentStockpile>,
     pub efficiency: f32,
@@ -4321,7 +4441,7 @@ impl Mobility for Arc<Ship> {
         self.class.base_hull
     }
     fn get_hull(&self) -> u64 {
-        self.mutables.read().unwrap().hull
+        self.mutables.read().unwrap().hull.get()
     }
     fn get_engine_base_health(&self) -> u64 {
         self.mutables
@@ -4357,6 +4477,7 @@ impl Mobility for Arc<Ship> {
                     .unwrap()
                     .contents
                     .iter()
+                    .filter(|unit| !unit.is_dead())
                     .cloned()
                     .collect::<Vec<_>>()
             })
@@ -4378,6 +4499,7 @@ impl Mobility for Arc<Ship> {
                             .unwrap()
                             .contents
                             .iter()
+                            .filter(|unit| !unit.is_dead())
                             .map(|unit| unit.get_daughters_recursive())
                             .collect::<Vec<Vec<Unit>>>()
                     })
@@ -4433,7 +4555,7 @@ impl Mobility for Arc<Ship> {
             .map(|objective| objective.strength_scalar)
             .product();
         (self.class.base_strength as f32
-            * (mutables.hull as f32 / self.class.base_hull as f32)
+            * (mutables.hull.get() as f32 / self.class.base_hull as f32)
             * self.get_character_strength_scalar()
             * subsystem_strength_mult
             * objective_strength) as u64
@@ -4451,7 +4573,7 @@ impl Mobility for Arc<Ship> {
             .map(|objective| objective.strength_scalar)
             .product();
         (self.class.base_strength as f32
-            * ((mutables.hull as i64 - damage).clamp(0, self.class.base_hull as i64) as f32
+            * ((mutables.hull.get() as i64 - damage).clamp(0, self.class.base_hull as i64) as f32
                 / self.class.base_hull as f32)
             * self.get_character_strength_scalar()
             * objective_strength) as u64
@@ -4462,6 +4584,7 @@ impl Mobility for Arc<Ship> {
     fn get_real_volume_locked(
         &self,
         _squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+        _ships_mut_lock: &HashMap<u64, RwLockWriteGuard<ShipMut>>,
     ) -> u64 {
         self.class.hangar_vol
     }
@@ -4482,11 +4605,10 @@ impl Mobility for Arc<Ship> {
             enemy_demand_attract: ai.enemy_demand_attract,
             strategic_weapon_damage_attract: ai.strategic_weapon_damage_attract,
             strategic_weapon_engine_damage_attract: ai.strategic_weapon_engine_damage_attract,
-            strategic_weapon_strategic_weapon_damage_attract: ai
-                .strategic_weapon_subsystem_damage_attract,
+            strategic_weapon_subsystem_damage_attract: ai.strategic_weapon_subsystem_damage_attract,
             strategic_weapon_healing_attract: ai.strategic_weapon_healing_attract,
             strategic_weapon_engine_healing_attract: ai.strategic_weapon_engine_healing_attract,
-            strategic_weapon_strategic_weapon_healing_attract: ai
+            strategic_weapon_subsystem_healing_attract: ai
                 .strategic_weapon_subsystem_healing_attract,
         }
     }
@@ -4659,10 +4781,19 @@ impl Mobility for Arc<Ship> {
     fn transfer(&self, destination: UnitLocation) -> bool {
         let source = self.get_location().clone();
         if source != destination {
-            let mut source_container = source.get_unit_container_lock();
+            let source_mut = source.get_ship_mut_read();
+            let mut source_container = source.get_unit_container_write();
             let mut self_mut = self.mutables.write().unwrap();
-            let mut destination_container = destination.get_unit_container_lock();
-            if source.check_remove(&source_container, self.get_unit())
+            let destination_mut = destination.get_ship_mut_read();
+            let mut destination_container = destination.get_unit_container_write();
+            if self_mut.hull.get() > 0
+                && source_mut
+                    .map(|ship_mut| ship_mut.hull.get() > 0)
+                    .unwrap_or(true)
+                && destination_mut
+                    .map(|ship_mut| ship_mut.hull.get() > 0)
+                    .unwrap_or(true)
+                && source.check_remove(&source_container, self.get_unit())
                 && destination.check_insert(&destination_container, self.get_unit())
                 && self.acyclicity_check(destination.clone())
             {
@@ -4711,6 +4842,7 @@ impl Mobility for Arc<Ship> {
                     .unwrap()
                     .contents
                     .iter()
+                    .filter(|unit| !unit.is_dead())
                     .cloned()
                     .partition(|ship| {
                         ship.destinations_check(root, &vec![destination.clone()])
@@ -4886,8 +5018,10 @@ impl Mobility for Arc<Ship> {
     }
     fn damage(&self, damage: i64, engine_damage: &Vec<i64>, subsystem_damage: &Vec<i64>) {
         let mut mutables = self.mutables.write().unwrap();
-        mutables.hull =
-            ((mutables.hull as i64) - (damage)).clamp(0, self.class.base_hull as i64) as u64;
+        let current_hull = mutables.hull.get();
+        mutables
+            .hull
+            .set(((current_hull as i64) - (damage)).clamp(0, self.class.base_hull as i64) as u64);
         engine_damage
             .iter()
             .zip(
@@ -4919,8 +5053,8 @@ impl Mobility for Arc<Ship> {
     }
     fn repair(&self, per_engagement: bool) {
         let mut mutables: RwLockWriteGuard<ShipMut> = self.mutables.write().unwrap();
-        let current_hull = mutables.hull;
-        if current_hull < self.class.base_hull && current_hull > 0
+        let current_hull = mutables.hull.get();
+        if (current_hull > 0 && current_hull < self.class.base_hull)
             || mutables
                 .engines
                 .iter()
@@ -4946,10 +5080,12 @@ impl Mobility for Arc<Ship> {
                         (a[2].0 + b[2].0, a[2].1 + b[2].1),
                     ]
                 });
-            mutables.hull = (current_hull as i64
-                + hull_repair_points
-                + (self.class.base_hull as f32 * hull_repair_factor) as i64)
-                .clamp(0, self.class.base_hull as i64) as u64;
+            mutables.hull.set(
+                (current_hull as i64
+                    + hull_repair_points
+                    + (self.class.base_hull as f32 * hull_repair_factor) as i64)
+                    .clamp(0, self.class.base_hull as i64) as u64,
+            );
             mutables
                 .engines
                 .iter_mut()
@@ -4973,8 +5109,24 @@ impl Mobility for Arc<Ship> {
         }
     }
     fn kill(&self) {
-        self.mutables.write().unwrap().hull = 0;
+        self.mutables.write().unwrap().hull.set(0);
         self.get_daughters().iter().for_each(|ship| ship.kill());
+    }
+    fn is_dead(&self) -> bool {
+        self.mutables.read().unwrap().hull.get() == 0
+    }
+    fn record(&self) -> UnitRecord {
+        UnitRecord {
+            id: self.id,
+            visible_name: self.visible_name.clone(),
+            class: ShipClass::get_unitclass(self.class.clone()),
+            allegiance: self.mutables.read().unwrap().allegiance.clone(),
+            daughters: self
+                .get_daughters()
+                .iter()
+                .map(|unit| unit.get_id())
+                .collect(),
+        }
     }
 }
 
@@ -5064,7 +5216,7 @@ impl SquadronClass {
         faction: Arc<Faction>,
         root: &Root,
     ) -> Squadron {
-        let index = root.unitcounter.fetch_add(1, atomic::Ordering::Relaxed);
+        let index = root.unit_counter.fetch_add(1, atomic::Ordering::Relaxed);
         Squadron {
             id: index,
             visible_name: uuid::Uuid::new_v4().to_string(),
@@ -5116,10 +5268,10 @@ pub struct NavAI {
     pub enemy_demand_attract: f32,
     pub strategic_weapon_damage_attract: f32,
     pub strategic_weapon_engine_damage_attract: f32,
-    pub strategic_weapon_strategic_weapon_damage_attract: f32,
+    pub strategic_weapon_subsystem_damage_attract: f32,
     pub strategic_weapon_healing_attract: f32,
     pub strategic_weapon_engine_healing_attract: f32,
-    pub strategic_weapon_strategic_weapon_healing_attract: f32,
+    pub strategic_weapon_subsystem_healing_attract: f32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -5146,26 +5298,40 @@ impl Squadron {
         &self,
         unit_container: &RwLockWriteGuard<UnitContainer>,
         unitclass: UnitClass,
+        ships_mut_lock: &HashMap<u64, RwLockWriteGuard<ShipMut>>,
         squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
     ) -> u64 {
         unit_container
             .contents
             .iter()
+            .filter(|unit| {
+                unit.get_ship()
+                    .map(|ship| ships_mut_lock.get(&ship.id).unwrap().hull.get() > 0)
+                    .unwrap_or(true)
+            })
             .filter(|daughter| &daughter.get_unitclass() == &unitclass)
-            .map(|daughter| daughter.get_real_volume_locked(squadrons_containers_lock))
+            .map(|daughter| {
+                daughter.get_real_volume_locked(squadrons_containers_lock, ships_mut_lock)
+            })
             .sum()
     }
     pub fn get_unitclass_demand_local(
         &self,
         unit_container: &RwLockWriteGuard<UnitContainer>,
         unitclass: UnitClass,
+        ships_mut_lock: &HashMap<u64, RwLockWriteGuard<ShipMut>>,
         squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
     ) -> u64 {
         let daughters = &unit_container.contents;
         let daughter_unitclass_volume = daughters
             .iter()
+            .filter(|unit| {
+                unit.get_ship()
+                    .map(|ship| ships_mut_lock.get(&ship.id).unwrap().hull.get() > 0)
+                    .unwrap_or(true)
+            })
             .filter(|unit| &unit.get_unitclass() == &unitclass)
-            .map(|unit| unit.get_real_volume_locked(squadrons_containers_lock))
+            .map(|unit| unit.get_real_volume_locked(squadrons_containers_lock, ships_mut_lock))
             .sum::<u64>();
         let ideal_volume = self
             .class
@@ -5180,7 +5346,9 @@ impl Squadron {
             .saturating_sub(
                 daughters
                     .iter()
-                    .map(|daughter| daughter.get_real_volume_locked(squadrons_containers_lock))
+                    .map(|daughter| {
+                        daughter.get_real_volume_locked(squadrons_containers_lock, ships_mut_lock)
+                    })
                     .sum(),
             )
             .saturating_sub(ideal_demand) as f32
@@ -5310,6 +5478,7 @@ impl Mobility for Arc<Squadron> {
             .unwrap()
             .contents
             .iter()
+            .filter(|unit| !unit.is_dead())
             .cloned()
             .collect()
     }
@@ -5321,6 +5490,7 @@ impl Mobility for Arc<Squadron> {
                     .unwrap()
                     .contents
                     .iter()
+                    .filter(|unit| !unit.is_dead())
                     .map(|daughter| daughter.get_daughters_recursive())
                     .flatten(),
             )
@@ -5378,62 +5548,78 @@ impl Mobility for Arc<Squadron> {
     fn get_real_volume_locked(
         &self,
         squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+        ships_mut_lock: &HashMap<u64, RwLockWriteGuard<ShipMut>>,
     ) -> u64 {
         squadrons_containers_lock
             .get(&self.id)
             .unwrap()
             .contents
             .iter()
-            .map(|daughter| daughter.get_real_volume_locked(squadrons_containers_lock))
+            .filter(|unit| {
+                unit.get_ship()
+                    .map(|ship| ships_mut_lock.get(&ship.id).unwrap().hull.get() > 0)
+                    .unwrap_or(true)
+            })
+            .map(|daughter| {
+                daughter.get_real_volume_locked(squadrons_containers_lock, ships_mut_lock)
+            })
             .sum()
     }
     fn get_capacity_volume(&self) -> u64 {
         self.class.capacity
     }
     fn get_ai(&self) -> NavAI {
-        self.get_daughters().iter().fold(
+        let daughters = self.get_daughters();
+        let daughters_len = daughters.len() as f32;
+        daughters.iter().fold(
             NavAI {
-                nav_threshold: 1.0,
-                ship_attract_specific: 1.0,
-                ship_attract_generic: 1.0,
+                nav_threshold: 0.0,
+                ship_attract_specific: 0.0,
+                ship_attract_generic: 0.0,
                 ship_cargo_attract: HashMap::new(),
                 resource_attract: HashMap::new(),
-                friendly_supply_attract: 1.0,
-                hostile_supply_attract: 1.0,
-                allegiance_demand_attract: 1.0,
-                enemy_demand_attract: 1.0,
-                strategic_weapon_damage_attract: 1.0,
-                strategic_weapon_engine_damage_attract: 1.0,
-                strategic_weapon_strategic_weapon_damage_attract: 1.0,
-                strategic_weapon_healing_attract: 1.0,
-                strategic_weapon_engine_healing_attract: 1.0,
-                strategic_weapon_strategic_weapon_healing_attract: 1.0,
+                friendly_supply_attract: 0.0,
+                hostile_supply_attract: 0.0,
+                allegiance_demand_attract: 0.0,
+                enemy_demand_attract: 0.0,
+                strategic_weapon_damage_attract: 0.0,
+                strategic_weapon_engine_damage_attract: 0.0,
+                strategic_weapon_subsystem_damage_attract: 0.0,
+                strategic_weapon_healing_attract: 0.0,
+                strategic_weapon_engine_healing_attract: 0.0,
+                strategic_weapon_subsystem_healing_attract: 0.0,
             },
             |mut acc, ship| {
                 let sub_ai = ship.get_ai();
-                acc.nav_threshold *= sub_ai.nav_threshold;
-                acc.ship_attract_specific *= sub_ai.ship_attract_specific;
-                acc.ship_attract_generic *= sub_ai.ship_attract_generic;
-                sub_ai.ship_cargo_attract.iter().for_each(|(scid, num)| {
-                    *acc.ship_cargo_attract.entry(*scid).or_insert(1.0) *= num;
+                acc.nav_threshold += sub_ai.nav_threshold / daughters_len;
+                acc.ship_attract_specific += sub_ai.ship_attract_specific / daughters_len;
+                acc.ship_attract_generic += sub_ai.ship_attract_generic / daughters_len;
+                sub_ai.ship_cargo_attract.iter().for_each(|(scid, scalar)| {
+                    *acc.ship_cargo_attract.entry(*scid).or_insert(0.0) += scalar / daughters_len;
                 });
-                sub_ai.resource_attract.iter().for_each(|(resource, num)| {
-                    *acc.resource_attract.entry(resource.clone()).or_insert(1.0) *= num;
-                });
-                acc.friendly_supply_attract *= sub_ai.friendly_supply_attract;
-                acc.hostile_supply_attract *= sub_ai.hostile_supply_attract;
-                acc.allegiance_demand_attract *= sub_ai.allegiance_demand_attract;
-                acc.enemy_demand_attract *= sub_ai.enemy_demand_attract;
-                acc.strategic_weapon_damage_attract *= sub_ai.strategic_weapon_damage_attract;
-                acc.strategic_weapon_engine_damage_attract *=
-                    sub_ai.strategic_weapon_engine_damage_attract;
-                acc.strategic_weapon_strategic_weapon_damage_attract *=
-                    sub_ai.strategic_weapon_strategic_weapon_damage_attract;
-                acc.strategic_weapon_healing_attract *= sub_ai.strategic_weapon_healing_attract;
-                acc.strategic_weapon_engine_healing_attract *=
-                    sub_ai.strategic_weapon_engine_healing_attract;
-                acc.strategic_weapon_strategic_weapon_healing_attract *=
-                    sub_ai.strategic_weapon_strategic_weapon_healing_attract;
+                sub_ai
+                    .resource_attract
+                    .iter()
+                    .for_each(|(resource, scalar)| {
+                        *acc.resource_attract.entry(resource.clone()).or_insert(0.0) +=
+                            scalar / daughters_len;
+                    });
+                acc.friendly_supply_attract += sub_ai.friendly_supply_attract / daughters_len;
+                acc.hostile_supply_attract += sub_ai.hostile_supply_attract / daughters_len;
+                acc.allegiance_demand_attract += sub_ai.allegiance_demand_attract / daughters_len;
+                acc.enemy_demand_attract += sub_ai.enemy_demand_attract / daughters_len;
+                acc.strategic_weapon_damage_attract +=
+                    sub_ai.strategic_weapon_damage_attract / daughters_len;
+                acc.strategic_weapon_engine_damage_attract +=
+                    sub_ai.strategic_weapon_engine_damage_attract / daughters_len;
+                acc.strategic_weapon_subsystem_damage_attract +=
+                    sub_ai.strategic_weapon_subsystem_damage_attract / daughters_len;
+                acc.strategic_weapon_healing_attract +=
+                    sub_ai.strategic_weapon_healing_attract / daughters_len;
+                acc.strategic_weapon_engine_healing_attract +=
+                    sub_ai.strategic_weapon_engine_healing_attract / daughters_len;
+                acc.strategic_weapon_subsystem_healing_attract +=
+                    sub_ai.strategic_weapon_subsystem_healing_attract / daughters_len;
                 acc
             },
         )
@@ -5545,17 +5731,29 @@ impl Mobility for Arc<Squadron> {
     }
     fn transfer(&self, destination: UnitLocation) -> bool {
         let source = self.get_location().clone();
-        let mut source_container = source.get_unit_container_lock();
-        let mut self_mut = self.mutables.write().unwrap();
-        let mut destination_container = destination.get_unit_container_lock();
-        if source.check_remove(&source_container, self.get_unit())
-            && destination.check_insert(&destination_container, self.get_unit())
-            && self.acyclicity_check(destination.clone())
-        {
-            source.remove_unit(&mut source_container, self.get_unit());
-            self_mut.location = destination.clone();
-            destination.insert_unit(&mut destination_container, self.get_unit());
-            true
+        if source != destination {
+            let source_mut = source.get_ship_mut_read();
+            let mut source_container = source.get_unit_container_write();
+            let mut self_mut = self.mutables.write().unwrap();
+            let destination_mut = destination.get_ship_mut_read();
+            let mut destination_container = destination.get_unit_container_write();
+            if source_mut
+                .map(|ship_mut| ship_mut.hull.get() > 0)
+                .unwrap_or(true)
+                && destination_mut
+                    .map(|ship_mut| ship_mut.hull.get() > 0)
+                    .unwrap_or(true)
+                && source.check_remove(&source_container, self.get_unit())
+                && destination.check_insert(&destination_container, self.get_unit())
+                && self.acyclicity_check(destination.clone())
+            {
+                source.remove_unit(&mut source_container, self.get_unit());
+                self_mut.location = destination.clone();
+                destination.insert_unit(&mut destination_container, self.get_unit());
+                true
+            } else {
+                false
+            }
         } else {
             false
         }
@@ -5653,12 +5851,28 @@ impl Mobility for Arc<Squadron> {
     ) -> (i64, Vec<i64>, Vec<i64>) {
         (0, Vec::new(), Vec::new())
     }
-    fn damage(&self, _damage: i64, _engine_damage: &Vec<i64>, strategic_weapon_damage: &Vec<i64>) {}
+    fn damage(&self, _damage: i64, _engine_damage: &Vec<i64>, _subsystem_damage: &Vec<i64>) {}
     fn repair(&self, _per_engagement: bool) {}
     fn kill(&self) {
         self.get_daughters()
             .iter()
             .for_each(|daughter| daughter.kill());
+    }
+    fn is_dead(&self) -> bool {
+        self.mutables.read().unwrap().ghost || (self.get_daughters().is_empty())
+    }
+    fn record(&self) -> UnitRecord {
+        UnitRecord {
+            id: self.id,
+            visible_name: self.visible_name.clone(),
+            class: SquadronClass::get_unitclass(self.class.clone()),
+            allegiance: self.mutables.read().unwrap().allegiance.clone(),
+            daughters: self
+                .get_daughters()
+                .iter()
+                .map(|unit| unit.get_id())
+                .collect(),
+        }
     }
 }
 
@@ -5881,10 +6095,15 @@ impl Mobility for Unit {
     fn get_real_volume_locked(
         &self,
         squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+        ships_mut_lock: &HashMap<u64, RwLockWriteGuard<ShipMut>>,
     ) -> u64 {
         match self {
-            Unit::Ship(ship) => ship.get_real_volume_locked(squadrons_containers_lock),
-            Unit::Squadron(squadron) => squadron.get_real_volume_locked(squadrons_containers_lock),
+            Unit::Ship(ship) => {
+                ship.get_real_volume_locked(squadrons_containers_lock, ships_mut_lock)
+            }
+            Unit::Squadron(squadron) => {
+                squadron.get_real_volume_locked(squadrons_containers_lock, ships_mut_lock)
+            }
         }
     }
     fn get_capacity_volume(&self) -> u64 {
@@ -6074,6 +6293,27 @@ impl Mobility for Unit {
             Unit::Squadron(squadron) => squadron.kill(),
         }
     }
+    fn is_dead(&self) -> bool {
+        match self {
+            Unit::Ship(ship) => ship.is_dead(),
+            Unit::Squadron(squadron) => squadron.is_dead(),
+        }
+    }
+    fn record(&self) -> UnitRecord {
+        match self {
+            Unit::Ship(ship) => ship.record(),
+            Unit::Squadron(squadron) => squadron.record(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct UnitRecord {
+    pub id: u64,
+    pub visible_name: String,
+    pub class: UnitClass,
+    pub allegiance: Arc<Faction>,
+    pub daughters: Vec<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -6115,7 +6355,13 @@ pub struct Operation {
 #[derive(Debug, PartialEq, Clone)]
 pub struct FactionForces {
     pub local_forces: Vec<Unit>,
-    pub reinforcements: Vec<(u64, Vec<Unit>)>,
+    pub reinforcements: Vec<(Arc<Node>, u64, Vec<Unit>)>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct FactionForcesRecord {
+    pub local_forces: HashMap<UnitRecord, UnitStatus>,
+    pub reinforcements: Vec<(Arc<Node>, u64, HashMap<UnitRecord, UnitStatus>)>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -6189,6 +6435,7 @@ impl EngagementPrep {
                                     .iter()
                                     .map(|n| {
                                         (
+                                            n.clone(),
                                             n.clone().get_distance(location.clone()),
                                             n.get_node_faction_reinforcements(
                                                 location.clone(),
@@ -6342,7 +6589,7 @@ impl EngagementPrep {
                             let reinforcement_strength: u64 = forces
                                 .reinforcements
                                 .iter()
-                                .map(|(lag, units)| {
+                                .map(|(_, lag, units)| {
                                     units
                                         .iter()
                                         .map(|unit| unit.get_strength(duration) as f32)
@@ -6422,11 +6669,93 @@ impl Engagement {
         });
         root.remove_dead();
         root.disband_squadrons();
-        root.engagements
-            .write()
-            .unwrap()
-            .push(Arc::new(self.clone()));
+        root.engagements.write().unwrap().push(self.record());
     }
+    pub fn record(&self) -> EngagementRecord {
+        EngagementRecord {
+            visible_name: self.visible_name.clone(),
+            turn: self.turn,
+            coalitions: self
+                .coalitions
+                .iter()
+                .map(|(id, faction_map)| {
+                    (
+                        *id,
+                        faction_map
+                            .iter()
+                            .map(|(faction, forces)| {
+                                (
+                                    faction.clone(),
+                                    FactionForcesRecord {
+                                        local_forces: forces
+                                            .local_forces
+                                            .iter()
+                                            .map(|unit| {
+                                                (
+                                                    unit.record(),
+                                                    self.unit_status
+                                                        .get(&id)
+                                                        .unwrap()
+                                                        .get(faction)
+                                                        .unwrap()
+                                                        .get(&unit)
+                                                        .unwrap()
+                                                        .clone(),
+                                                )
+                                            })
+                                            .collect::<HashMap<_, _>>(),
+                                        reinforcements: forces
+                                            .reinforcements
+                                            .iter()
+                                            .map(|(node, distance, units)| {
+                                                (
+                                                    node.clone(),
+                                                    *distance,
+                                                    units
+                                                        .iter()
+                                                        .map(|unit| {
+                                                            (
+                                                                unit.record(),
+                                                                self.unit_status
+                                                                    .get(&id)
+                                                                    .unwrap()
+                                                                    .get(faction)
+                                                                    .unwrap()
+                                                                    .get(&unit)
+                                                                    .unwrap()
+                                                                    .clone(),
+                                                            )
+                                                        })
+                                                        .collect(),
+                                                )
+                                            })
+                                            .collect(),
+                                    },
+                                )
+                            })
+                            .collect(),
+                    )
+                })
+                .collect(),
+            aggressor: self.aggressor.clone(),
+            objectives: self.objectives.clone(),
+            location: self.location.clone(),
+            duration: self.duration.clone(),
+            victors: self.victors.clone(),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct EngagementRecord {
+    pub visible_name: String,
+    pub turn: u64,
+    pub coalitions: HashMap<u64, HashMap<Arc<Faction>, FactionForcesRecord>>,
+    pub aggressor: Option<Arc<Faction>>,
+    pub objectives: HashMap<Arc<Faction>, Vec<Objective>>,
+    pub location: Arc<Node>,
+    pub duration: u64,
+    pub victors: (Arc<Faction>, u64),
 }
 
 //this takes an unbounded threat value and converts it to a multiplier between zero and one by which to scale saliences as they pass through the node
@@ -6656,6 +6985,7 @@ impl Salience<polarity::Supply> for UnitClass {
             .unwrap()
             .contents
             .iter()
+            .filter(|unit| !unit.is_dead())
             .filter(|unit| unit.get_allegiance() == faction)
             .map(|unit| unit.get_unitclass_supply_recursive(self.clone()))
             .sum::<u64>() as f32;
@@ -6682,6 +7012,7 @@ impl Salience<polarity::Demand> for UnitClass {
             .unwrap()
             .contents
             .iter()
+            .filter(|unit| !unit.is_dead())
             .filter(|unit| unit.get_allegiance() == faction)
             .map(|unit| unit.get_unitclass_demand_recursive(self.clone()))
             .sum::<u64>() as f32;
@@ -6726,7 +7057,7 @@ pub struct Root {
     pub wars: HashSet<(Arc<Faction>, Arc<Faction>)>,
     pub resources: Vec<Arc<Resource>>,
     pub hangarclasses: Vec<Arc<HangarClass>>,
-    pub hangarcounter: Arc<AtomicU64>,
+    pub hangar_counter: Arc<AtomicU64>,
     pub engineclasses: Vec<Arc<EngineClass>>,
     pub repairerclasses: Vec<Arc<RepairerClass>>,
     pub strategicweaponclasses: Vec<Arc<StrategicWeaponClass>>,
@@ -6740,8 +7071,8 @@ pub struct Root {
     pub squadronclasses: Vec<Arc<SquadronClass>>,
     pub ships: RwLock<Vec<Arc<Ship>>>,
     pub squadrons: RwLock<Vec<Arc<Squadron>>>,
-    pub unitcounter: Arc<AtomicU64>,
-    pub engagements: RwLock<Vec<Arc<Engagement>>>,
+    pub unit_counter: Arc<AtomicU64>,
+    pub engagements: RwLock<Vec<EngagementRecord>>,
     pub global_salience: GlobalSalience,
     pub turn: Arc<AtomicU64>,
 }
@@ -6759,8 +7090,8 @@ impl PartialEq for Root {
             && self.wars == other.wars
             && self.resources == other.resources
             && self.hangarclasses == other.hangarclasses
-            && self.hangarcounter.load(atomic::Ordering::Relaxed)
-                == other.hangarcounter.load(atomic::Ordering::Relaxed)
+            && self.hangar_counter.load(atomic::Ordering::Relaxed)
+                == other.hangar_counter.load(atomic::Ordering::Relaxed)
             && self.engineclasses == other.engineclasses
             && self.repairerclasses == other.repairerclasses
             && self.factoryclasses == other.factoryclasses
@@ -6772,8 +7103,8 @@ impl PartialEq for Root {
             && self.squadronclasses == other.squadronclasses
             && self.ships.read().unwrap().clone() == other.ships.read().unwrap().clone()
             && self.squadrons.read().unwrap().clone() == other.squadrons.read().unwrap().clone()
-            && self.unitcounter.load(atomic::Ordering::Relaxed)
-                == other.unitcounter.load(atomic::Ordering::Relaxed)
+            && self.unit_counter.load(atomic::Ordering::Relaxed)
+                == other.unit_counter.load(atomic::Ordering::Relaxed)
             && self.engagements.read().unwrap().clone() == other.engagements.read().unwrap().clone()
             && self
                 .global_salience
@@ -6833,11 +7164,14 @@ impl Root {
             faction,
             self,
         ));
-        class.build_hangars(new_ship.clone(), &self.shipclasses, &self.hangarcounter);
+        class.build_hangars(new_ship.clone(), &self.shipclasses, &self.hangar_counter);
         //NOTE: Is this thread-safe? There might be enough space in here
         //for something to go interact with the ship in root and fail to get the arc from location.
         self.ships.write().unwrap().push(new_ship.clone());
-        location.insert_unit(&mut location.get_unit_container_lock(), new_ship.get_unit());
+        location.insert_unit(
+            &mut location.get_unit_container_write(),
+            new_ship.get_unit(),
+        );
         new_ship
     }
     pub fn engagement_check(&self, node: Arc<Node>, actor: Arc<Faction>) -> Option<Arc<Faction>> {
@@ -6918,7 +7252,7 @@ impl Root {
                                     forces
                                         .reinforcements
                                         .iter()
-                                        .map(|(_, units)| {
+                                        .map(|(_, _, units)| {
                                             units.iter().map(|unit| unit.get_daughters_recursive())
                                         })
                                         .flatten(),
@@ -7025,15 +7359,27 @@ impl Root {
         }
     }
     pub fn remove_dead(&self) {
-        let dead: Vec<Arc<Ship>> = self
+        let initial_dead: Vec<Arc<Ship>> = self
             .ships
             .read()
             .unwrap()
             .iter()
-            .filter(|ship| ship.mutables.read().unwrap().hull == 0)
+            .filter(|ship| ship.mutables.read().unwrap().hull.get() == 0)
             .cloned()
             .collect();
-        dead.iter()
+        initial_dead.iter().for_each(|ship| {
+            ship.clone().kill();
+        });
+        let all_dead: Vec<Arc<Ship>> = self
+            .ships
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|ship| ship.mutables.read().unwrap().hull.get() == 0)
+            .cloned()
+            .collect();
+        all_dead
+            .iter()
             .for_each(|ship| match &ship.mutables.read().unwrap().location {
                 UnitLocation::Node(node) => node
                     .unit_container
@@ -7054,15 +7400,13 @@ impl Root {
                     .contents
                     .retain(|unit| unit.get_id() != ship.id),
             });
-        dead.iter().for_each(|ship| {
-            ship.clone().kill();
-        });
-        dead.iter()
-            .for_each(|ship| ship.mutables.write().unwrap().hangars.retain(|_| false));
+        all_dead
+            .iter()
+            .for_each(|ship| ship.mutables.write().unwrap().hangars = Vec::new());
         self.ships
             .write()
             .unwrap()
-            .retain(|ship| ship.mutables.read().unwrap().hull > 0);
+            .retain(|ship| ship.mutables.read().unwrap().hull.get() > 0);
     }
     pub fn disband_squadrons(&self) {
         let dead = self
@@ -7081,6 +7425,26 @@ impl Root {
             squadron.get_daughters().iter().all(|daughter| {
                 daughter.transfer(squadron.mutables.read().unwrap().location.clone())
             });
+            match &squadron.mutables.read().unwrap().location {
+                UnitLocation::Node(node) => node
+                    .unit_container
+                    .write()
+                    .unwrap()
+                    .contents
+                    .retain(|unit| unit.get_id() != squadron.id),
+                UnitLocation::Squadron(squadron) => squadron
+                    .unit_container
+                    .write()
+                    .unwrap()
+                    .contents
+                    .retain(|unit| unit.get_id() != squadron.id),
+                UnitLocation::Hangar(hangar) => hangar
+                    .unit_container
+                    .write()
+                    .unwrap()
+                    .contents
+                    .retain(|unit| unit.get_id() != squadron.id),
+            }
         }
         let remaining: Vec<Arc<Squadron>> = self
             .squadrons
@@ -7411,6 +7775,7 @@ impl Root {
             .write()
             .unwrap()
             .iter()
+            .filter(|unit| !unit.is_dead())
             .for_each(|ship| ship.repair(false));
 
         //process all factories
@@ -7419,6 +7784,7 @@ impl Root {
             .write()
             .unwrap()
             .iter()
+            .filter(|unit| !unit.is_dead())
             .for_each(|ship| ship.process_factories());
 
         //process all shipyards
@@ -7427,6 +7793,7 @@ impl Root {
             .write()
             .unwrap()
             .iter()
+            .filter(|unit| !unit.is_dead())
             .for_each(|ship| ship.process_shipyards());
 
         //plan ship creation
@@ -7439,6 +7806,7 @@ impl Root {
                     .write()
                     .unwrap()
                     .iter()
+                    .filter(|unit| !unit.is_dead())
                     .map(|ship| ship.plan_ships(&self.shipclasses)),
             )
             .flatten()
@@ -7480,14 +7848,17 @@ impl Root {
         //running battle checks and resource/unit balancing with each traversal
         let ship_moves_start = Instant::now();
         let ships = self.ships.read().unwrap().clone();
-        ships.iter().for_each(|ship| {
-            let mut moving = true;
-            while moving {
-                if ship.maneuver(&self).is_none() {
-                    moving = false
+        ships
+            .iter()
+            .filter(|unit| !unit.is_dead())
+            .for_each(|ship| {
+                let mut moving = true;
+                while moving {
+                    if ship.maneuver(&self).is_none() {
+                        moving = false
+                    }
                 }
-            }
-        });
+            });
         dbg!(ship_moves_start.elapsed());
 
         //move squadrons, one edge at a time
@@ -7497,16 +7868,19 @@ impl Root {
 
         //fire strategic weapons
         let mut rng = Hc128Rng::seed_from_u64(47);
-        ships.iter().for_each(|ship| {
-            ship.mutables
-                .write()
-                .unwrap()
-                .strategic_weapons
-                .iter_mut()
-                .for_each(|weapon| {
-                    weapon.fire(&self, ship.clone(), &mut rng);
-                })
-        });
+        ships
+            .iter()
+            .filter(|unit| !unit.is_dead())
+            .for_each(|ship| {
+                ship.mutables
+                    .write()
+                    .unwrap()
+                    .strategic_weapons
+                    .iter_mut()
+                    .for_each(|weapon| {
+                        weapon.fire(&self, ship.clone(), &mut rng);
+                    })
+            });
 
         //run diplomacy logic
 

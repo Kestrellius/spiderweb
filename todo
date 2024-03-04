@@ -135,7 +135,7 @@ GENERAL:
 [ ] Create method that recurses up unit tree and tries to transfer unit into the nearest available place, finishing at the node if necessary, for use while disbanding squadrons
 [ ] Allowed list for squadrons
 [ ] Make sure remove_dead and disband_squadrons are read-write-safe, and that they destroy all arcs including hangar parent arcs
-[ ] Think about taking average instead of product in cases like getting AI for squadrons
+[x] Think about taking average instead of product in cases like getting AI for squadrons
 
 LONGER-TERM:
 [ ] Build system for transmitting data to FSO
@@ -186,3 +186,4 @@ QUESTIONS FOR AMARYLLIS:
 [ ] Best way to prune navigation logic by scalar = 0?
 [x] Hangarinstances not being in root
 [ ] Will the duplicated sequential application of damage in fn-fire work correctly, and is there a better way?
+[ ] Will read locks on shipmuts in fn-transfer reliably live long enough to lock out writes until the transfer is finished?

@@ -12203,6 +12203,7 @@
             "efficiency": 1.0
         }
     ],
+    "subsystemclasses": [],
     "shipflavors": [
         {
             "id": "default",
@@ -13657,10 +13658,10 @@
             "enemy_demand_attract": 1.0,
             "strategic_weapon_damage_attract": -1.0,
             "strategic_weapon_engine_damage_attract": -1.0,
-            "strategic_weapon_strategic_weapon_damage_attract": -1.0,
+            "strategic_weapon_subsystem_damage_attract": -1.0,
             "strategic_weapon_healing_attract": 1.0,
             "strategic_weapon_engine_healing_attract": 1.0,
-            "strategic_weapon_strategic_weapon_healing_attract": 1.0
+            "strategic_weapon_subsystem_healing_attract": 1.0
         }
     ],
     "squadronflavors": [],

@@ -1766,7 +1766,7 @@ impl Root {
                 .cloned()
                 .sorted_by_key(|x| x.id)
                 .collect(),
-            hangarcounter: Arc::new(AtomicU64::new(0)),
+            hangar_counter: Arc::new(AtomicU64::new(0)),
             engineclasses: engineclass_id_map
                 .values()
                 .cloned()
@@ -1820,7 +1820,7 @@ impl Root {
                 .collect(),
             ships: RwLock::new(Vec::new()),
             squadrons: RwLock::new(Vec::new()),
-            unitcounter: Arc::new(AtomicU64::new(0)),
+            unit_counter: Arc::new(AtomicU64::new(0)),
             engagements: RwLock::new(Vec::new()),
             global_salience: internal::GlobalSalience {
                 faction_salience: RwLock::new(
