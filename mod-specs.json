@@ -1339,6 +1339,7 @@
             "efficiency": 1.0
         }
     ],
+    "subsystemclasses": [],
     "shipflavors": [
         {
             "id": "default",
@@ -1448,10 +1449,10 @@
             "enemy_demand_attract": 10.0,
             "strategic_weapon_damage_attract": -1.0,
             "strategic_weapon_engine_damage_attract": -1.0,
-            "strategic_weapon_strategic_weapon_damage_attract": -1.0,
+            "strategic_weapon_subsystem_damage_attract": -1.0,
             "strategic_weapon_healing_attract": 1.0,
             "strategic_weapon_engine_healing_attract": 1.0,
-            "strategic_weapon_strategic_weapon_healing_attract": 1.0
+            "strategic_weapon_subsystem_healing_attract": 1.0
         }
     ],
     "squadronflavors": [
@@ -1471,12 +1472,17 @@
                 1.0,
                 100
             ],
-            "squadron_config": {
+            "allowed": [
+                "isd"
+            ],
+            "ideal": {
                 "isd": 4
             },
+            "non_ideal_demand_scalar": 0.1,
             "defect_chance": {},
             "nav_threshold": 20.0,
             "nav_quorum": 0.75,
+            "creation_threshold": 0.5,
             "disband_threshold": 20.0
         }
     ]

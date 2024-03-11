@@ -131,11 +131,12 @@ GENERAL:
 [ ] Build fleet creation logic
 [ ] Build system for determining how many reinforcements will be sent into an engagement in progress
 [ ] Take hostile threat into account for faction demand
-[ ] Make hangar allowed an option, with none meaning no restrictions, as with pluripotent stockpiles
-[ ] Create method that recurses up unit tree and tries to transfer unit into the nearest available place, finishing at the node if necessary, for use while disbanding squadrons
-[ ] Allowed list for squadrons
-[ ] Make sure remove_dead and disband_squadrons are read-write-safe, and that they destroy all arcs including hangar parent arcs
+[x] Make hangar allowed an option, with none meaning no restrictions, as with pluripotent stockpiles
+[x] Create method that recurses up unit tree and tries to transfer unit into the nearest available place, finishing at the node if necessary, for use while disbanding squadrons (it turns out to be better to just dump disbanded ships into the node, and transact units afterward)
+[x] Allowed list for squadrons
+[x] Make sure remove_dead and disband_squadrons are read-write-safe, and that they destroy all arcs including hangar parent arcs
 [x] Think about taking average instead of product in cases like getting AI for squadrons
+[ ] Deal with case where there are too many units and hangar or squadron can't accept ideal units
 
 LONGER-TERM:
 [ ] Build system for transmitting data to FSO

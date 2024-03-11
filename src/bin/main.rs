@@ -8,7 +8,7 @@ use std::time::Instant;
 fn main() {
     //rayon::ThreadPoolBuilder::new().num_threads(1).build_global().unwrap();
     //env::set_var("RUST_BACKTRACE", "1");
-    let file = File::open("benchmark.json").unwrap();
+    let file = File::open("mod-specs.json").unwrap();
     let start = Instant::now();
     let json_root: json_hydration::Root = serde_json::from_reader(file).unwrap();
     let duration = start.elapsed();
@@ -44,6 +44,24 @@ fn main() {
 
     dbg!(root_3.nodes.len());
     dbg!(root_3.edges.len());
+
+    root_3
+        .squadrons
+        .read()
+        .unwrap()
+        .iter()
+        .for_each(|squadron| {
+            println!("Squadron {}:", squadron.visible_name);
+            squadron
+                .unit_container
+                .read()
+                .unwrap()
+                .contents
+                .iter()
+                .for_each(|unit| {
+                    println!("    Unit {}, {}", unit.get_visible_name(), unit.get_ship().map(|ship| ship.class.visible_name.clone()).unwrap_or("(fleet)".to_string()));
+                });
+        });
 
     /*
     let nodes_w_shipyards = root
