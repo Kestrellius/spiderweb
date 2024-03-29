@@ -44,7 +44,7 @@ GENERAL:
 [x] Implement shipflavors (and maybe fleetflavors?)
 [ ] Implement variants for ships
 [ ] Implement resourceflavors, factionflavors
-[ ] Toughnessmod field on squadrons, maybe similar for interdiction, etc? Think about it
+[x] Toughnessmod field on squadrons, maybe similar for interdiction, etc? Think about it (No.)
 [x] Config struct on root with settings for salience propagation iters
 [x] Replace current implementation of entity locations with entity-component system or similar
 [x] Build hangar entry and exit methods
@@ -101,7 +101,8 @@ GENERAL:
     [x] Add check_for_battles, balance_hangars, and balance_stockpiles bools on node
     [x] Build node templating system
 [ ] Figure out mechanics for ground assaults/ship or station capture
-    [ ] Flag for nodes that can only be captured via 'special missions', which have certain conditions -- "special capture requirements", Option<Mission>?
+    [ ] Build system for ship capture
+    [ ] Invulnerability flag so that ships can be used as planets or similar
 [x] Add inter-node weapons
     [x] Add system for checking influence of weapons when navigating
         [x] Weapon map creation
@@ -136,7 +137,10 @@ GENERAL:
 [x] Allowed list for squadrons
 [x] Make sure remove_dead and disband_squadrons are read-write-safe, and that they destroy all arcs including hangar parent arcs
 [x] Think about taking average instead of product in cases like getting AI for squadrons
-[ ] Deal with case where there are too many units and hangar or squadron can't accept ideal units
+[x] Build mother loyalty system
+[x] Deal with case where there are too many units and hangar or squadron can't accept ideal units (Volkswagon Beetle problem)
+[ ] Move relevant parameters from unitclasses into AIs
+[ ] Figure out weirdness about squadrons not immediately schlurping up the units that spawned them
 
 LONGER-TERM:
 [ ] Build system for transmitting data to FSO

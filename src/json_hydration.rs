@@ -1022,6 +1022,7 @@ struct ShipClass {
     processor_demand_nav_scalar: Option<f32>,
     deploys_self: Option<bool>,
     deploys_daughters: Option<u64>,
+    mother_loyalty_scalar: Option<f32>,
     mother_misalignment_tolerance: Option<f32>,
     defect_chance: Option<HashMap<String, (f32, f32)>>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
     toughness_scalar: Option<f32>,
@@ -1166,6 +1167,7 @@ impl ShipClass {
             processor_demand_nav_scalar: self.processor_demand_nav_scalar.unwrap_or(10.0),
             deploys_self: self.deploys_self.unwrap_or(true),
             deploys_daughters: self.deploys_daughters,
+            mother_loyalty_scalar: self.mother_loyalty_scalar.unwrap_or(2.0),
             mother_misalignment_tolerance: self.mother_misalignment_tolerance,
             defect_chance: self
                 .defect_chance
@@ -1222,6 +1224,7 @@ struct SquadronClass {
     disband_threshold: f32,
     deploys_self: Option<bool>,
     deploys_daughters: Option<Option<u64>>,
+    mother_loyalty_scalar: Option<f32>,
     defect_chance: Option<HashMap<String, (f32, f32)>>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
     defect_escape_mod: Option<f32>,
     value_mult: Option<f32>, //how valuable the AI considers one volume point of this squadronclass to be
@@ -1235,9 +1238,9 @@ impl SquadronClass {
     ) -> u64 {
         self.ideal
             .iter()
-            .map(|(stringid, _)| {
+            .map(|(stringid, count)| {
                 if let Some(shipclass) = shipclasses.iter().find(|sc| sc.id == *stringid) {
-                    shipclass.hangar_vol
+                    shipclass.hangar_vol * count
                 } else {
                     squadronclasses
                         .iter()
@@ -1314,6 +1317,7 @@ impl SquadronClass {
             disband_threshold: self.disband_threshold,
             deploys_self: self.deploys_self.unwrap_or(true),
             deploys_daughters: self.deploys_daughters.unwrap_or(None),
+            mother_loyalty_scalar: self.mother_loyalty_scalar.unwrap_or(2.0),
             defect_chance: self
                 .defect_chance
                 .clone()
@@ -1498,6 +1502,7 @@ impl Root {
             processor_demand_nav_scalar: None,
             deploys_self: None,
             deploys_daughters: None,
+            mother_loyalty_scalar: None,
             mother_misalignment_tolerance: None,
             defect_chance: None,
             toughness_scalar: None,

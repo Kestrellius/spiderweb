@@ -1120,31 +1120,9 @@ impl Locality for Arc<Node> {
         });
 
         node_mut.resources_transacted = true;
-
-        //acquire write lock on all ships in node
-
-        //collect all unipotent and pluripotent stockpiles in node into two lists
-
-        //for each resource:
-
-        //gather all real supply in node
-
-        //gather all demand in node, calculating unipotent stockpile demand normally
-        //and calculating pluripotent stockpile demand as demand from outside node * ship's speed/average speed * stockpile's capacity as fraction of all pluripotent stockpiles' capacity, clamped by stockpile's target
-
-        //calculate supply to demand ratio: supply/demand
-        //this will let us determine what fraction of the supply should be given to an entity that has a given amount of demand
-
-        //iterate over all unipotent stockpiles
-        //for each, get the stockpile's supply and demand; then
-        //while lhs contents < lhs supply:
-        //iterate over unipotent stockpiles (except lhs); for each, determine transfer amount, which is:
-        //lhs demand saturating-sub (rhs supply * supply/demand ratio), clamped by rhs contents saturating-sub (rhs supply * supply/demand ratio)
-        //transfer transfer amount from rhs to lhs
-        //iterate over pluripotent stockpiles (as rhs) and do same
-        //once both iterations are done, break
-        //iterate over pluripotent stockpiles (as lhs) and do same
     }
+
+    //absolute horrorshow, never think about
     fn transact_units(&self, root: &Root) {
         let mut node_mut = self.mutables.write().unwrap();
         let mut node_container = self.unit_container.write().unwrap();
@@ -1229,81 +1207,72 @@ impl Locality for Arc<Node> {
                 )
                 .collect::<Vec<_>>();
 
-            unitclasses.iter().for_each(|unitclass| {
-                let node_supply: u64 = all_units
-                    .iter()
-                    .filter(|unit| match unit {
-                        Unit::Ship(ship) => {
-                            all_ships_mut_lock.get(&ship.id).unwrap().location
-                                == UnitLocation::Node(self.clone())
-                        }
-                        Unit::Squadron(squadron) => {
-                            all_squadrons_mut_lock.get(&squadron.id).unwrap().location
-                                == UnitLocation::Node(self.clone())
-                        }
-                    })
-                    .filter(|unit| unit.get_unitclass() == unitclass.clone())
-                    .map(|unit| {
-                        unit.get_real_volume_locked(
-                            &all_squadrons_containers_lock,
-                            &all_ships_mut_lock,
-                        )
-                    })
-                    .sum();
+            struct UnitClassTransactionData {
+                supply_demand_ratio: f32,
+                squadrons_demand: HashMap<u64, u64>,
+                hangars_demand: HashMap<u64, u64>,
+            }
 
-                let squadrons_supply: HashMap<u64, u64> = all_squadrons_indexed
-                    .iter()
-                    .map(|(i, squadron)| {
-                        (
-                            *i,
-                            squadron.get_unitclass_supply_local(
-                                all_squadrons_containers_lock.get(&i).unwrap(),
-                                unitclass.clone(),
-                                &all_ships_mut_lock,
-                                &all_squadrons_containers_lock,
-                            ),
-                        )
-                    })
-                    .collect();
-
-                let squadrons_demand: HashMap<u64, u64> = all_squadrons_indexed
-                    .iter()
-                    .map(|(i, squadron)| {
-                        (
-                            *i,
-                            squadron.get_unitclass_demand_local(
-                                all_squadrons_containers_lock.get(&i).unwrap(),
-                                unitclass.clone(),
-                                &all_ships_mut_lock,
-                                &all_squadrons_containers_lock,
-                            ),
-                        )
-                    })
-                    .collect();
-
-                let hangars_supply: HashMap<u64, u64> = all_hangars_indexed_with_speed
-                    .iter()
-                    .map(|(i, (hangar, _))| {
-                        (
-                            *i,
-                            hangar.get_unitclass_supply_local(
-                                all_hangars_containers_lock.get(&i).unwrap(),
-                                unitclass.clone(),
-                                &all_ships_mut_lock,
-                                &all_squadrons_containers_lock,
-                            ),
-                        )
-                    })
-                    .collect();
-
-                let non_transport_hangars_demand: HashMap<u64, u64> =
-                    all_hangars_indexed_with_speed
+            let transaction_data_by_unitclass: Vec<UnitClassTransactionData> = unitclasses
+                .iter()
+                .map(|unitclass| {
+                    let node_supply: u64 = all_units
                         .iter()
-                        .filter(|(_, (hangar, _))| !hangar.class.transport)
+                        .filter(|unit| match unit {
+                            Unit::Ship(ship) => {
+                                all_ships_mut_lock.get(&ship.id).unwrap().location
+                                    == UnitLocation::Node(self.clone())
+                            }
+                            Unit::Squadron(squadron) => {
+                                all_squadrons_mut_lock.get(&squadron.id).unwrap().location
+                                    == UnitLocation::Node(self.clone())
+                            }
+                        })
+                        .filter(|unit| unit.get_unitclass() == unitclass.clone())
+                        .map(|unit| {
+                            unit.get_real_volume_locked(
+                                &all_squadrons_containers_lock,
+                                &all_ships_mut_lock,
+                            )
+                        })
+                        .sum();
+
+                    let squadrons_supply: HashMap<u64, u64> = all_squadrons_indexed
+                        .iter()
+                        .map(|(i, squadron)| {
+                            (
+                                *i,
+                                squadron.get_unitclass_supply_local(
+                                    all_squadrons_containers_lock.get(&i).unwrap(),
+                                    unitclass.clone(),
+                                    &all_ships_mut_lock,
+                                    &all_squadrons_containers_lock,
+                                ),
+                            )
+                        })
+                        .collect();
+
+                    let squadrons_demand: HashMap<u64, u64> = all_squadrons_indexed
+                        .iter()
+                        .map(|(i, squadron)| {
+                            (
+                                *i,
+                                squadron.get_unitclass_demand_local(
+                                    all_squadrons_containers_lock.get(&i).unwrap(),
+                                    unitclass.clone(),
+                                    &all_ships_mut_lock,
+                                    &all_squadrons_containers_lock,
+                                ),
+                            )
+                        })
+                        .collect();
+
+                    let hangars_supply: HashMap<u64, u64> = all_hangars_indexed_with_speed
+                        .iter()
                         .map(|(i, (hangar, _))| {
                             (
                                 *i,
-                                hangar.get_unitclass_demand_local(
+                                hangar.get_unitclass_supply_local(
                                     all_hangars_containers_lock.get(&i).unwrap(),
                                     unitclass.clone(),
                                     &all_ships_mut_lock,
@@ -1313,75 +1282,356 @@ impl Locality for Arc<Node> {
                         })
                         .collect();
 
-                let total_transport_naive_demand = all_hangars_indexed_with_speed
-                    .iter()
-                    .filter(|(_, (hangar, _))| hangar.class.transport)
-                    .map(|(i, (hangar, _))| {
-                        hangar.get_unitclass_demand_local(
-                            all_hangars_containers_lock.get(&i).unwrap(),
-                            unitclass.clone(),
-                            &all_ships_mut_lock,
-                            &all_squadrons_containers_lock,
-                        )
-                    })
-                    .sum::<u64>();
+                    let non_transport_hangars_demand: HashMap<u64, u64> =
+                        all_hangars_indexed_with_speed
+                            .iter()
+                            .filter(|(_, (hangar, _))| !hangar.class.transport)
+                            .map(|(i, (hangar, _))| {
+                                (
+                                    *i,
+                                    hangar.get_unitclass_demand_local(
+                                        all_hangars_containers_lock.get(&i).unwrap(),
+                                        unitclass.clone(),
+                                        &all_ships_mut_lock,
+                                        &all_squadrons_containers_lock,
+                                    ),
+                                )
+                            })
+                            .collect();
 
-                let external_demand: f32 =
-                    (root.global_salience.unitclass_salience.read().unwrap()[faction.id]
-                        [unitclass.get_id()][self.id][0]
-                        - (squadrons_demand.values().sum::<u64>()
-                            + non_transport_hangars_demand.values().sum::<u64>()
-                            + total_transport_naive_demand) as f32)
-                        .clamp(0.0, f32::MAX);
-
-                let transport_hangars_demand: HashMap<u64, u64> = all_hangars_indexed_with_speed
-                    .iter()
-                    .filter(|(_, (hangar, _))| hangar.class.transport)
-                    .map(|(i, (hangar, speed_factor))| {
-                        (
-                            *i,
-                            hangar.get_transport_transaction_unitclass_demand(
+                    let total_transport_naive_demand = all_hangars_indexed_with_speed
+                        .iter()
+                        .filter(|(_, (hangar, _))| hangar.class.transport)
+                        .map(|(i, (hangar, _))| {
+                            hangar.get_unitclass_demand_local(
                                 all_hangars_containers_lock.get(&i).unwrap(),
                                 unitclass.clone(),
                                 &all_ships_mut_lock,
-                                external_demand,
-                                *speed_factor,
-                                total_transport_naive_demand as f32,
-                            ),
-                        )
+                                &all_squadrons_containers_lock,
+                            )
+                        })
+                        .sum::<u64>();
+
+                    let external_demand: f32 =
+                        (root.global_salience.unitclass_salience.read().unwrap()[faction.id]
+                            [unitclass.get_id()][self.id][0]
+                            - (squadrons_demand.values().sum::<u64>()
+                                + non_transport_hangars_demand.values().sum::<u64>()
+                                + total_transport_naive_demand)
+                                as f32)
+                            .clamp(0.0, f32::MAX);
+
+                    let transport_hangars_demand: HashMap<u64, u64> =
+                        all_hangars_indexed_with_speed
+                            .iter()
+                            .filter(|(_, (hangar, _))| hangar.class.transport)
+                            .map(|(i, (hangar, speed_factor))| {
+                                (
+                                    *i,
+                                    hangar.get_transport_transaction_unitclass_demand(
+                                        all_hangars_containers_lock.get(&i).unwrap(),
+                                        unitclass.clone(),
+                                        &all_ships_mut_lock,
+                                        external_demand,
+                                        *speed_factor,
+                                        total_transport_naive_demand as f32,
+                                    ),
+                                )
+                            })
+                            .collect();
+
+                    let hangars_demand: HashMap<u64, u64> = non_transport_hangars_demand
+                        .iter()
+                        .chain(transport_hangars_demand.iter())
+                        .map(|(a, b)| (*a, *b))
+                        .collect();
+
+                    let supply_total: f32 = (node_supply
+                        + squadrons_supply
+                            .iter()
+                            .map(|(_, supply)| *supply)
+                            .sum::<u64>()
+                        + hangars_supply
+                            .iter()
+                            .map(|(_, supply)| *supply)
+                            .sum::<u64>()) as f32;
+
+                    let demand_total: f32 = (squadrons_demand
+                        .iter()
+                        .map(|(_, demand)| *demand)
+                        .sum::<u64>()
+                        + non_transport_hangars_demand
+                            .iter()
+                            .map(|(_, demand)| *demand)
+                            .sum::<u64>()
+                        + transport_hangars_demand
+                            .iter()
+                            .map(|(_, demand)| *demand)
+                            .sum::<u64>()) as f32;
+
+                    let num = all_units
+                        .iter()
+                        .filter(|unit| &unit.get_unitclass() == unitclass)
+                        .count() as u64;
+
+                    UnitClassTransactionData {
+                        supply_demand_ratio: (supply_total / demand_total),
+                        squadrons_demand,
+                        hangars_demand,
+                    }
+                })
+                .collect();
+
+            struct ProperVolumePrep {
+                proper_ideal_cargo_volume: u64,
+                demand_left: u64,
+            }
+
+            let squadrons_proper_volume_preps: HashMap<u64, Vec<ProperVolumePrep>> =
+                all_squadrons_indexed
+                    .iter()
+                    .map(|(index, squadron)| {
+                        let proper_ideal_cargo_volumes_by_unitclass = unitclasses
+                            .iter()
+                            .enumerate()
+                            .map(|(unitclass_index, unitclass)| {
+                                let transaction_data =
+                                    &transaction_data_by_unitclass[unitclass_index];
+                                let allowed_cargo_volume: u64 =
+                                    (*transaction_data.squadrons_demand.get(index).unwrap() as f32
+                                        * transaction_data.supply_demand_ratio)
+                                        as u64;
+
+                                let squadron_demand =
+                                    *transaction_data.squadrons_demand.get(index).unwrap() as f32;
+                                let proper_ideal_cargo_volume = (squadron
+                                    .class
+                                    .ideal
+                                    .get(&UnitClassID::new_from_unitclass(&unitclass))
+                                    .unwrap_or(&0)
+                                    * unitclass.get_ideal_volume())
+                                .min(allowed_cargo_volume);
+                                let class_units = all_units
+                                    .iter()
+                                    .filter(|unit| &unit.get_unitclass() == unitclass)
+                                    .collect::<Vec<_>>();
+                                let mother_loyalty_average = class_units
+                                    .iter()
+                                    .map(|unit| {
+                                        let is_loyal = match unit {
+                                            Unit::Ship(_) => {
+                                                all_ships_mut_lock
+                                                    .get(&unit.get_id())
+                                                    .unwrap()
+                                                    .last_mother
+                                                    == Some(squadron.id)
+                                            }
+                                            Unit::Squadron(_) => {
+                                                all_squadrons_mut_lock
+                                                    .get(&unit.get_id())
+                                                    .unwrap()
+                                                    .last_mother
+                                                    == Some(squadron.id)
+                                            }
+                                        };
+                                        (unit.get_mother_loyalty_scalar() * (is_loyal as i8 as f32))
+                                            + (1.0 * (!is_loyal as i8 as f32))
+                                    })
+                                    .sum::<f32>()
+                                    / class_units.len() as f32;
+                                ProperVolumePrep {
+                                    proper_ideal_cargo_volume,
+                                    demand_left: ((squadron_demand as u64)
+                                        .saturating_sub(proper_ideal_cargo_volume)
+                                        as f32
+                                        * mother_loyalty_average)
+                                        as u64,
+                                }
+                            })
+                            .collect::<Vec<_>>();
+                        (*index, proper_ideal_cargo_volumes_by_unitclass)
                     })
                     .collect();
 
-                let supply_total = node_supply
-                    + squadrons_supply
-                        .iter()
-                        .map(|(_, supply)| *supply)
-                        .sum::<u64>()
-                    + hangars_supply
-                        .iter()
-                        .map(|(_, supply)| *supply)
-                        .sum::<u64>();
-
-                let demand_total = squadrons_demand
+            let hangars_proper_volume_preps: HashMap<u64, Vec<ProperVolumePrep>> =
+                all_hangars_indexed_with_speed
                     .iter()
-                    .map(|(_, demand)| *demand)
-                    .sum::<u64>()
-                    + non_transport_hangars_demand
-                        .iter()
-                        .map(|(_, demand)| *demand)
-                        .sum::<u64>()
-                    + transport_hangars_demand
-                        .iter()
-                        .map(|(_, demand)| *demand)
-                        .sum::<u64>();
+                    .map(|(index, (hangar, _))| {
+                        let proper_ideal_cargo_volumes_by_unitclass = unitclasses
+                            .iter()
+                            .enumerate()
+                            .map(|(unitclass_index, unitclass)| {
+                                let transaction_data =
+                                    &transaction_data_by_unitclass[unitclass_index];
+                                let allowed_cargo_volume: u64 =
+                                    (*transaction_data.hangars_demand.get(index).unwrap() as f32
+                                        * transaction_data.supply_demand_ratio)
+                                        as u64;
+                                let hangar_demand =
+                                    *transaction_data.hangars_demand.get(index).unwrap() as f32;
+                                let proper_ideal_cargo_volume = (hangar
+                                    .class
+                                    .ideal
+                                    .get(&UnitClassID::new_from_unitclass(&unitclass))
+                                    .unwrap_or(&0)
+                                    * unitclass.get_ideal_volume())
+                                .min(allowed_cargo_volume);
+                                let class_units = all_units
+                                    .iter()
+                                    .filter(|unit| &unit.get_unitclass() == unitclass)
+                                    .collect::<Vec<_>>();
+                                let mother_loyalty_average = class_units
+                                    .iter()
+                                    .map(|unit| {
+                                        let is_loyal = match unit {
+                                            Unit::Ship(_) => {
+                                                all_ships_mut_lock
+                                                    .get(&unit.get_id())
+                                                    .unwrap()
+                                                    .last_mother
+                                                    == Some(hangar.mother.id)
+                                            }
+                                            Unit::Squadron(_) => {
+                                                all_squadrons_mut_lock
+                                                    .get(&unit.get_id())
+                                                    .unwrap()
+                                                    .last_mother
+                                                    == Some(hangar.mother.id)
+                                            }
+                                        };
+                                        (unit.get_mother_loyalty_scalar() * (is_loyal as i8 as f32))
+                                            + (1.0 * (!is_loyal as i8 as f32))
+                                    })
+                                    .sum::<f32>()
+                                    / class_units.len() as f32;
+                                ProperVolumePrep {
+                                    proper_ideal_cargo_volume,
+                                    demand_left: ((hangar_demand as u64)
+                                        .saturating_sub(proper_ideal_cargo_volume)
+                                        as f32
+                                        * mother_loyalty_average)
+                                        as u64,
+                                }
+                            })
+                            .collect::<Vec<_>>();
+                        (*index, proper_ideal_cargo_volumes_by_unitclass)
+                    })
+                    .collect();
 
-                let supply_demand_ratio = supply_total as f32 / demand_total as f32;
+            let squadrons_proper_cargo_volumes: HashMap<u64, Vec<u64>> = all_squadrons_indexed
+                .iter()
+                .map(|(index, squadron)| {
+                    let proper_cargo_volumes_by_unitclass = unitclasses
+                        .iter()
+                        .enumerate()
+                        .map(|(unitclass_index, unitclass)| {
+                            let transaction_data = &transaction_data_by_unitclass[unitclass_index];
+                            let space_left = squadron.class.capacity.saturating_sub(
+                                squadrons_proper_volume_preps
+                                    .get(index)
+                                    .unwrap()
+                                    .iter()
+                                    .map(|prep| prep.proper_ideal_cargo_volume)
+                                    .sum(),
+                            );
+                            let total_demand_left: u64 = squadrons_proper_volume_preps
+                                .get(index)
+                                .unwrap()
+                                .iter()
+                                .map(|prep| prep.demand_left)
+                                .sum();
+                            let space_allowance_ratio =
+                                space_left as f32 / total_demand_left as f32;
+                            let proper_volume_prep =
+                                &squadrons_proper_volume_preps.get(index).unwrap()[unitclass_index];
+                            let desired_cargo_volume = proper_volume_prep.proper_ideal_cargo_volume
+                                + (proper_volume_prep.demand_left as f32 * space_allowance_ratio)
+                                    as u64;
+                            let allowed_cargo_volume: u64 =
+                                (*transaction_data.squadrons_demand.get(index).unwrap() as f32
+                                    * transaction_data.supply_demand_ratio)
+                                    as u64;
 
+                            desired_cargo_volume.min(allowed_cargo_volume)
+                        })
+                        .collect::<Vec<_>>();
+                    (*index, proper_cargo_volumes_by_unitclass)
+                })
+                .collect();
+
+            let hangars_proper_cargo_volumes: HashMap<u64, Vec<u64>> =
+                all_hangars_indexed_with_speed
+                    .iter()
+                    .map(|(index, (hangar, _))| {
+                        let proper_cargo_volumes_by_unitclass = unitclasses
+                            .iter()
+                            .enumerate()
+                            .map(|(unitclass_index, _)| {
+                                let transaction_data =
+                                    &transaction_data_by_unitclass[unitclass_index];
+                                let space_left = hangar.class.capacity.saturating_sub(
+                                    hangars_proper_volume_preps
+                                        .get(index)
+                                        .unwrap()
+                                        .iter()
+                                        .map(|prep| prep.proper_ideal_cargo_volume)
+                                        .sum(),
+                                );
+                                let total_demand_left: u64 = hangars_proper_volume_preps
+                                    .get(index)
+                                    .unwrap()
+                                    .iter()
+                                    .map(|prep| prep.demand_left)
+                                    .sum();
+                                let space_allowance_ratio =
+                                    space_left as f32 / total_demand_left as f32;
+                                let proper_volume_prep = &hangars_proper_volume_preps
+                                    .get(index)
+                                    .unwrap()[unitclass_index];
+                                let desired_cargo_volume = proper_volume_prep
+                                    .proper_ideal_cargo_volume
+                                    + (proper_volume_prep.demand_left as f32
+                                        * space_allowance_ratio)
+                                        as u64;
+                                let allowed_cargo_volume: u64 =
+                                    (*transaction_data.hangars_demand.get(index).unwrap() as f32
+                                        * transaction_data.supply_demand_ratio)
+                                        as u64;
+                                desired_cargo_volume.min(allowed_cargo_volume)
+                            })
+                            .collect::<Vec<_>>();
+                        (*index, proper_cargo_volumes_by_unitclass)
+                    })
+                    .collect();
+            /*
+            all_squadrons_indexed.iter().for_each(|(index, squadron)| {
+                unitclasses
+                    .iter()
+                    .enumerate()
+                    .filter(|(classindex, unitclass)| {
+                        squadron
+                            .class
+                            .ideal
+                            .contains_key(&UnitClassID::new_from_unitclass(unitclass))
+                    })
+                    .for_each(|(classindex, unitclass)| {
+                        println!(
+                            "{}: {} allotted: {}",
+                            squadron.visible_name,
+                            unitclass.get_visible_name(),
+                            squadrons_proper_cargo_volumes.get(index).unwrap()[classindex]
+                                / unitclass.get_ideal_volume(),
+                        );
+                    })
+            });
+            */
+            unitclasses.iter().for_each(|unitclass| {
                 all_squadrons_indexed.iter().for_each(|(index, squadron)| {
                     let container = all_squadrons_containers_lock.get(index).unwrap();
-                    let proper_quantity: u64 =
-                        (*squadrons_demand.get(index).unwrap() as f32 * supply_demand_ratio) as u64;
-                    let mut quantity_transferred: u64 = 0;
+                    let proper_cargo_volume: u64 = squadrons_proper_cargo_volumes
+                        .get(&squadron.id)
+                        .unwrap()[unitclass.get_id()];
+                    let mut volume_transferred: u64 = 0;
                     let unit_volumes: HashMap<u64, u64> = container
                         .contents
                         .iter()
@@ -1403,7 +1653,7 @@ impl Locality for Arc<Node> {
                             )
                         })
                         .collect();
-                    let initial_quantity: u64 = unit_volumes.values().sum();
+                    let squadron_initial_cargo_volume: u64 = unit_volumes.values().sum();
                     let mut container_mut = all_squadrons_containers_lock.get_mut(index).unwrap();
                     let relevant_container_contents = container_mut
                         .contents
@@ -1420,10 +1670,10 @@ impl Locality for Arc<Node> {
                         .collect::<Vec<_>>();
                     for contained_unit in relevant_container_contents {
                         let unit_volume = unit_volumes.get(&contained_unit.get_id()).unwrap();
-                        if initial_quantity
-                            .saturating_sub(quantity_transferred)
+                        if squadron_initial_cargo_volume
+                            .saturating_sub(volume_transferred)
                             .saturating_sub(unit_volume / 2)
-                            < proper_quantity
+                            < proper_cargo_volume
                         {
                             break;
                         };
@@ -1437,7 +1687,7 @@ impl Locality for Arc<Node> {
                             &mut all_squadrons_mut_lock,
                             &squadron_container_is_not_empty_map,
                         );
-                        quantity_transferred += unit_volume;
+                        volume_transferred += unit_volume;
                     }
                 });
 
@@ -1445,14 +1695,10 @@ impl Locality for Arc<Node> {
                     .iter()
                     .for_each(|(index, (hangar, _))| {
                         let container = all_hangars_containers_lock.get(index).unwrap();
-                        let proper_quantity: u64 = if hangar.class.transport {
-                            (*transport_hangars_demand.get(index).unwrap() as f32
-                                * supply_demand_ratio) as u64
-                        } else {
-                            (*non_transport_hangars_demand.get(index).unwrap() as f32
-                                * supply_demand_ratio) as u64
-                        };
-                        let mut quantity_transferred: u64 = 0;
+                        let proper_cargo_volume: u64 = hangars_proper_cargo_volumes
+                            .get(&hangar.id)
+                            .unwrap()[unitclass.get_id()];
+                        let mut volume_transferred: u64 = 0;
                         let unit_volumes: HashMap<u64, u64> = container
                             .contents
                             .iter()
@@ -1474,7 +1720,7 @@ impl Locality for Arc<Node> {
                                 )
                             })
                             .collect();
-                        let initial_quantity: u64 = unit_volumes.values().sum();
+                        let hangar_initial_cargo_volume: u64 = unit_volumes.values().sum();
                         let mut container_mut = all_hangars_containers_lock.get_mut(index).unwrap();
                         let relevant_container_contents = container_mut
                             .contents
@@ -1491,10 +1737,10 @@ impl Locality for Arc<Node> {
                             .collect::<Vec<_>>();
                         for contained_unit in relevant_container_contents {
                             let unit_volume = unit_volumes.get(&contained_unit.get_id()).unwrap();
-                            if initial_quantity
-                                .saturating_sub(quantity_transferred)
+                            if hangar_initial_cargo_volume
+                                .saturating_sub(volume_transferred)
                                 .saturating_sub(unit_volume / 2)
-                                < proper_quantity
+                                < proper_cargo_volume
                             {
                                 break;
                             };
@@ -1508,13 +1754,13 @@ impl Locality for Arc<Node> {
                                 &mut all_squadrons_mut_lock,
                                 &squadron_container_is_not_empty_map,
                             );
-                            quantity_transferred += unit_volume;
+                            volume_transferred += unit_volume;
                         }
                     });
 
                 all_squadrons_indexed.iter().for_each(|(index, squadron)| {
                     let squadron_container = all_squadrons_containers_lock.get(index).unwrap();
-                    let squadron_initial_quantity: u64 = squadron_container
+                    let squadron_initial_cargo_volume: u64 = squadron_container
                         .contents
                         .iter()
                         .filter(|unit| {
@@ -1532,9 +1778,10 @@ impl Locality for Arc<Node> {
                             )
                         })
                         .sum();
-                    let proper_quantity: u64 =
-                        (*squadrons_demand.get(index).unwrap() as f32 * supply_demand_ratio) as u64;
-                    let mut quantity_transferred: u64 = 0;
+                    let proper_cargo_volume: u64 = squadrons_proper_cargo_volumes
+                        .get(&squadron.id)
+                        .unwrap()[unitclass.get_id()];
+                    let mut volume_transferred: u64 = 0;
                     let unit_volumes: HashMap<u64, u64> = all_units
                         .iter()
                         .filter(|unit| match unit {
@@ -1577,12 +1824,34 @@ impl Locality for Arc<Node> {
                             all_ships_mut_lock.get(&unit.get_id()).is_some()
                                 || all_squadrons_mut_lock.get(&unit.get_id()).is_some()
                         })
+                        .sorted_by_key(|unit| {
+                            NotNan::new(
+                                -(unit.get_mother_loyalty_scalar()
+                                    * (match unit {
+                                        Unit::Ship(_) => {
+                                            all_ships_mut_lock
+                                                .get(&unit.get_id())
+                                                .unwrap()
+                                                .last_mother
+                                                == Some(squadron.id)
+                                        }
+                                        Unit::Squadron(_) => {
+                                            all_squadrons_mut_lock
+                                                .get(&unit.get_id())
+                                                .unwrap()
+                                                .last_mother
+                                                == Some(squadron.id)
+                                        }
+                                    } as i8 as f32)),
+                            )
+                            .unwrap()
+                        })
                         .cloned()
                         .collect::<Vec<_>>();
                     for contained_unit in relevant_node_container_contents {
                         let unit_volume = unit_volumes.get(&contained_unit.get_id()).unwrap();
-                        if squadron_initial_quantity + (quantity_transferred) + (unit_volume / 2)
-                            > proper_quantity
+                        if squadron_initial_cargo_volume + (volume_transferred) + (unit_volume / 2)
+                            > proper_cargo_volume
                         {
                             break;
                         };
@@ -1596,7 +1865,7 @@ impl Locality for Arc<Node> {
                             &mut all_squadrons_mut_lock,
                             &squadron_container_is_not_empty_map,
                         );
-                        quantity_transferred += unit_volume;
+                        volume_transferred += unit_volume;
                     }
                 });
 
@@ -1604,7 +1873,7 @@ impl Locality for Arc<Node> {
                     .iter()
                     .for_each(|(index, (hangar, _))| {
                         let hangar_container = all_hangars_containers_lock.get(index).unwrap();
-                        let hangar_initial_quantity: u64 = hangar_container
+                        let hangar_initial_cargo_volume: u64 = hangar_container
                             .contents
                             .iter()
                             .filter(|unit| {
@@ -1622,14 +1891,10 @@ impl Locality for Arc<Node> {
                                 )
                             })
                             .sum();
-                        let proper_quantity: u64 = if hangar.class.transport {
-                            (*transport_hangars_demand.get(index).unwrap() as f32
-                                * supply_demand_ratio) as u64
-                        } else {
-                            (*non_transport_hangars_demand.get(index).unwrap() as f32
-                                * supply_demand_ratio) as u64
-                        };
-                        let mut quantity_transferred: u64 = 0;
+                        let proper_cargo_volume: u64 = hangars_proper_cargo_volumes
+                            .get(&hangar.id)
+                            .unwrap()[unitclass.get_id()];
+                        let mut volume_transferred: u64 = 0;
                         let unit_volumes: HashMap<u64, u64> = all_units
                             .iter()
                             .filter(|unit| match unit {
@@ -1672,12 +1937,36 @@ impl Locality for Arc<Node> {
                                 all_ships_mut_lock.get(&unit.get_id()).is_some()
                                     || all_squadrons_mut_lock.get(&unit.get_id()).is_some()
                             })
+                            .sorted_by_key(|unit| {
+                                NotNan::new(
+                                    -(unit.get_mother_loyalty_scalar()
+                                        * (match unit {
+                                            Unit::Ship(_) => {
+                                                all_ships_mut_lock
+                                                    .get(&unit.get_id())
+                                                    .unwrap()
+                                                    .last_mother
+                                                    == Some(hangar.mother.id)
+                                            }
+                                            Unit::Squadron(_) => {
+                                                all_squadrons_mut_lock
+                                                    .get(&unit.get_id())
+                                                    .unwrap()
+                                                    .last_mother
+                                                    == Some(hangar.mother.id)
+                                            }
+                                        } as i8 as f32)),
+                                )
+                                .unwrap()
+                            })
                             .cloned()
                             .collect::<Vec<_>>();
                         for contained_unit in relevant_node_container_contents {
                             let unit_volume = unit_volumes.get(&contained_unit.get_id()).unwrap();
-                            if hangar_initial_quantity + (quantity_transferred) + (unit_volume / 2)
-                                > proper_quantity
+                            if hangar_initial_cargo_volume
+                                + (volume_transferred)
+                                + (unit_volume / 2)
+                                > proper_cargo_volume
                             {
                                 break;
                             };
@@ -1691,7 +1980,7 @@ impl Locality for Arc<Node> {
                                 &mut all_squadrons_mut_lock,
                                 &squadron_container_is_not_empty_map,
                             );
-                            quantity_transferred += unit_volume;
+                            volume_transferred += unit_volume;
                         }
                     });
             });
@@ -3656,6 +3945,13 @@ impl UnitLocation {
     fn remove_unit(&self, container: &mut RwLockWriteGuard<UnitContainer>, unit: Unit) {
         container.contents.retain(|content| content != &unit);
     }
+    fn get_mother_node(&self) -> Arc<Node> {
+        match self {
+            UnitLocation::Node(node) => node.clone(),
+            UnitLocation::Squadron(squadron) => squadron.get_mother_node(),
+            UnitLocation::Hangar(hangar) => hangar.mother.get_mother_node(),
+        }
+    }
 }
 
 impl PartialEq for UnitLocation {
@@ -3724,6 +4020,7 @@ pub trait Mobility {
     fn get_daughters(&self) -> Vec<Unit>;
     fn get_daughters_recursive(&self) -> Vec<Unit>;
     fn get_undocked_daughters(&self) -> Vec<Arc<Ship>>;
+    fn get_mother_loyalty_scalar(&self) -> f32;
     fn get_morale_scalar(&self) -> f32;
     fn get_character_strength_scalar(&self) -> f32;
     fn get_interdiction_scalar(&self) -> f32;
@@ -3838,11 +4135,30 @@ pub trait Mobility {
             source.remove_unit(source_container, self.get_unit());
             match self.get_ship() {
                 Some(ship) => {
-                    ships_mut_lock.get_mut(&ship.id).unwrap().location = destination.clone()
+                    let ship_mut = ships_mut_lock.get_mut(&ship.id).unwrap();
+                    ship_mut.location = destination.clone();
+                    match destination.clone() {
+                        UnitLocation::Hangar(hangar) => {
+                            ship_mut.last_mother = Some(hangar.mother.id)
+                        }
+                        UnitLocation::Squadron(squadron) => {
+                            ship_mut.last_mother = Some(squadron.id)
+                        }
+                        _ => {}
+                    }
                 }
                 None => {
-                    squadrons_mut_lock.get_mut(&self.get_id()).unwrap().location =
-                        destination.clone()
+                    let squadron_mut = squadrons_mut_lock.get_mut(&self.get_id()).unwrap();
+                    squadron_mut.location = destination.clone();
+                    match destination.clone() {
+                        UnitLocation::Hangar(hangar) => {
+                            squadron_mut.last_mother = Some(hangar.mother.id)
+                        }
+                        UnitLocation::Squadron(squadron) => {
+                            squadron_mut.last_mother = Some(squadron.id)
+                        }
+                        _ => {}
+                    }
                 }
             };
             destination.insert_unit(destination_container, self.get_unit());
@@ -4372,6 +4688,7 @@ pub struct ShipClass {
     pub processor_demand_nav_scalar: f32, //multiplier for demand generated by the ship's processors, to modify it relative to that generated by stockpiles used for transport
     pub deploys_self: bool,               //if false, ship will not go on deployments
     pub deploys_daughters: Option<u64>, // if None, ship will not send its daughters on deployments; value is number of moves a daughter must be able to make to be deployed
+    pub mother_loyalty_scalar: f32,
     pub mother_misalignment_tolerance: Option<f32>, //if the ratio between this ship's AI and its mother's AI exceeds this value, the ship will leave its mother
     pub defect_chance: HashMap<Arc<Faction>, (f32, f32)>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
     pub toughness_scalar: f32, //is used as a divisor for damage values taken by this ship in battle; a value of 2.0 will halve damage
@@ -4454,6 +4771,7 @@ impl ShipClass {
                     .collect(),
                 location,
                 allegiance: faction,
+                last_mother: None,
                 objectives: Vec::new(),
                 ai_class: class.ai_class.clone(),
             }),
@@ -4545,6 +4863,7 @@ pub struct ShipMut {
     pub subsystems: Vec<Subsystem>,
     pub location: UnitLocation, //where the ship is -- a node if it's unaffiliated, a squadron if it's in one
     pub allegiance: Arc<Faction>, //which faction this ship belongs to
+    pub last_mother: Option<u64>,
     pub objectives: Vec<Objective>,
     pub ai_class: Arc<ShipAI>,
 }
@@ -4778,6 +5097,9 @@ impl Mobility for Arc<Ship> {
     }
     fn get_undocked_daughters(&self) -> Vec<Arc<Ship>> {
         vec![self.clone()]
+    }
+    fn get_mother_loyalty_scalar(&self) -> f32 {
+        self.class.mother_loyalty_scalar
     }
     //NOTE: Dummied out until morale system exists.
     fn get_morale_scalar(&self) -> f32 {
@@ -5067,6 +5389,11 @@ impl Mobility for Arc<Ship> {
             {
                 source.remove_unit(&mut source_container, self.get_unit());
                 self_mut.location = destination.clone();
+                match destination.clone() {
+                    UnitLocation::Hangar(hangar) => self_mut.last_mother = Some(hangar.mother.id),
+                    UnitLocation::Squadron(squadron) => self_mut.last_mother = Some(squadron.id),
+                    _ => {}
+                }
                 destination.insert_unit(&mut destination_container, self.get_unit());
                 true
             } else {
@@ -5481,6 +5808,7 @@ pub struct SquadronClass {
     pub disband_threshold: f32,
     pub deploys_self: bool, //if false, ship will not go on deployments
     pub deploys_daughters: Option<u64>, // if None, ship will not send its daughters on deployments
+    pub mother_loyalty_scalar: f32,
     pub defect_chance: HashMap<Arc<Faction>, (f32, f32)>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
     pub defect_escape_mod: f32,
     pub value_mult: f32, //how valuable the AI considers one volume point of this squadronclass to be
@@ -5515,6 +5843,7 @@ impl SquadronClass {
                 visibility: class.visibility,
                 location: location,
                 allegiance: faction,
+                last_mother: None,
                 objectives: Vec::new(),
                 ghost: true,
             }),
@@ -5568,6 +5897,7 @@ pub struct SquadronMut {
     pub visibility: bool,
     pub location: UnitLocation,
     pub allegiance: Arc<Faction>,
+    pub last_mother: Option<u64>,
     pub objectives: Vec<Objective>,
     pub ghost: bool,
 }
@@ -5817,6 +6147,9 @@ impl Mobility for Arc<Squadron> {
             .map(|daughter| daughter.get_undocked_daughters())
             .flatten()
             .collect()
+    }
+    fn get_mother_loyalty_scalar(&self) -> f32 {
+        self.class.mother_loyalty_scalar
     }
     fn get_morale_scalar(&self) -> f32 {
         self.get_daughters()
@@ -6070,6 +6403,11 @@ impl Mobility for Arc<Squadron> {
             {
                 source.remove_unit(&mut source_container, self.get_unit());
                 self_mut.location = destination.clone();
+                match destination.clone() {
+                    UnitLocation::Hangar(hangar) => self_mut.last_mother = Some(hangar.mother.id),
+                    UnitLocation::Squadron(squadron) => self_mut.last_mother = Some(squadron.id),
+                    _ => {}
+                }
                 destination.insert_unit(&mut destination_container, self.get_unit());
                 true
             } else {
@@ -6260,6 +6598,12 @@ impl UnitClass {
             UnitClass::SquadronClass(fc) => fc.id,
         }
     }
+    pub fn get_visible_name(&self) -> String {
+        match self {
+            UnitClass::ShipClass(sc) => sc.visible_name.clone(),
+            UnitClass::SquadronClass(fc) => fc.visible_name.clone(),
+        }
+    }
     pub fn get_ideal_strength(&self, root: &Root) -> u64 {
         match self {
             UnitClass::ShipClass(sc) => sc.get_ideal_strength(root),
@@ -6378,6 +6722,12 @@ impl Mobility for Unit {
         match self {
             Unit::Ship(ship) => ship.get_daughters_recursive(),
             Unit::Squadron(squadron) => squadron.get_daughters_recursive(),
+        }
+    }
+    fn get_mother_loyalty_scalar(&self) -> f32 {
+        match self {
+            Unit::Ship(ship) => ship.get_mother_loyalty_scalar(),
+            Unit::Squadron(squadron) => squadron.get_mother_loyalty_scalar(),
         }
     }
     fn get_undocked_daughters(&self) -> Vec<Arc<Ship>> {
@@ -7538,9 +7888,26 @@ impl Root {
         let new_squadron = Arc::new(SquadronClass::instantiate(
             class.clone(),
             location.clone(),
-            faction,
+            faction.clone(),
             self,
         ));
+
+        class.ideal.iter().for_each(|(unitclass, _)| {
+            let num = location
+                .get_mother_node()
+                .unit_container
+                .read()
+                .unwrap()
+                .contents
+                .iter()
+                .filter(|unit| unit.is_alive())
+                .filter(|unit| &unit.get_allegiance() == &faction)
+                .filter(|unit| {
+                    &&UnitClassID::new_from_unitclass(&unit.get_unitclass()) == &unitclass
+                })
+                .count();
+        });
+
         //NOTE: Is this thread-safe? There might be enough space in here
         //for something to go interact with the squadron in root and fail to get the arc from location.
         self.squadrons.write().unwrap().push(new_squadron.clone());
@@ -8181,7 +8548,8 @@ impl Root {
         let n_new_squadrons = squadron_plan_list
             .iter()
             .map(|(id, location, faction)| {
-                self.create_squadron(id.clone(), location.clone(), faction.clone())
+                self.create_squadron(id.clone(), location.clone(), faction.clone());
+                location.get_mother_node().transact_units(&self);
             })
             .count();
         println!("Created {} new squadrons.", n_new_squadrons);

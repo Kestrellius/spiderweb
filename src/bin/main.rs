@@ -52,15 +52,8 @@ fn main() {
         .iter()
         .for_each(|squadron| {
             println!("Squadron {}:", squadron.visible_name);
-            squadron
-                .unit_container
-                .read()
-                .unwrap()
-                .contents
-                .iter()
-                .for_each(|unit| {
-                    println!("    Unit {}, {}", unit.get_visible_name(), unit.get_ship().map(|ship| ship.class.visible_name.clone()).unwrap_or("(fleet)".to_string()));
-                });
+            println!("Ghost: {}", squadron.mutables.read().unwrap().ghost);
+            dbg!(squadron.unit_container.read().unwrap().contents.len());
         });
 
     /*
