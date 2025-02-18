@@ -1584,6 +1584,7 @@ pub struct SquadronClass {
     pub non_ideal_demand_scalar: f32, //multiplier used for demand generated for non-ideal unitclasses; should be below one
     pub nav_quorum: f32,
     pub creation_threshold: f32,
+    pub de_ghost_threshold: f32,
     pub disband_threshold: f32,
     pub deploys_self: bool, //if false, ship will not go on deployments
     pub deploys_daughters: Option<u64>, // if None, ship will not send its daughters on deployments
@@ -1611,6 +1612,7 @@ impl SquadronClass {
             non_ideal_demand_scalar: self_entity.non_ideal_demand_scalar,
             nav_quorum: self_entity.nav_quorum,
             creation_threshold: self_entity.creation_threshold,
+            de_ghost_threshold: self_entity.de_ghost_threshold,
             disband_threshold: self_entity.disband_threshold,
             deploys_self: self_entity.deploys_self,
             deploys_daughters: self_entity.deploys_daughters,
@@ -1645,6 +1647,7 @@ impl SquadronClass {
             non_ideal_demand_scalar: self.non_ideal_demand_scalar,
             nav_quorum: self.nav_quorum,
             creation_threshold: self.creation_threshold,
+            de_ghost_threshold: self.de_ghost_threshold,
             disband_threshold: self.disband_threshold,
             deploys_self: self.deploys_self,
             deploys_daughters: self.deploys_daughters,

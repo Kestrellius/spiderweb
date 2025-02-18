@@ -1984,6 +1984,20 @@ impl Locality for Arc<Node> {
                         }
                     });
             });
+            all_squadrons_indexed.iter().for_each(|(index, squadron)| {
+                if squadron.get_strength_locked(
+                    &all_hangars_containers_lock,
+                    &all_squadrons_containers_lock,
+                    &all_ships_mut_lock,
+                    &all_squadrons_mut_lock,
+                    &squadron_container_is_not_empty_map,
+                    root.config.battle_scalars.avg_duration,
+                ) as f32 > (squadron.class.get_ideal_strength(root) as f32
+                    * squadron.class.de_ghost_threshold)
+                {
+                    all_squadrons_mut_lock.get_mut(index).unwrap().ghost = false
+                }
+            });
         });
         node_mut.units_transacted = true;
     }
@@ -2662,23 +2676,67 @@ pub struct Hangar {
 
 impl Hangar {
     pub fn get_strength(&self, time: u64) -> u64 {
-        let contents_strength = self
+        let contents = self
             .unit_container
             .read()
             .unwrap()
             .contents
             .iter()
             .filter(|unit| unit.is_alive())
+            .map(|daughter| daughter.clone())
+            .collect::<Vec<_>>();
+        let contents_strength = contents
+            .iter()
             .map(|unit| unit.get_strength(time))
             .sum::<u64>() as f32;
-        let contents_vol = self
-            .unit_container
-            .read()
+        let contents_vol = contents
+            .iter()
+            .map(|unit| unit.get_real_volume())
+            .sum::<u64>() as f32;
+        //we calculate how much of its complement the hangar can launch during a battle a certain number of seconds long
+        let launch_mod = ((contents_vol / self.class.launch_volume as f32)
+            * (time as f32 / self.class.launch_interval as f32))
+            .clamp(0.0, 1.0);
+        (contents_strength * launch_mod) as u64
+    }
+    pub fn get_strength_locked(
+        &self,
+        hangars_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+        squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+        ships_mut_lock: &HashMap<u64, RwLockWriteGuard<ShipMut>>,
+        squadrons_mut_lock: &HashMap<u64, RwLockWriteGuard<SquadronMut>>,
+        container_is_not_empty_map: &HashMap<u64, bool>,
+        time: u64,
+    ) -> u64 {
+        let contents = hangars_containers_lock
+            .get(&self.id)
             .unwrap()
             .contents
             .iter()
-            .filter(|unit| unit.is_alive())
-            .map(|unit| unit.get_real_volume())
+            .filter(|unit| {
+                unit.is_alive_locked(
+                    ships_mut_lock,
+                    squadrons_mut_lock,
+                    container_is_not_empty_map,
+                )
+            })
+            .collect::<Vec<_>>();
+        let contents_strength = contents
+            .iter()
+            .map(|unit| {
+                unit.get_strength_locked(
+                    hangars_containers_lock,
+                    squadrons_containers_lock,
+                    ships_mut_lock,
+                    squadrons_mut_lock,
+                    container_is_not_empty_map,
+                    time,
+                )
+            })
+            .sum::<u64>() as f32;
+        let contents_vol = contents
+            .iter()
+            .map(|unit| unit.get_real_volume_locked(squadrons_containers_lock, ships_mut_lock))
             .sum::<u64>() as f32;
         //we calculate how much of its complement the hangar can launch during a battle a certain number of seconds long
         let launch_mod = ((contents_vol / self.class.launch_volume as f32)
@@ -4024,8 +4082,17 @@ pub trait Mobility {
     fn get_morale_scalar(&self) -> f32;
     fn get_character_strength_scalar(&self) -> f32;
     fn get_interdiction_scalar(&self) -> f32;
-    fn get_processordemandnavscalar(&self) -> f32;
+    fn get_processor_demand_nav_scalar(&self) -> f32;
     fn get_strength(&self, time: u64) -> u64;
+    fn get_strength_locked(
+        &self,
+        hangars_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+        squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+        ships_mut_lock: &HashMap<u64, RwLockWriteGuard<ShipMut>>,
+        squadrons_mut_lock: &HashMap<u64, RwLockWriteGuard<SquadronMut>>,
+        container_is_not_empty_map: &HashMap<u64, bool>,
+        time: u64,
+    ) -> u64;
     fn get_strength_post_engagement(&self, damage: i64) -> u64;
     fn get_real_volume(&self) -> u64;
     fn get_real_volume_locked(
@@ -4214,7 +4281,7 @@ pub trait Mobility {
                     * scalar)
                     + (supply
                         * self.get_resource_demand_from_processors(resource.clone()) as f32
-                        * self.get_processordemandnavscalar())
+                        * self.get_processor_demand_nav_scalar())
             })
             .sum();
 
@@ -5117,7 +5184,7 @@ impl Mobility for Arc<Ship> {
                 .map(|daughter| daughter.get_interdiction_scalar())
                 .product::<f32>()
     }
-    fn get_processordemandnavscalar(&self) -> f32 {
+    fn get_processor_demand_nav_scalar(&self) -> f32 {
         self.class.processor_demand_nav_scalar
     }
     fn get_strength(&self, time: u64) -> u64 {
@@ -5126,6 +5193,55 @@ impl Mobility for Arc<Ship> {
             .hangars
             .iter()
             .map(|hangar| hangar.get_strength(time))
+            .sum::<u64>();
+        let subsystem_strength_add: u64 = mutables
+            .subsystems
+            .iter()
+            .filter(|subsystem| subsystem.health.map(|val| val > 0).unwrap_or(true))
+            .map(|subsystem| subsystem.class.strength_mod.1)
+            .sum();
+        let subsystem_strength_mult: f32 = mutables
+            .subsystems
+            .iter()
+            .filter(|subsystem| subsystem.health.map(|val| val > 0).unwrap_or(true))
+            .map(|subsystem| subsystem.class.strength_mod.0)
+            .product();
+        let objective_strength: f32 = mutables
+            .objectives
+            .iter()
+            .map(|objective| objective.strength_scalar)
+            .product();
+        (self.class.base_strength as f32
+            * (mutables.hull.get() as f32 / self.class.base_hull as f32)
+            * self.get_character_strength_scalar()
+            * subsystem_strength_mult
+            * objective_strength) as u64
+            + subsystem_strength_add
+            + daughter_strength
+    }
+    fn get_strength_locked(
+        &self,
+        hangars_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+        squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+        ships_mut_lock: &HashMap<u64, RwLockWriteGuard<ShipMut>>,
+        squadrons_mut_lock: &HashMap<u64, RwLockWriteGuard<SquadronMut>>,
+        container_is_not_empty_map: &HashMap<u64, bool>,
+        time: u64,
+    ) -> u64 {
+        let mutables = ships_mut_lock.get(&self.id).unwrap();
+        let daughter_strength = mutables
+            .hangars
+            .iter()
+            .map(|hangar| {
+                hangar.get_strength_locked(
+                    hangars_containers_lock,
+                    squadrons_containers_lock,
+                    ships_mut_lock,
+                    squadrons_mut_lock,
+                    container_is_not_empty_map,
+                    time,
+                )
+            })
             .sum::<u64>();
         let subsystem_strength_add: u64 = mutables
             .subsystems
@@ -5805,6 +5921,7 @@ pub struct SquadronClass {
     pub non_ideal_demand_scalar: f32, //multiplier used for demand generated for non-ideal unitclasses; should be below one
     pub nav_quorum: f32,
     pub creation_threshold: f32,
+    pub de_ghost_threshold: f32,
     pub disband_threshold: f32,
     pub deploys_self: bool, //if false, ship will not go on deployments
     pub deploys_daughters: Option<u64>, // if None, ship will not send its daughters on deployments
@@ -6169,10 +6286,10 @@ impl Mobility for Arc<Squadron> {
             .map(|daughter| daughter.get_interdiction_scalar())
             .product()
     }
-    fn get_processordemandnavscalar(&self) -> f32 {
+    fn get_processor_demand_nav_scalar(&self) -> f32 {
         self.get_daughters()
             .iter()
-            .map(|daughter| daughter.get_processordemandnavscalar())
+            .map(|daughter| daughter.get_processor_demand_nav_scalar())
             .product()
     }
     fn get_strength(&self, time: u64) -> u64 {
@@ -6181,6 +6298,41 @@ impl Mobility for Arc<Squadron> {
             .get_daughters()
             .iter()
             .map(|daughter| daughter.get_strength(time))
+            .sum::<u64>();
+        (sum as f32 * factor) as u64 + additive
+    }
+    fn get_strength_locked(
+        &self,
+        hangars_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+        squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+        ships_mut_lock: &HashMap<u64, RwLockWriteGuard<ShipMut>>,
+        squadrons_mut_lock: &HashMap<u64, RwLockWriteGuard<SquadronMut>>,
+        container_is_not_empty_map: &HashMap<u64, bool>,
+        time: u64,
+    ) -> u64 {
+        let (factor, additive) = self.class.strength_mod;
+        let sum = squadrons_containers_lock
+            .get(&self.id)
+            .unwrap()
+            .contents
+            .iter()
+            .filter(|daughter| {
+                daughter.is_alive_locked(
+                    ships_mut_lock,
+                    squadrons_mut_lock,
+                    container_is_not_empty_map,
+                )
+            })
+            .map(|daughter| {
+                daughter.get_strength_locked(
+                    hangars_containers_lock,
+                    squadrons_containers_lock,
+                    ships_mut_lock,
+                    squadrons_mut_lock,
+                    container_is_not_empty_map,
+                    time,
+                )
+            })
             .sum::<u64>();
         (sum as f32 * factor) as u64 + additive
     }
@@ -6754,16 +6906,44 @@ impl Mobility for Unit {
             Unit::Squadron(squadron) => squadron.get_interdiction_scalar(),
         }
     }
-    fn get_processordemandnavscalar(&self) -> f32 {
+    fn get_processor_demand_nav_scalar(&self) -> f32 {
         match self {
-            Unit::Ship(ship) => ship.get_processordemandnavscalar(),
-            Unit::Squadron(squadron) => squadron.get_processordemandnavscalar(),
+            Unit::Ship(ship) => ship.get_processor_demand_nav_scalar(),
+            Unit::Squadron(squadron) => squadron.get_processor_demand_nav_scalar(),
         }
     }
     fn get_strength(&self, time: u64) -> u64 {
         match self {
             Unit::Ship(ship) => ship.get_strength(time),
             Unit::Squadron(squadron) => squadron.get_strength(time),
+        }
+    }
+    fn get_strength_locked(
+        &self,
+        hangars_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+        squadrons_containers_lock: &HashMap<u64, RwLockWriteGuard<UnitContainer>>,
+        ships_mut_lock: &HashMap<u64, RwLockWriteGuard<ShipMut>>,
+        squadrons_mut_lock: &HashMap<u64, RwLockWriteGuard<SquadronMut>>,
+        container_is_not_empty_map: &HashMap<u64, bool>,
+        time: u64,
+    ) -> u64 {
+        match self {
+            Unit::Ship(ship) => ship.get_strength_locked(
+                hangars_containers_lock,
+                squadrons_containers_lock,
+                ships_mut_lock,
+                squadrons_mut_lock,
+                container_is_not_empty_map,
+                time,
+            ),
+            Unit::Squadron(squadron) => squadron.get_strength_locked(
+                hangars_containers_lock,
+                squadrons_containers_lock,
+                ships_mut_lock,
+                squadrons_mut_lock,
+                container_is_not_empty_map,
+                time,
+            ),
         }
     }
     fn get_strength_post_engagement(&self, damage: i64) -> u64 {
@@ -7463,8 +7643,6 @@ pub struct EngagementRecord {
 }
 
 //this takes an unbounded threat value and converts it to a multiplier between zero and one by which to scale saliences as they pass through the node
-//uses scary math that Alyssa cooked up
-//it's probably actually not that scary
 fn scale_from_threat(threat: f32, scaling_factor: f32) -> f32 {
     if scaling_factor <= 0. {
         panic!(
@@ -8281,7 +8459,7 @@ impl Root {
             transpose(&self.global_salience.faction_salience.read().unwrap()[subject_faction.id]);
         //this is the factor by which a salience passing through each node should be multiplied
         //we sum the tagged threats for each node -- which are valenced according to relations with the subject faction
-        //then we use Alyssa's black mathemagics to convert them so that the scaling curve is correct
+        //then we use the scaling math to convert them so that the scaling curve is correct
         //Length equals all nodes
         //This is a subjective map for subject faction
         let node_degradations: Vec<f32> = tagged_threats

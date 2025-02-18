@@ -1483,7 +1483,8 @@
             "nav_threshold": 20.0,
             "nav_quorum": 0.75,
             "creation_threshold": 0.5,
-            "disband_threshold": 20.0
+            "de_ghost_threshold": 0.5,
+            "disband_threshold": 0.25
         }
     ]
 }

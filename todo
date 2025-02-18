@@ -138,9 +138,12 @@ GENERAL:
 [x] Make sure remove_dead and disband_squadrons are read-write-safe, and that they destroy all arcs including hangar parent arcs
 [x] Think about taking average instead of product in cases like getting AI for squadrons
 [x] Build mother loyalty system
-[x] Deal with case where there are too many units and hangar or squadron can't accept ideal units (Volkswagon Beetle problem)
+[x] Deal with case where there are too many units and hangar or squadron can't accept ideal units (Volkswagen Beetle problem)
 [ ] Move relevant parameters from unitclasses into AIs
-[ ] Figure out weirdness about squadrons not immediately schlurping up the units that spawned them
+[x] Figure out weirdness about squadrons not immediately schlurping up the units that spawned them
+[x] Add system for de-ghosting relevant squadrons at the end of transact_units
+[ ] Figure out why empty squadrons aren't getting destroyed
+[ ] Clean up processor demand in navigation
 
 LONGER-TERM:
 [ ] Build system for transmitting data to FSO

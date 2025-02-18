@@ -1221,6 +1221,7 @@ struct SquadronClass {
     non_ideal_demand_scalar: Option<f32>, //multiplier used for demand generated for non-ideal unitclasses; should be below one
     nav_quorum: f32,
     creation_threshold: f32,
+    de_ghost_threshold: Option<f32>,
     disband_threshold: f32,
     deploys_self: Option<bool>,
     deploys_daughters: Option<Option<u64>>,
@@ -1314,6 +1315,7 @@ impl SquadronClass {
             non_ideal_demand_scalar: self.non_ideal_demand_scalar.unwrap_or(0.5),
             nav_quorum: self.nav_quorum,
             creation_threshold: self.creation_threshold,
+            de_ghost_threshold: self.de_ghost_threshold.unwrap_or(self.disband_threshold),
             disband_threshold: self.disband_threshold,
             deploys_self: self.deploys_self.unwrap_or(true),
             deploys_daughters: self.deploys_daughters.unwrap_or(None),
