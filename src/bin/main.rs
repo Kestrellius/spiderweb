@@ -6,7 +6,7 @@ use std::time::Instant;
 fn main() {
     //rayon::ThreadPoolBuilder::new().num_threads(1).build_global().unwrap();
     //env::set_var("RUST_BACKTRACE", "1");
-    let file = File::open("mod-specs.json").unwrap();
+    let file = File::open("benchmark.json").unwrap();
     let start = Instant::now();
     let json_root: hydration::Root = serde_json::from_reader(file).unwrap();
     let duration = start.elapsed();

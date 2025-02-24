@@ -1,9 +1,10 @@
 use crate::faction::Faction;
+use crate::hangar::{Hangar, UnitContainer};
 use crate::resource::{Factory, Shipyard, Stockpileness, UnipotentStockpile};
 use crate::root::Root;
 use crate::unit::{
-    Hangar, Mobility, Ship, ShipClass, ShipMut, Squadron, SquadronClass, SquadronMut, Unit,
-    UnitClassID, UnitContainer, UnitLocation,
+    Mobility, Ship, ShipClass, ShipMut, Squadron, SquadronClass, SquadronMut, Unit, UnitClassID,
+    UnitLocation,
 };
 use itertools::Itertools;
 use ordered_float::NotNan;

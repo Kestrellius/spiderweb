@@ -1,6 +1,7 @@
 pub mod connection;
 pub mod engagement;
 pub mod faction;
+pub mod hangar;
 pub mod hydration;
 pub mod node;
 pub mod resource;

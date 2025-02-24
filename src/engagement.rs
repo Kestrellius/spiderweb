@@ -298,6 +298,173 @@ impl EngagementPrep {
             })
             .collect()
     }
+    pub fn internal_battle(&self, root: &Root) -> Engagement {
+        let mut rng = Hc128Rng::seed_from_u64(47);
+
+        let duration = self.calculate_engagement_duration(root, &mut rng);
+
+        //we take the reinforcement data from our engagementprep and convert the distances to the scaling factor for travel time
+        //for what percentage of the battle's duration the unit will be present
+        let coalition_strengths = self.get_coalition_strengths(duration);
+
+        let coalition_objective_difficulties = self.get_coalition_objective_difficulties();
+
+        let coalition_chances: HashMap<u64, f32> = self
+            .coalitions
+            .iter()
+            .map(|(index, faction_map)| {
+                let chance: f32 = *coalition_strengths.get(index).unwrap() as f32
+                    * *coalition_objective_difficulties.get(index).unwrap() as f32
+                    * faction_map
+                        .keys()
+                        .map(|faction| faction.battle_scalar)
+                        .product::<f32>()
+                    * Normal::<f32>::new(1.0, root.config.battle_scalars.attacker_chance_dev)
+                        .unwrap()
+                        .sample(&mut rng)
+                        .clamp(0.0, 2.0);
+                (*index, chance)
+            })
+            .collect();
+
+        let victor_coalition: u64 = *coalition_chances
+            .iter()
+            .max_by(|(_, chance), (_, rhs_chance)| chance.partial_cmp(rhs_chance).unwrap())
+            .unwrap()
+            .0;
+
+        let neighbors = root.neighbors.get(&self.location).unwrap();
+
+        let duration_damage_rand = Normal::<f32>::new(1.0, root.config.battle_scalars.damage_dev)
+            .unwrap()
+            .sample(&mut rng)
+            .clamp(0.0, 1.0);
+
+        //NOTE: Maybe have the lethality scaling over battle duration be logarithmic? Maybe modder-specified?
+        let unit_status: HashMap<u64, HashMap<Arc<Faction>, HashMap<Unit, UnitStatus>>> = self
+            .coalitions
+            .iter()
+            .map(|(index, faction_map)| {
+                let is_victor = *index == victor_coalition;
+                (
+                    *index,
+                    faction_map
+                        .iter()
+                        .map(|(faction, forces)| {
+                            let all_faction_units: Vec<Unit> = forces
+                                .local_forces
+                                .iter()
+                                .map(|unit| unit.get_daughters_recursive())
+                                .chain(
+                                    forces
+                                        .reinforcements
+                                        .iter()
+                                        .map(|(_, _, units)| {
+                                            units.iter().map(|unit| unit.get_daughters_recursive())
+                                        })
+                                        .flatten(),
+                                )
+                                .flatten()
+                                .collect();
+                            (
+                                faction.clone(),
+                                all_faction_units
+                                    .iter()
+                                    .map(|unit| {
+                                        let new_location = match is_victor {
+                                            true => {
+                                                if unit.get_mother_node() == self.location {
+                                                    unit.get_location()
+                                                } else {
+                                                    UnitLocation::Node(self.location.clone())
+                                                }
+                                            }
+                                            false => {
+                                                if unit.is_in_node() {
+                                                    UnitLocation::Node(
+                                                        unit.navigate(root, neighbors)
+                                                            .unwrap_or(self.location.clone()),
+                                                    )
+                                                } else {
+                                                    unit.get_location()
+                                                }
+                                            }
+                                        };
+                                        let allied_strength =
+                                            *coalition_strengths.get(index).unwrap() as f32;
+                                        let enemy_strength = coalition_strengths
+                                            .iter()
+                                            .filter(|(rhs_index, _)| {
+                                                self.wars.contains(&(
+                                                    *index.min(rhs_index),
+                                                    **rhs_index.max(&index),
+                                                ))
+                                            })
+                                            .map(|(_, strength)| *strength)
+                                            .sum::<u64>()
+                                            as f32;
+                                        let (damage, engine_damage, strategic_weapon_damage) = unit
+                                            .calculate_damage(
+                                                root,
+                                                is_victor,
+                                                allied_strength,
+                                                enemy_strength,
+                                                duration,
+                                                duration_damage_rand,
+                                                &mut rng,
+                                            );
+                                        let is_alive = unit.get_hull() as i64 > damage;
+                                        (
+                                            unit.clone(),
+                                            UnitStatus {
+                                                location: match is_alive {
+                                                    true => Some(new_location),
+                                                    false => None,
+                                                },
+                                                damage,
+                                                engine_damage,
+                                                subsystem_damage: strategic_weapon_damage,
+                                            },
+                                        )
+                                    })
+                                    .collect(),
+                            )
+                        })
+                        .collect(),
+                )
+            })
+            .collect();
+
+        //NOTE: This isn't quite ideal -- we determine the victor faction by summing unit strengths, but we have to use this special-case method
+        //that doesn't pay attention to daughters, because we're looking at all the units total --
+        //so fleets are just counted as zero and we don't get any fleet modifiers
+        let victor = unit_status
+            .get(&victor_coalition)
+            .unwrap()
+            .iter()
+            .max_by_key(|(_, unit_map)| {
+                unit_map
+                    .iter()
+                    .filter(|(_, status)| status.location.is_some())
+                    .map(|(unit, status)| unit.get_strength_post_engagement(status.damage))
+                    .sum::<u64>()
+            })
+            .unwrap()
+            .0
+            .clone();
+
+        Engagement {
+            visible_name: format!("Battle of {}", self.location.visible_name.clone()),
+            turn: self.turn,
+            coalitions: self.coalitions.clone(),
+            aggressor: self.aggressor.clone(),
+            objectives: HashMap::new(),
+            location: self.location.clone(),
+            duration,
+            victors: (victor, victor_coalition),
+            unit_status,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
