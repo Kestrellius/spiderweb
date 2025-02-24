@@ -1,7 +1,5 @@
-use serde_json_any_key::*;
 use spiderweb::connection;
-use spiderweb::internal::Mobility;
-use spiderweb::json_hydration;
+use spiderweb::hydration;
 use std::fs::File;
 use std::time::Instant;
 
@@ -10,7 +8,7 @@ fn main() {
     //env::set_var("RUST_BACKTRACE", "1");
     let file = File::open("mod-specs.json").unwrap();
     let start = Instant::now();
-    let json_root: json_hydration::Root = serde_json::from_reader(file).unwrap();
+    let json_root: hydration::Root = serde_json::from_reader(file).unwrap();
     let duration = start.elapsed();
     dbg!(duration);
     let mut root_0 = json_root.hydrate();
