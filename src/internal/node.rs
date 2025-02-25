@@ -1,8 +1,8 @@
-use crate::faction::Faction;
-use crate::hangar::{Hangar, UnitContainer};
-use crate::resource::{Factory, Shipyard, Stockpileness, UnipotentStockpile};
-use crate::root::Root;
-use crate::unit::{
+use crate::internal::faction::Faction;
+use crate::internal::hangar::{Hangar, UnitContainer};
+use crate::internal::resource::{Factory, Shipyard, Stockpileness, UnipotentStockpile};
+use crate::internal::root::Root;
+use crate::internal::unit::{
     Mobility, Ship, ShipClass, ShipMut, Squadron, SquadronClass, SquadronMut, Unit, UnitClassID,
     UnitLocation,
 };

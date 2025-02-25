@@ -1,22 +1,14 @@
-pub use crate::engagement::{
-    Engagement, EngagementPrep, EngagementRecord, FactionForces, FactionForcesRecord, UnitRecord,
-    UnitStatus,
+use crate::internal::engagement::EngagementRecord;
+use crate::internal::faction::Faction;
+use crate::internal::hangar::HangarClass;
+use crate::internal::node::{EdgeFlavor, Locality, Node, NodeFlavor, System};
+use crate::internal::resource::{
+    EngineClass, FactoryClass, RepairerClass, Resource, ShipyardClass, StrategicWeaponClass,
 };
-pub use crate::faction::{Faction, FactionID};
-pub use crate::hangar::{Hangar, HangarClass, HangarMut, UnitContainer};
-pub use crate::node::{EdgeFlavor, Edges, Locality, Node, NodeFlavor, NodeMut, System};
-pub use crate::resource::{
-    Engine, EngineClass, Factory, FactoryClass, PluripotentStockpile, Repairer, RepairerClass,
-    Resource, ResourceProcess, SharedStockpile, Shipyard, ShipyardClass, Stockpileness,
-    StrategicWeapon, StrategicWeaponClass, UnipotentStockpile,
-};
-pub use crate::salience::{
-    polarity, scale_from_threat, transpose, GlobalSalience, Polarity, Salience,
-};
-pub use crate::unit::{
-    Mobility, Ship, ShipAI, ShipClass, ShipClassID, ShipFlavor, ShipHealth, ShipMut, Squadron,
-    SquadronClass, SquadronClassID, SquadronFlavor, SquadronMut, Subsystem, SubsystemClass, Unit,
-    UnitClass, UnitClassID, UnitLocation,
+use crate::internal::salience::GlobalSalience;
+use crate::internal::unit::{
+    Mobility, Ship, ShipAI, ShipClass, ShipFlavor, Squadron, SquadronClass, SquadronFlavor,
+    SubsystemClass, Unit, UnitClassID, UnitLocation,
 };
 use itertools::Itertools;
 use rand::prelude::*;
@@ -555,7 +547,7 @@ impl Root {
 
 #[cfg(test)]
 mod test {
-    use super::scale_from_threat;
+    use crate::internal::export::scale_from_threat;
     #[test]
     fn threat_scaling_test() {
         let inputs: Vec<f32> = vec![

@@ -1,19 +1,19 @@
-pub use crate::engagement::{
+pub use crate::internal::engagement::{
     Engagement, EngagementPrep, EngagementRecord, FactionForces, FactionForcesRecord, UnitRecord,
     UnitStatus,
 };
-pub use crate::faction::{Faction, FactionID};
-pub use crate::node::{EdgeFlavor, Edges, Locality, Node, NodeFlavor, NodeMut, System};
-pub use crate::resource::{
+pub use crate::internal::faction::{Faction, FactionID};
+pub use crate::internal::node::{EdgeFlavor, Edges, Locality, Node, NodeFlavor, NodeMut, System};
+pub use crate::internal::resource::{
     Engine, EngineClass, Factory, FactoryClass, PluripotentStockpile, Repairer, RepairerClass,
     Resource, ResourceProcess, SharedStockpile, Shipyard, ShipyardClass, Stockpileness,
     StrategicWeapon, StrategicWeaponClass, UnipotentStockpile,
 };
-use crate::root::Root;
-pub use crate::salience::{
+use crate::internal::root::Root;
+pub use crate::internal::salience::{
     polarity, scale_from_threat, transpose, GlobalSalience, Polarity, Salience,
 };
-pub use crate::unit::{
+pub use crate::internal::unit::{
     Mobility, Ship, ShipAI, ShipClass, ShipClassID, ShipFlavor, ShipHealth, ShipMut, Squadron,
     SquadronClass, SquadronClassID, SquadronFlavor, SquadronMut, Subsystem, SubsystemClass, Unit,
     UnitClass, UnitClassID, UnitLocation,

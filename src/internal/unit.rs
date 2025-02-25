@@ -1,14 +1,14 @@
-use crate::engagement::{EngagementPrep, UnitRecord};
-use crate::faction::Faction;
-use crate::hangar::{Hangar, HangarClass, UnitContainer};
-use crate::node::{Locality, Node};
-use crate::resource::{
+use crate::internal::engagement::{EngagementPrep, UnitRecord};
+use crate::internal::faction::Faction;
+use crate::internal::hangar::{Hangar, HangarClass, UnitContainer};
+use crate::internal::node::{Locality, Node};
+use crate::internal::resource::{
     Engine, EngineClass, Factory, FactoryClass, FactoryState, PluripotentStockpile, Repairer,
     RepairerClass, Resource, ResourceProcess, Shipyard, ShipyardClass, Stockpileness,
     StrategicWeapon, StrategicWeaponClass,
 };
-use crate::root::{Objective, Root};
-use crate::salience::transpose;
+use crate::internal::root::{Objective, Root};
+use crate::internal::salience::transpose;
 use ordered_float::NotNan;
 use rand::prelude::*;
 use rand_distr::*;

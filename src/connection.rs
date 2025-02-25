@@ -1,5 +1,5 @@
 //this is the section of the program that converts data to or from a format suitable for transmission to or reciept from other programs
-use crate::root;
+use crate::internal::export;
 use serde::{Deserialize, Serialize};
 use serde_json_any_key::*;
 use std::cmp::Ordering;
@@ -15,7 +15,7 @@ pub struct UnitContainer {
 }
 
 impl UnitContainer {
-    fn desiccate(self_entity: &root::UnitContainer) -> UnitContainer {
+    fn desiccate(self_entity: &export::UnitContainer) -> UnitContainer {
         UnitContainer {
             contents: self_entity
                 .contents
@@ -26,10 +26,10 @@ impl UnitContainer {
     }
     fn rehydrate(
         &self,
-        shipsroot: &Vec<Arc<root::Ship>>,
-        squadronsroot: &Vec<Arc<root::Squadron>>,
-    ) -> root::UnitContainer {
-        root::UnitContainer {
+        shipsroot: &Vec<Arc<export::Ship>>,
+        squadronsroot: &Vec<Arc<export::Squadron>>,
+    ) -> export::UnitContainer {
+        export::UnitContainer {
             contents: self
                 .contents
                 .iter()
@@ -55,7 +55,7 @@ pub struct NodeMut {
 }
 
 impl NodeMut {
-    fn desiccate(self_entity: &root::NodeMut) -> NodeMut {
+    fn desiccate(self_entity: &export::NodeMut) -> NodeMut {
         NodeMut {
             visibility: self_entity.visibility,
             flavor: self_entity.flavor.id,
@@ -80,14 +80,14 @@ impl NodeMut {
     }
     fn rehydrate(
         &self,
-        nodeflavorsroot: &Vec<Arc<root::NodeFlavor>>,
-        factionsroot: &Vec<Arc<root::Faction>>,
-        resourcesroot: &Vec<Arc<root::Resource>>,
-        factoryclassesroot: &Vec<Arc<root::FactoryClass>>,
-        shipyardclassesroot: &Vec<Arc<root::ShipyardClass>>,
-        shipclassesroot: &Vec<Arc<root::ShipClass>>,
-    ) -> root::NodeMut {
-        root::NodeMut {
+        nodeflavorsroot: &Vec<Arc<export::NodeFlavor>>,
+        factionsroot: &Vec<Arc<export::Faction>>,
+        resourcesroot: &Vec<Arc<export::Resource>>,
+        factoryclassesroot: &Vec<Arc<export::FactoryClass>>,
+        shipyardclassesroot: &Vec<Arc<export::ShipyardClass>>,
+        shipclassesroot: &Vec<Arc<export::ShipClass>>,
+    ) -> export::NodeMut {
+        export::NodeMut {
             visibility: self.visibility,
             flavor: nodeflavorsroot[self.flavor].clone(),
             factories: self
@@ -124,7 +124,7 @@ pub struct Node {
 }
 
 impl Node {
-    fn desiccate(self_entity: &root::Node) -> Node {
+    fn desiccate(self_entity: &export::Node) -> Node {
         Node {
             id: self_entity.id,
             visible_name: self_entity.visible_name.clone(),
@@ -138,14 +138,14 @@ impl Node {
     }
     fn rehydrate(
         &self,
-        nodeflavorsroot: &Vec<Arc<root::NodeFlavor>>,
-        factionsroot: &Vec<Arc<root::Faction>>,
-        resourcesroot: &Vec<Arc<root::Resource>>,
-        factoryclassesroot: &Vec<Arc<root::FactoryClass>>,
-        shipyardclassesroot: &Vec<Arc<root::ShipyardClass>>,
-        shipclassesroot: &Vec<Arc<root::ShipClass>>,
-    ) -> root::Node {
-        root::Node {
+        nodeflavorsroot: &Vec<Arc<export::NodeFlavor>>,
+        factionsroot: &Vec<Arc<export::Faction>>,
+        resourcesroot: &Vec<Arc<export::Resource>>,
+        factoryclassesroot: &Vec<Arc<export::FactoryClass>>,
+        shipyardclassesroot: &Vec<Arc<export::ShipyardClass>>,
+        shipclassesroot: &Vec<Arc<export::ShipClass>>,
+    ) -> export::Node {
+        export::Node {
             id: self.id,
             visible_name: self.visible_name.clone(),
             position: self.position,
@@ -160,14 +160,14 @@ impl Node {
                 &shipyardclassesroot,
                 &shipclassesroot,
             )),
-            unit_container: RwLock::new(root::UnitContainer::new()),
+            unit_container: RwLock::new(export::UnitContainer::new()),
         }
     }
     fn add_units(
-        node: &Arc<root::Node>,
+        node: &Arc<export::Node>,
         connectionnodes: &Vec<Node>,
-        shipsroot: &Vec<Arc<root::Ship>>,
-        squadronsroot: &Vec<Arc<root::Squadron>>,
+        shipsroot: &Vec<Arc<export::Ship>>,
+        squadronsroot: &Vec<Arc<export::Squadron>>,
     ) {
         node.unit_container.write().unwrap().contents = connectionnodes[node.id]
             .unit_container
@@ -214,7 +214,7 @@ pub struct System {
 }
 
 impl System {
-    fn desiccate(self_entity: &root::System) -> System {
+    fn desiccate(self_entity: &export::System) -> System {
         System {
             id: self_entity.id,
             visible_name: self_entity.visible_name.clone(),
@@ -223,8 +223,8 @@ impl System {
             nodes: self_entity.nodes.iter().map(|x| x.id).collect(),
         }
     }
-    fn rehydrate(&self, nodesroot: &Vec<Arc<root::Node>>) -> root::System {
-        root::System {
+    fn rehydrate(&self, nodesroot: &Vec<Arc<export::Node>>) -> export::System {
+        export::System {
             id: self.id,
             visible_name: self.visible_name.clone(),
             description: self.description.clone(),
@@ -252,7 +252,7 @@ pub struct UnipotentStockpile {
 }
 
 impl UnipotentStockpile {
-    fn desiccate(self_entity: &root::UnipotentStockpile) -> UnipotentStockpile {
+    fn desiccate(self_entity: &export::UnipotentStockpile) -> UnipotentStockpile {
         UnipotentStockpile {
             visibility: self_entity.visibility,
             resource_type: self_entity.resource_type.id,
@@ -263,8 +263,8 @@ impl UnipotentStockpile {
             propagates: self_entity.propagates,
         }
     }
-    fn rehydrate(&self, resourcesroot: &Vec<Arc<root::Resource>>) -> root::UnipotentStockpile {
-        root::UnipotentStockpile {
+    fn rehydrate(&self, resourcesroot: &Vec<Arc<export::Resource>>) -> export::UnipotentStockpile {
+        export::UnipotentStockpile {
             visibility: self.visibility,
             resource_type: resourcesroot[self.resource_type].clone(),
             contents: self.contents,
@@ -287,7 +287,7 @@ pub struct PluripotentStockpile {
 }
 
 impl PluripotentStockpile {
-    fn desiccate(self_entity: &root::PluripotentStockpile) -> PluripotentStockpile {
+    fn desiccate(self_entity: &export::PluripotentStockpile) -> PluripotentStockpile {
         PluripotentStockpile {
             visibility: self_entity.visibility,
             contents: self_entity
@@ -304,8 +304,11 @@ impl PluripotentStockpile {
             propagates: self_entity.propagates,
         }
     }
-    fn rehydrate(&self, resourcesroot: &Vec<Arc<root::Resource>>) -> root::PluripotentStockpile {
-        root::PluripotentStockpile {
+    fn rehydrate(
+        &self,
+        resourcesroot: &Vec<Arc<export::Resource>>,
+    ) -> export::PluripotentStockpile {
+        export::PluripotentStockpile {
             visibility: self.visibility,
             contents: self
                 .contents
@@ -332,7 +335,7 @@ pub struct SharedStockpile {
 }
 
 impl SharedStockpile {
-    fn desiccate(self_entity: &root::SharedStockpile) -> SharedStockpile {
+    fn desiccate(self_entity: &export::SharedStockpile) -> SharedStockpile {
         SharedStockpile {
             resource_type: self_entity.resource_type.id,
             contents: self_entity.contents.load(atomic::Ordering::Relaxed),
@@ -340,8 +343,8 @@ impl SharedStockpile {
             capacity: self_entity.capacity,
         }
     }
-    fn rehydrate(&self, resourcesroot: &Vec<Arc<root::Resource>>) -> root::SharedStockpile {
-        root::SharedStockpile {
+    fn rehydrate(&self, resourcesroot: &Vec<Arc<export::Resource>>) -> export::SharedStockpile {
+        export::SharedStockpile {
             resource_type: resourcesroot[self.resource_type].clone(),
             contents: Arc::new(AtomicU64::new(self.contents)),
             rate: self.rate,
@@ -356,13 +359,13 @@ pub struct HangarMut {
 }
 
 impl HangarMut {
-    fn desiccate(self_entity: &root::HangarMut) -> HangarMut {
+    fn desiccate(self_entity: &export::HangarMut) -> HangarMut {
         HangarMut {
             visibility: self_entity.visibility,
         }
     }
-    fn rehydrate(&self) -> root::HangarMut {
-        root::HangarMut {
+    fn rehydrate(&self) -> export::HangarMut {
+        export::HangarMut {
             visibility: self.visibility,
         }
     }
@@ -378,7 +381,7 @@ pub struct Hangar {
 }
 
 impl Hangar {
-    pub fn desiccate(self_entity: &root::Hangar) -> Hangar {
+    pub fn desiccate(self_entity: &export::Hangar) -> Hangar {
         Hangar {
             id: self_entity.id,
             class: self_entity.class.id,
@@ -389,11 +392,11 @@ impl Hangar {
     }
     pub fn rehydrate(
         &self,
-        hangarclassesroot: &Vec<Arc<root::HangarClass>>,
-        shipsroot: &Vec<Arc<root::Ship>>,
-        squadronsroot: &Vec<Arc<root::Squadron>>,
-    ) -> root::Hangar {
-        root::Hangar {
+        hangarclassesroot: &Vec<Arc<export::HangarClass>>,
+        shipsroot: &Vec<Arc<export::Ship>>,
+        squadronsroot: &Vec<Arc<export::Squadron>>,
+    ) -> export::Hangar {
+        export::Hangar {
             id: self.id,
             class: hangarclassesroot[self.class].clone(),
             mother: shipsroot
@@ -423,7 +426,7 @@ pub struct EngineClass {
 }
 
 impl EngineClass {
-    pub fn desiccate(self_entity: &root::EngineClass) -> EngineClass {
+    pub fn desiccate(self_entity: &export::EngineClass) -> EngineClass {
         EngineClass {
             id: self_entity.id,
             visible_name: self_entity.visible_name.clone(),
@@ -452,11 +455,11 @@ impl EngineClass {
     }
     pub fn rehydrate(
         &self,
-        nodeflavorsroot: &Vec<Arc<root::NodeFlavor>>,
-        edgeflavorsroot: &Vec<Arc<root::EdgeFlavor>>,
-        resourcesroot: &Vec<Arc<root::Resource>>,
-    ) -> root::EngineClass {
-        root::EngineClass {
+        nodeflavorsroot: &Vec<Arc<export::NodeFlavor>>,
+        edgeflavorsroot: &Vec<Arc<export::EdgeFlavor>>,
+        resourcesroot: &Vec<Arc<export::Resource>>,
+    ) -> export::EngineClass {
+        export::EngineClass {
             id: self.id,
             visible_name: self.visible_name.clone(),
             description: self.description.clone(),
@@ -496,7 +499,7 @@ pub struct Engine {
 }
 
 impl Engine {
-    fn desiccate(self_entity: &root::Engine) -> Engine {
+    fn desiccate(self_entity: &export::Engine) -> Engine {
         Engine {
             engineclass: self_entity.class.id,
             visibility: self_entity.visibility,
@@ -521,12 +524,12 @@ impl Engine {
     }
     fn rehydrate(
         &self,
-        nodeflavorsroot: &Vec<Arc<root::NodeFlavor>>,
-        edgeflavorsroot: &Vec<Arc<root::EdgeFlavor>>,
-        resourcesroot: &Vec<Arc<root::Resource>>,
-        engineclassesroot: &Vec<Arc<root::EngineClass>>,
-    ) -> root::Engine {
-        root::Engine {
+        nodeflavorsroot: &Vec<Arc<export::NodeFlavor>>,
+        edgeflavorsroot: &Vec<Arc<export::EdgeFlavor>>,
+        resourcesroot: &Vec<Arc<export::Resource>>,
+        engineclassesroot: &Vec<Arc<export::EngineClass>>,
+    ) -> export::Engine {
+        export::Engine {
             class: engineclassesroot[self.engineclass].clone(),
             visibility: self.visibility,
             health: self.health,
@@ -567,7 +570,7 @@ pub struct RepairerClass {
 }
 
 impl RepairerClass {
-    fn desiccate(self_entity: &root::RepairerClass) -> RepairerClass {
+    fn desiccate(self_entity: &export::RepairerClass) -> RepairerClass {
         RepairerClass {
             id: self_entity.id,
             visible_name: self_entity.visible_name.clone(),
@@ -587,8 +590,8 @@ impl RepairerClass {
             per_engagement: self_entity.per_engagement,
         }
     }
-    fn rehydrate(&self, resourcesroot: &Vec<Arc<root::Resource>>) -> root::RepairerClass {
-        root::RepairerClass {
+    fn rehydrate(&self, resourcesroot: &Vec<Arc<export::Resource>>) -> export::RepairerClass {
+        export::RepairerClass {
             id: self.id,
             visible_name: self.visible_name.clone(),
             description: self.description.clone(),
@@ -617,7 +620,7 @@ pub struct Repairer {
 }
 
 impl Repairer {
-    fn desiccate(self_entity: &root::Repairer) -> Repairer {
+    fn desiccate(self_entity: &export::Repairer) -> Repairer {
         Repairer {
             repairerclass: self_entity.class.id,
             visibility: self_entity.visibility,
@@ -630,10 +633,10 @@ impl Repairer {
     }
     fn rehydrate(
         &self,
-        resourcesroot: &Vec<Arc<root::Resource>>,
-        repairerclassesroot: &Vec<Arc<root::RepairerClass>>,
-    ) -> root::Repairer {
-        root::Repairer {
+        resourcesroot: &Vec<Arc<export::Resource>>,
+        repairerclassesroot: &Vec<Arc<export::RepairerClass>>,
+    ) -> export::Repairer {
+        export::Repairer {
             class: repairerclassesroot[self.repairerclass].clone(),
             visibility: self.visibility,
             inputs: self
@@ -665,12 +668,12 @@ pub struct StrategicWeaponClass {
     pub targets_neutrals: bool,
     pub target_relations_lower_bound: Option<f32>,
     pub target_relations_upper_bound: Option<f32>,
-    pub target_priorities_class: HashMap<root::ShipClassID, f32>, //how strongly weapon will prioritize ships of each class; classes absent from list will default to 1.0
+    pub target_priorities_class: HashMap<export::ShipClassID, f32>, //how strongly weapon will prioritize ships of each class; classes absent from list will default to 1.0
     pub target_priorities_flavor: HashMap<usize, f32>, //how strongly weapon will prioritize ships of each flavor; flavors absent from list will default to 1.0
 }
 
 impl StrategicWeaponClass {
-    fn desiccate(self_entity: &root::StrategicWeaponClass) -> StrategicWeaponClass {
+    fn desiccate(self_entity: &export::StrategicWeaponClass) -> StrategicWeaponClass {
         StrategicWeaponClass {
             id: self_entity.id,
             visible_name: self_entity.visible_name.clone(),
@@ -712,12 +715,12 @@ impl StrategicWeaponClass {
     }
     fn rehydrate(
         &self,
-        resourcesroot: &Vec<Arc<root::Resource>>,
-        nodeflavorsroot: &Vec<Arc<root::NodeFlavor>>,
-        edgeflavorsroot: &Vec<Arc<root::EdgeFlavor>>,
-        shipflavorsroot: &Vec<Arc<root::ShipFlavor>>,
-    ) -> root::StrategicWeaponClass {
-        root::StrategicWeaponClass {
+        resourcesroot: &Vec<Arc<export::Resource>>,
+        nodeflavorsroot: &Vec<Arc<export::NodeFlavor>>,
+        edgeflavorsroot: &Vec<Arc<export::EdgeFlavor>>,
+        shipflavorsroot: &Vec<Arc<export::ShipFlavor>>,
+    ) -> export::StrategicWeaponClass {
+        export::StrategicWeaponClass {
             id: self.id,
             visible_name: self.visible_name.clone(),
             description: self.description.clone(),
@@ -766,7 +769,7 @@ pub struct StrategicWeapon {
 }
 
 impl StrategicWeapon {
-    fn desiccate(self_entity: &root::StrategicWeapon) -> StrategicWeapon {
+    fn desiccate(self_entity: &export::StrategicWeapon) -> StrategicWeapon {
         StrategicWeapon {
             class: self_entity.class.id,
             visibility: self_entity.visibility,
@@ -779,10 +782,10 @@ impl StrategicWeapon {
     }
     fn rehydrate(
         &self,
-        resourcesroot: &Vec<Arc<root::Resource>>,
-        strategicweaponclassesroot: &Vec<Arc<root::StrategicWeaponClass>>,
-    ) -> root::StrategicWeapon {
-        root::StrategicWeapon {
+        resourcesroot: &Vec<Arc<export::Resource>>,
+        strategicweaponclassesroot: &Vec<Arc<export::StrategicWeaponClass>>,
+    ) -> export::StrategicWeapon {
+        export::StrategicWeapon {
             class: strategicweaponclassesroot[self.class].clone(),
             visibility: self.visibility,
             inputs: self
@@ -805,7 +808,7 @@ pub struct FactoryClass {
 }
 
 impl FactoryClass {
-    fn desiccate(self_entity: &root::FactoryClass) -> FactoryClass {
+    fn desiccate(self_entity: &export::FactoryClass) -> FactoryClass {
         FactoryClass {
             id: self_entity.id,
             visible_name: self_entity.visible_name.clone(),
@@ -823,8 +826,8 @@ impl FactoryClass {
                 .collect(),
         }
     }
-    fn rehydrate(&self, resourcesroot: &Vec<Arc<root::Resource>>) -> root::FactoryClass {
-        root::FactoryClass {
+    fn rehydrate(&self, resourcesroot: &Vec<Arc<export::Resource>>) -> export::FactoryClass {
+        export::FactoryClass {
             id: self.id,
             visible_name: self.visible_name.clone(),
             description: self.description.clone(),
@@ -853,7 +856,7 @@ pub struct Factory {
 }
 
 impl Factory {
-    fn desiccate(self_entity: &root::Factory) -> Factory {
+    fn desiccate(self_entity: &export::Factory) -> Factory {
         Factory {
             factoryclass: self_entity.class.id,
             visibility: self_entity.visibility,
@@ -871,10 +874,10 @@ impl Factory {
     }
     fn rehydrate(
         &self,
-        resourcesroot: &Vec<Arc<root::Resource>>,
-        factoryclassesroot: &Vec<Arc<root::FactoryClass>>,
-    ) -> root::Factory {
-        root::Factory {
+        resourcesroot: &Vec<Arc<export::Resource>>,
+        factoryclassesroot: &Vec<Arc<export::FactoryClass>>,
+    ) -> export::Factory {
+        export::Factory {
             class: factoryclassesroot[self.factoryclass].clone(),
             visibility: self.visibility,
             inputs: self
@@ -898,13 +901,13 @@ pub struct ShipyardClass {
     pub description: Option<String>,
     pub visibility: bool,
     pub inputs: Vec<UnipotentStockpile>,
-    pub outputs: HashMap<root::ShipClassID, u64>,
+    pub outputs: HashMap<export::ShipClassID, u64>,
     pub constructrate: u64,
     pub efficiency: f32,
 }
 
 impl ShipyardClass {
-    fn desiccate(self_entity: &root::ShipyardClass) -> ShipyardClass {
+    fn desiccate(self_entity: &export::ShipyardClass) -> ShipyardClass {
         ShipyardClass {
             id: self_entity.id,
             visible_name: self_entity.visible_name.clone(),
@@ -920,8 +923,8 @@ impl ShipyardClass {
             efficiency: self_entity.efficiency,
         }
     }
-    fn rehydrate(&self, resourcesroot: &Vec<Arc<root::Resource>>) -> root::ShipyardClass {
-        root::ShipyardClass {
+    fn rehydrate(&self, resourcesroot: &Vec<Arc<export::Resource>>) -> export::ShipyardClass {
+        export::ShipyardClass {
             id: self.id,
             visible_name: self.visible_name.clone(),
             description: self.description.clone(),
@@ -949,7 +952,7 @@ pub struct Shipyard {
 }
 
 impl Shipyard {
-    fn desiccate(self_entity: &root::Shipyard) -> Shipyard {
+    fn desiccate(self_entity: &export::Shipyard) -> Shipyard {
         Shipyard {
             class: self_entity.class.id,
             visibility: self_entity.visibility,
@@ -969,11 +972,11 @@ impl Shipyard {
     }
     fn rehydrate(
         &self,
-        resourcesroot: &Vec<Arc<root::Resource>>,
-        shipyardclassesroot: &Vec<Arc<root::ShipyardClass>>,
-        shipclassesroot: &Vec<Arc<root::ShipClass>>,
-    ) -> root::Shipyard {
-        root::Shipyard {
+        resourcesroot: &Vec<Arc<export::Resource>>,
+        shipyardclassesroot: &Vec<Arc<export::ShipyardClass>>,
+        shipclassesroot: &Vec<Arc<export::ShipClass>>,
+    ) -> export::Shipyard {
+        export::Shipyard {
             class: shipyardclassesroot[self.class].clone(),
             visibility: self.visibility,
             inputs: self
@@ -1000,15 +1003,18 @@ pub struct Subsystem {
 }
 
 impl Subsystem {
-    fn desiccate(self_entity: &root::Subsystem) -> Subsystem {
+    fn desiccate(self_entity: &export::Subsystem) -> Subsystem {
         Subsystem {
             class: self_entity.class.id,
             visibility: self_entity.visibility,
             health: self_entity.health,
         }
     }
-    fn rehydrate(&self, subsystemclassesroot: &Vec<Arc<root::SubsystemClass>>) -> root::Subsystem {
-        root::Subsystem {
+    fn rehydrate(
+        &self,
+        subsystemclassesroot: &Vec<Arc<export::SubsystemClass>>,
+    ) -> export::Subsystem {
+        export::Subsystem {
             class: subsystemclassesroot[self.class].clone(),
             visibility: self.visibility,
             health: self.health,
@@ -1022,7 +1028,7 @@ pub struct ShipAI {
     pub nav_threshold: f32,
     pub ship_attract_specific: f32, //a multiplier for demand gradients corresponding to the specific class of a ship using this AI
     pub ship_attract_generic: f32, //a multiplier for the extent to which a ship using this AI will follow generic ship demand gradients
-    pub ship_cargo_attract: HashMap<root::UnitClassID, f32>,
+    pub ship_cargo_attract: HashMap<export::UnitClassID, f32>,
     pub resource_attract: HashMap<usize, f32>, //a list of resources whose demand gradients this AI will follow, and individual strength multipliers
     pub friendly_supply_attract: f32,
     pub hostile_supply_attract: f32,
@@ -1037,7 +1043,7 @@ pub struct ShipAI {
 }
 
 impl ShipAI {
-    fn desiccate(self_entity: &root::ShipAI) -> ShipAI {
+    fn desiccate(self_entity: &export::ShipAI) -> ShipAI {
         ShipAI {
             id: self_entity.id,
             nav_threshold: self_entity.nav_threshold,
@@ -1065,8 +1071,8 @@ impl ShipAI {
                 .strategic_weapon_subsystem_healing_attract,
         }
     }
-    fn rehydrate(&self, resourcesroot: &Vec<Arc<root::Resource>>) -> root::ShipAI {
-        root::ShipAI {
+    fn rehydrate(&self, resourcesroot: &Vec<Arc<export::Resource>>) -> export::ShipAI {
+        export::ShipAI {
             id: self.id,
             nav_threshold: self.nav_threshold,
             ship_attract_specific: self.ship_attract_specific,
@@ -1101,29 +1107,29 @@ pub enum UnitLocation {
 }
 
 impl UnitLocation {
-    fn desiccate(self_entity: &root::UnitLocation) -> UnitLocation {
+    fn desiccate(self_entity: &export::UnitLocation) -> UnitLocation {
         match self_entity {
-            root::UnitLocation::Node(n) => UnitLocation::Node(n.id),
-            root::UnitLocation::Squadron(s) => UnitLocation::Squadron(s.id),
-            root::UnitLocation::Hangar(h) => UnitLocation::Hangar(h.id),
+            export::UnitLocation::Node(n) => UnitLocation::Node(n.id),
+            export::UnitLocation::Squadron(s) => UnitLocation::Squadron(s.id),
+            export::UnitLocation::Hangar(h) => UnitLocation::Hangar(h.id),
         }
     }
     fn rehydrate(
         &self,
-        nodesroot: &Vec<Arc<root::Node>>,
-        squadronsroot: &Vec<Arc<root::Squadron>>,
-        hangarslist: &Vec<Arc<root::Hangar>>,
-    ) -> root::UnitLocation {
+        nodesroot: &Vec<Arc<export::Node>>,
+        squadronsroot: &Vec<Arc<export::Squadron>>,
+        hangarslist: &Vec<Arc<export::Hangar>>,
+    ) -> export::UnitLocation {
         match self {
-            UnitLocation::Node(n) => root::UnitLocation::Node(nodesroot[*n].clone()),
-            UnitLocation::Squadron(s) => root::UnitLocation::Squadron(
+            UnitLocation::Node(n) => export::UnitLocation::Node(nodesroot[*n].clone()),
+            UnitLocation::Squadron(s) => export::UnitLocation::Squadron(
                 squadronsroot
                     .iter()
                     .find(|squadron| &squadron.id == s)
                     .unwrap()
                     .clone(),
             ),
-            UnitLocation::Hangar(h) => root::UnitLocation::Hangar(
+            UnitLocation::Hangar(h) => export::UnitLocation::Hangar(
                 hangarslist
                     .iter()
                     .find(|hangar| &hangar.id == h)
@@ -1170,7 +1176,7 @@ pub struct ShipClass {
 }
 
 impl ShipClass {
-    fn desiccate(self_entity: &root::ShipClass) -> ShipClass {
+    fn desiccate(self_entity: &export::ShipClass) -> ShipClass {
         ShipClass {
             id: self_entity.id,
             visible_name: self_entity.visible_name.clone(),
@@ -1219,19 +1225,19 @@ impl ShipClass {
     }
     fn rehydrate(
         &self,
-        factionsroot: &Vec<Arc<root::Faction>>,
-        resourcesroot: &Vec<Arc<root::Resource>>,
-        hangarclassesroot: &Vec<Arc<root::HangarClass>>,
-        engineclassesroot: &Vec<Arc<root::EngineClass>>,
-        repairerclassesroot: &Vec<Arc<root::RepairerClass>>,
-        strategicweaponclassesroot: &Vec<Arc<root::StrategicWeaponClass>>,
-        factoryclassesroot: &Vec<Arc<root::FactoryClass>>,
-        shipyardclassesroot: &Vec<Arc<root::ShipyardClass>>,
-        subsystemclassesroot: &Vec<Arc<root::SubsystemClass>>,
-        shipaisroot: &Vec<Arc<root::ShipAI>>,
-        shipflavorsroot: &Vec<Arc<root::ShipFlavor>>,
-    ) -> root::ShipClass {
-        root::ShipClass {
+        factionsroot: &Vec<Arc<export::Faction>>,
+        resourcesroot: &Vec<Arc<export::Resource>>,
+        hangarclassesroot: &Vec<Arc<export::HangarClass>>,
+        engineclassesroot: &Vec<Arc<export::EngineClass>>,
+        repairerclassesroot: &Vec<Arc<export::RepairerClass>>,
+        strategicweaponclassesroot: &Vec<Arc<export::StrategicWeaponClass>>,
+        factoryclassesroot: &Vec<Arc<export::FactoryClass>>,
+        shipyardclassesroot: &Vec<Arc<export::ShipyardClass>>,
+        subsystemclassesroot: &Vec<Arc<export::SubsystemClass>>,
+        shipaisroot: &Vec<Arc<export::ShipAI>>,
+        shipflavorsroot: &Vec<Arc<export::ShipFlavor>>,
+    ) -> export::ShipClass {
+        export::ShipClass {
             id: self.id,
             visible_name: self.visible_name.clone(),
             description: self.description.clone(),
@@ -1309,7 +1315,7 @@ impl ShipClass {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShipMut {
-    pub hull: root::ShipHealth, //how many hitpoints the ship has
+    pub hull: export::ShipHealth, //how many hitpoints the ship has
     pub visibility: bool,
     pub stockpiles: Vec<PluripotentStockpile>,
     pub efficiency: f32,
@@ -1329,7 +1335,7 @@ pub struct ShipMut {
 }
 
 impl ShipMut {
-    fn desiccate(self_entity: &root::ShipMut) -> ShipMut {
+    fn desiccate(self_entity: &export::ShipMut) -> ShipMut {
         ShipMut {
             hull: self_entity.hull,
             visibility: self_entity.visibility,
@@ -1388,21 +1394,21 @@ impl ShipMut {
     }
     fn rehydrate(
         &self,
-        nodeflavorsroot: &Vec<Arc<root::NodeFlavor>>,
-        nodesroot: &Vec<Arc<root::Node>>,
-        edgeflavorsroot: &Vec<Arc<root::EdgeFlavor>>,
-        factionsroot: &Vec<Arc<root::Faction>>,
-        resourcesroot: &Vec<Arc<root::Resource>>,
-        engineclassesroot: &Vec<Arc<root::EngineClass>>,
-        repairerclassesroot: &Vec<Arc<root::RepairerClass>>,
-        strategicweaponclassesroot: &Vec<Arc<root::StrategicWeaponClass>>,
-        factoryclassesroot: &Vec<Arc<root::FactoryClass>>,
-        shipyardclassesroot: &Vec<Arc<root::ShipyardClass>>,
-        subsystemclassesroot: &Vec<Arc<root::SubsystemClass>>,
-        shipaisroot: &Vec<Arc<root::ShipAI>>,
-        shipclassesroot: &Vec<Arc<root::ShipClass>>,
-    ) -> root::ShipMut {
-        root::ShipMut {
+        nodeflavorsroot: &Vec<Arc<export::NodeFlavor>>,
+        nodesroot: &Vec<Arc<export::Node>>,
+        edgeflavorsroot: &Vec<Arc<export::EdgeFlavor>>,
+        factionsroot: &Vec<Arc<export::Faction>>,
+        resourcesroot: &Vec<Arc<export::Resource>>,
+        engineclassesroot: &Vec<Arc<export::EngineClass>>,
+        repairerclassesroot: &Vec<Arc<export::RepairerClass>>,
+        strategicweaponclassesroot: &Vec<Arc<export::StrategicWeaponClass>>,
+        factoryclassesroot: &Vec<Arc<export::FactoryClass>>,
+        shipyardclassesroot: &Vec<Arc<export::ShipyardClass>>,
+        subsystemclassesroot: &Vec<Arc<export::SubsystemClass>>,
+        shipaisroot: &Vec<Arc<export::ShipAI>>,
+        shipclassesroot: &Vec<Arc<export::ShipClass>>,
+    ) -> export::ShipMut {
+        export::ShipMut {
             hull: self.hull,
             visibility: self.visibility,
             stockpiles: self
@@ -1450,7 +1456,7 @@ impl ShipMut {
                 .iter()
                 .map(|x| x.rehydrate(&subsystemclassesroot))
                 .collect(),
-            location: root::UnitLocation::Node(nodesroot[0].clone()),
+            location: export::UnitLocation::Node(nodesroot[0].clone()),
             allegiance: factionsroot[self.allegiance].clone(),
             last_mother: self.last_mother,
             objectives: Vec::new(),
@@ -1468,7 +1474,7 @@ pub struct Ship {
 }
 
 impl Ship {
-    fn desiccate(self_entity: &root::Ship) -> Ship {
+    fn desiccate(self_entity: &export::Ship) -> Ship {
         Ship {
             id: self_entity.id,
             visible_name: self_entity.visible_name.clone(),
@@ -1478,21 +1484,21 @@ impl Ship {
     }
     fn rehydrate(
         &self,
-        nodeflavorsroot: &Vec<Arc<root::NodeFlavor>>,
-        nodesroot: &Vec<Arc<root::Node>>,
-        edgeflavorsroot: &Vec<Arc<root::EdgeFlavor>>,
-        factionsroot: &Vec<Arc<root::Faction>>,
-        resourcesroot: &Vec<Arc<root::Resource>>,
-        engineclassesroot: &Vec<Arc<root::EngineClass>>,
-        repairerclassesroot: &Vec<Arc<root::RepairerClass>>,
-        strategicweaponclassesroot: &Vec<Arc<root::StrategicWeaponClass>>,
-        factoryclassesroot: &Vec<Arc<root::FactoryClass>>,
-        shipyardclassesroot: &Vec<Arc<root::ShipyardClass>>,
-        subsystemclassesroot: &Vec<Arc<root::SubsystemClass>>,
-        shipaisroot: &Vec<Arc<root::ShipAI>>,
-        shipclassesroot: &Vec<Arc<root::ShipClass>>,
-    ) -> root::Ship {
-        root::Ship {
+        nodeflavorsroot: &Vec<Arc<export::NodeFlavor>>,
+        nodesroot: &Vec<Arc<export::Node>>,
+        edgeflavorsroot: &Vec<Arc<export::EdgeFlavor>>,
+        factionsroot: &Vec<Arc<export::Faction>>,
+        resourcesroot: &Vec<Arc<export::Resource>>,
+        engineclassesroot: &Vec<Arc<export::EngineClass>>,
+        repairerclassesroot: &Vec<Arc<export::RepairerClass>>,
+        strategicweaponclassesroot: &Vec<Arc<export::StrategicWeaponClass>>,
+        factoryclassesroot: &Vec<Arc<export::FactoryClass>>,
+        shipyardclassesroot: &Vec<Arc<export::ShipyardClass>>,
+        subsystemclassesroot: &Vec<Arc<export::SubsystemClass>>,
+        shipaisroot: &Vec<Arc<export::ShipAI>>,
+        shipclassesroot: &Vec<Arc<export::ShipClass>>,
+    ) -> export::Ship {
+        export::Ship {
             id: self.id,
             visible_name: self.visible_name.clone(),
             class: shipclassesroot[self.class].clone(),
@@ -1514,19 +1520,19 @@ impl Ship {
         }
     }
     fn add_hangars_and_objectives(
-        ship: &Arc<root::Ship>,
+        ship: &Arc<export::Ship>,
         connectionships: &Vec<Ship>,
-        nodesroot: &Vec<Arc<root::Node>>,
-        systemsroot: &Vec<Arc<root::System>>,
-        hangarclassesroot: &Vec<Arc<root::HangarClass>>,
-        shipsroot: &Vec<Arc<root::Ship>>,
-        squadronsroot: &Vec<Arc<root::Squadron>>,
-    ) -> Vec<Arc<root::Hangar>> {
+        nodesroot: &Vec<Arc<export::Node>>,
+        systemsroot: &Vec<Arc<export::System>>,
+        hangarclassesroot: &Vec<Arc<export::HangarClass>>,
+        shipsroot: &Vec<Arc<export::Ship>>,
+        squadronsroot: &Vec<Arc<export::Squadron>>,
+    ) -> Vec<Arc<export::Hangar>> {
         let connection_ship = connectionships
             .iter()
             .find(|connectionship| &connectionship.id == &ship.id)
             .unwrap();
-        let root_hangars: Vec<Arc<root::Hangar>> = connection_ship
+        let root_hangars: Vec<Arc<export::Hangar>> = connection_ship
             .mutables
             .hangars
             .iter()
@@ -1542,11 +1548,11 @@ impl Ship {
         root_hangars
     }
     fn set_location(
-        ship: &Arc<root::Ship>,
+        ship: &Arc<export::Ship>,
         connectionships: &Vec<Ship>,
-        nodesroot: &Vec<Arc<root::Node>>,
-        squadronsroot: &Vec<Arc<root::Squadron>>,
-        hangarslist: &Vec<Arc<root::Hangar>>,
+        nodesroot: &Vec<Arc<export::Node>>,
+        squadronsroot: &Vec<Arc<export::Squadron>>,
+        hangarslist: &Vec<Arc<export::Hangar>>,
     ) {
         ship.mutables.write().unwrap().location = connectionships
             .iter()
@@ -1569,8 +1575,8 @@ pub struct SquadronClass {
     pub target: u64,
     pub propagates: bool,
     pub strength_mod: (f32, u64),
-    pub allowed: Option<Vec<root::UnitClassID>>,
-    pub ideal: HashMap<root::UnitClassID, u64>,
+    pub allowed: Option<Vec<export::UnitClassID>>,
+    pub ideal: HashMap<export::UnitClassID, u64>,
     pub sub_target_supply_scalar: f32, //multiplier used for demand generated by non-ideal ships under the target limit; should be below one
     pub non_ideal_demand_scalar: f32, //multiplier used for demand generated for non-ideal unitclasses; should be below one
     pub nav_quorum: f32,
@@ -1586,7 +1592,7 @@ pub struct SquadronClass {
 }
 
 impl SquadronClass {
-    fn desiccate(self_entity: &root::SquadronClass) -> SquadronClass {
+    fn desiccate(self_entity: &export::SquadronClass) -> SquadronClass {
         SquadronClass {
             id: self_entity.id,
             visible_name: self_entity.visible_name.clone(),
@@ -1619,10 +1625,10 @@ impl SquadronClass {
     }
     fn rehydrate(
         &self,
-        factionsroot: &Vec<Arc<root::Faction>>,
-        squadronflavorsroot: &Vec<Arc<root::SquadronFlavor>>,
-    ) -> root::SquadronClass {
-        root::SquadronClass {
+        factionsroot: &Vec<Arc<export::Faction>>,
+        squadronflavorsroot: &Vec<Arc<export::SquadronFlavor>>,
+    ) -> export::SquadronClass {
+        export::SquadronClass {
             id: self.id,
             visible_name: self.visible_name.clone(),
             description: self.description.clone(),
@@ -1665,7 +1671,7 @@ pub struct SquadronMut {
 }
 
 impl SquadronMut {
-    fn desiccate(self_entity: &root::SquadronMut) -> SquadronMut {
+    fn desiccate(self_entity: &export::SquadronMut) -> SquadronMut {
         SquadronMut {
             visibility: self_entity.visibility,
             location: UnitLocation::desiccate(&self_entity.location),
@@ -1681,12 +1687,12 @@ impl SquadronMut {
     }
     fn rehydrate(
         &self,
-        nodesroot: &Vec<Arc<root::Node>>,
-        factionsroot: &Vec<Arc<root::Faction>>,
-    ) -> root::SquadronMut {
-        root::SquadronMut {
+        nodesroot: &Vec<Arc<export::Node>>,
+        factionsroot: &Vec<Arc<export::Faction>>,
+    ) -> export::SquadronMut {
+        export::SquadronMut {
             visibility: self.visibility,
-            location: root::UnitLocation::Node(nodesroot[0].clone()),
+            location: export::UnitLocation::Node(nodesroot[0].clone()),
             allegiance: factionsroot[self.allegiance].clone(),
             last_mother: self.last_mother,
             objectives: Vec::new(),
@@ -1706,7 +1712,7 @@ pub struct Squadron {
 }
 
 impl Squadron {
-    fn desiccate(self_entity: &root::Squadron) -> Squadron {
+    fn desiccate(self_entity: &export::Squadron) -> Squadron {
         Squadron {
             id: self_entity.id,
             visible_name: self_entity.visible_name.clone(),
@@ -1718,27 +1724,27 @@ impl Squadron {
     }
     fn rehydrate(
         &self,
-        nodesroot: &Vec<Arc<root::Node>>,
-        factionsroot: &Vec<Arc<root::Faction>>,
-        squadronclassesroot: &Vec<Arc<root::SquadronClass>>,
-    ) -> root::Squadron {
-        root::Squadron {
+        nodesroot: &Vec<Arc<export::Node>>,
+        factionsroot: &Vec<Arc<export::Faction>>,
+        squadronclassesroot: &Vec<Arc<export::SquadronClass>>,
+    ) -> export::Squadron {
+        export::Squadron {
             id: self.id,
             visible_name: self.visible_name.clone(),
             class: squadronclassesroot[self.class].clone(),
             ideal_strength: self.idealstrength,
             mutables: RwLock::new(self.mutables.rehydrate(&nodesroot, &factionsroot)),
-            unit_container: RwLock::new(root::UnitContainer::new()),
+            unit_container: RwLock::new(export::UnitContainer::new()),
         }
     }
     fn add_daughters_and_objectives_set_location(
-        squadron: &Arc<root::Squadron>,
+        squadron: &Arc<export::Squadron>,
         connectionsquadrons: &Vec<Squadron>,
-        nodesroot: &Vec<Arc<root::Node>>,
-        systemsroot: &Vec<Arc<root::System>>,
-        shipsroot: &Vec<Arc<root::Ship>>,
-        squadronsroot: &Vec<Arc<root::Squadron>>,
-        hangarslist: &Vec<Arc<root::Hangar>>,
+        nodesroot: &Vec<Arc<export::Node>>,
+        systemsroot: &Vec<Arc<export::System>>,
+        shipsroot: &Vec<Arc<export::Ship>>,
+        squadronsroot: &Vec<Arc<export::Squadron>>,
+        hangarslist: &Vec<Arc<export::Hangar>>,
     ) {
         let connection_squadron = connectionsquadrons
             .iter()
@@ -1770,21 +1776,23 @@ pub enum UnitClass {
 }
 
 impl UnitClass {
-    fn desiccate(self_entity: &root::UnitClass) -> UnitClass {
+    fn desiccate(self_entity: &export::UnitClass) -> UnitClass {
         match self_entity {
-            root::UnitClass::ShipClass(shc) => UnitClass::ShipClass(shc.id),
-            root::UnitClass::SquadronClass(sqc) => UnitClass::SquadronClass(sqc.id),
+            export::UnitClass::ShipClass(shc) => UnitClass::ShipClass(shc.id),
+            export::UnitClass::SquadronClass(sqc) => UnitClass::SquadronClass(sqc.id),
         }
     }
     fn rehydrate(
         &self,
-        shipclassesroot: &Vec<Arc<root::ShipClass>>,
-        squadronclassesroot: &Vec<Arc<root::SquadronClass>>,
-    ) -> root::UnitClass {
+        shipclassesroot: &Vec<Arc<export::ShipClass>>,
+        squadronclassesroot: &Vec<Arc<export::SquadronClass>>,
+    ) -> export::UnitClass {
         match self {
-            UnitClass::ShipClass(shc) => root::UnitClass::ShipClass(shipclassesroot[*shc].clone()),
+            UnitClass::ShipClass(shc) => {
+                export::UnitClass::ShipClass(shipclassesroot[*shc].clone())
+            }
             UnitClass::SquadronClass(sqc) => {
-                root::UnitClass::SquadronClass(squadronclassesroot[*sqc].clone())
+                export::UnitClass::SquadronClass(squadronclassesroot[*sqc].clone())
             }
         }
     }
@@ -1797,26 +1805,26 @@ pub enum Unit {
 }
 
 impl Unit {
-    fn desiccate(self_entity: &root::Unit) -> Unit {
+    fn desiccate(self_entity: &export::Unit) -> Unit {
         match self_entity {
-            root::Unit::Ship(sh) => Unit::Ship(sh.id),
-            root::Unit::Squadron(sq) => Unit::Squadron(sq.id),
+            export::Unit::Ship(sh) => Unit::Ship(sh.id),
+            export::Unit::Squadron(sq) => Unit::Squadron(sq.id),
         }
     }
     fn rehydrate(
         &self,
-        shipsroot: &Vec<Arc<root::Ship>>,
-        squadronsroot: &Vec<Arc<root::Squadron>>,
-    ) -> root::Unit {
+        shipsroot: &Vec<Arc<export::Ship>>,
+        squadronsroot: &Vec<Arc<export::Squadron>>,
+    ) -> export::Unit {
         match self {
-            Unit::Ship(sh) => root::Unit::Ship(
+            Unit::Ship(sh) => export::Unit::Ship(
                 shipsroot
                     .iter()
                     .find(|ship| &ship.id == sh)
                     .unwrap()
                     .clone(),
             ),
-            Unit::Squadron(sq) => root::Unit::Squadron(
+            Unit::Squadron(sq) => export::Unit::Squadron(
                 squadronsroot
                     .iter()
                     .find(|squadron| &squadron.id == sq)
@@ -1837,7 +1845,7 @@ pub struct UnitRecord {
 }
 
 impl UnitRecord {
-    fn desiccate(self_entity: &root::UnitRecord) -> UnitRecord {
+    fn desiccate(self_entity: &export::UnitRecord) -> UnitRecord {
         UnitRecord {
             id: self_entity.id,
             visible_name: self_entity.visible_name.clone(),
@@ -1848,11 +1856,11 @@ impl UnitRecord {
     }
     fn rehydrate(
         &self,
-        factionsroot: &Vec<Arc<root::Faction>>,
-        shipclassesroot: &Vec<Arc<root::ShipClass>>,
-        squadronclassesroot: &Vec<Arc<root::SquadronClass>>,
-    ) -> root::UnitRecord {
-        root::UnitRecord {
+        factionsroot: &Vec<Arc<export::Faction>>,
+        shipclassesroot: &Vec<Arc<export::ShipClass>>,
+        squadronclassesroot: &Vec<Arc<export::SquadronClass>>,
+    ) -> export::UnitRecord {
+        export::UnitRecord {
             id: self.id,
             visible_name: self.visible_name.clone(),
             class: self.class.rehydrate(shipclassesroot, squadronclassesroot),
@@ -1870,27 +1878,27 @@ pub enum ObjectiveTarget {
 }
 
 impl ObjectiveTarget {
-    pub fn desiccate(self_entity: &root::ObjectiveTarget) -> ObjectiveTarget {
+    pub fn desiccate(self_entity: &export::ObjectiveTarget) -> ObjectiveTarget {
         match self_entity {
-            root::ObjectiveTarget::Node(node) => ObjectiveTarget::Node(node.id),
-            root::ObjectiveTarget::System(system) => ObjectiveTarget::System(system.id),
-            root::ObjectiveTarget::Unit(unit) => ObjectiveTarget::Unit(Unit::desiccate(unit)),
+            export::ObjectiveTarget::Node(node) => ObjectiveTarget::Node(node.id),
+            export::ObjectiveTarget::System(system) => ObjectiveTarget::System(system.id),
+            export::ObjectiveTarget::Unit(unit) => ObjectiveTarget::Unit(Unit::desiccate(unit)),
         }
     }
     pub fn rehydrate(
         &self,
-        nodesroot: &Vec<Arc<root::Node>>,
-        systemsroot: &Vec<Arc<root::System>>,
-        shipsroot: &Vec<Arc<root::Ship>>,
-        squadronsroot: &Vec<Arc<root::Squadron>>,
-    ) -> root::ObjectiveTarget {
+        nodesroot: &Vec<Arc<export::Node>>,
+        systemsroot: &Vec<Arc<export::System>>,
+        shipsroot: &Vec<Arc<export::Ship>>,
+        squadronsroot: &Vec<Arc<export::Squadron>>,
+    ) -> export::ObjectiveTarget {
         match self {
-            ObjectiveTarget::Node(node) => root::ObjectiveTarget::Node(nodesroot[*node].clone()),
+            ObjectiveTarget::Node(node) => export::ObjectiveTarget::Node(nodesroot[*node].clone()),
             ObjectiveTarget::System(system) => {
-                root::ObjectiveTarget::System(systemsroot[*system].clone())
+                export::ObjectiveTarget::System(systemsroot[*system].clone())
             }
             ObjectiveTarget::Unit(unit) => {
-                root::ObjectiveTarget::Unit(unit.rehydrate(shipsroot, squadronsroot))
+                export::ObjectiveTarget::Unit(unit.rehydrate(shipsroot, squadronsroot))
             }
         }
     }
@@ -1899,7 +1907,7 @@ impl ObjectiveTarget {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Objective {
     pub target: ObjectiveTarget,
-    pub task: root::ObjectiveTask,
+    pub task: export::ObjectiveTask,
     pub fraction: Option<f32>,
     pub duration: Option<u64>,
     pub time_limit: Option<u64>,
@@ -1912,7 +1920,7 @@ pub struct Objective {
 }
 
 impl Objective {
-    pub fn desiccate(self_entity: &root::Objective) -> Objective {
+    pub fn desiccate(self_entity: &export::Objective) -> Objective {
         Objective {
             target: ObjectiveTarget::desiccate(&self_entity.target),
             task: self_entity.task,
@@ -1929,12 +1937,12 @@ impl Objective {
     }
     pub fn rehydrate(
         &self,
-        nodesroot: &Vec<Arc<root::Node>>,
-        systemsroot: &Vec<Arc<root::System>>,
-        shipsroot: &Vec<Arc<root::Ship>>,
-        squadronsroot: &Vec<Arc<root::Squadron>>,
-    ) -> root::Objective {
-        root::Objective {
+        nodesroot: &Vec<Arc<export::Node>>,
+        systemsroot: &Vec<Arc<export::System>>,
+        shipsroot: &Vec<Arc<export::Ship>>,
+        squadronsroot: &Vec<Arc<export::Squadron>>,
+    ) -> export::Objective {
+        export::Objective {
             target: self
                 .target
                 .rehydrate(nodesroot, systemsroot, shipsroot, squadronsroot),
@@ -1959,7 +1967,7 @@ pub struct Operation {
 }
 
 impl Operation {
-    pub fn desiccate(self_entity: &root::Operation) -> Operation {
+    pub fn desiccate(self_entity: &export::Operation) -> Operation {
         Operation {
             visible_name: self_entity.visible_name.clone(),
             objectives: self_entity
@@ -1971,12 +1979,12 @@ impl Operation {
     }
     pub fn rehydrate(
         &self,
-        nodesroot: &Vec<Arc<root::Node>>,
-        systemsroot: &Vec<Arc<root::System>>,
-        shipsroot: &Vec<Arc<root::Ship>>,
-        squadronsroot: &Vec<Arc<root::Squadron>>,
-    ) -> root::Operation {
-        root::Operation {
+        nodesroot: &Vec<Arc<export::Node>>,
+        systemsroot: &Vec<Arc<export::System>>,
+        shipsroot: &Vec<Arc<export::Ship>>,
+        squadronsroot: &Vec<Arc<export::Squadron>>,
+    ) -> export::Operation {
+        export::Operation {
             visible_name: self.visible_name.clone(),
             objectives: self
                 .objectives
@@ -1994,7 +2002,7 @@ pub struct FactionForcesRecord {
 }
 
 impl FactionForcesRecord {
-    pub fn desiccate(self_entity: &root::FactionForcesRecord) -> FactionForcesRecord {
+    pub fn desiccate(self_entity: &export::FactionForcesRecord) -> FactionForcesRecord {
         FactionForcesRecord {
             local_forces: self_entity
                 .local_forces
@@ -2023,15 +2031,15 @@ impl FactionForcesRecord {
     }
     pub fn rehydrate(
         &self,
-        nodesroot: &Vec<Arc<root::Node>>,
-        factionsroot: &Vec<Arc<root::Faction>>,
-        shipclassesroot: &Vec<Arc<root::ShipClass>>,
-        squadronclassesroot: &Vec<Arc<root::SquadronClass>>,
-        shipsroot: &Vec<Arc<root::Ship>>,
-        squadronsroot: &Vec<Arc<root::Squadron>>,
-        hangarslist: &Vec<Arc<root::Hangar>>,
-    ) -> root::FactionForcesRecord {
-        root::FactionForcesRecord {
+        nodesroot: &Vec<Arc<export::Node>>,
+        factionsroot: &Vec<Arc<export::Faction>>,
+        shipclassesroot: &Vec<Arc<export::ShipClass>>,
+        squadronclassesroot: &Vec<Arc<export::SquadronClass>>,
+        shipsroot: &Vec<Arc<export::Ship>>,
+        squadronsroot: &Vec<Arc<export::Squadron>>,
+        hangarslist: &Vec<Arc<export::Hangar>>,
+    ) -> export::FactionForcesRecord {
+        export::FactionForcesRecord {
             local_forces: self
                 .local_forces
                 .iter()
@@ -2078,7 +2086,7 @@ pub struct UnitStatus {
 }
 
 impl UnitStatus {
-    pub fn desiccate(self_entity: &root::UnitStatus) -> UnitStatus {
+    pub fn desiccate(self_entity: &export::UnitStatus) -> UnitStatus {
         UnitStatus {
             location: self_entity
                 .location
@@ -2091,11 +2099,11 @@ impl UnitStatus {
     }
     pub fn rehydrate(
         &self,
-        nodesroot: &Vec<Arc<root::Node>>,
-        squadronsroot: &Vec<Arc<root::Squadron>>,
-        hangarslist: &Vec<Arc<root::Hangar>>,
-    ) -> root::UnitStatus {
-        root::UnitStatus {
+        nodesroot: &Vec<Arc<export::Node>>,
+        squadronsroot: &Vec<Arc<export::Squadron>>,
+        hangarslist: &Vec<Arc<export::Hangar>>,
+    ) -> export::UnitStatus {
+        export::UnitStatus {
             location: self
                 .location
                 .clone()
@@ -2120,7 +2128,7 @@ pub struct EngagementRecord {
 }
 
 impl EngagementRecord {
-    pub fn desiccate(self_entity: &root::EngagementRecord) -> EngagementRecord {
+    pub fn desiccate(self_entity: &export::EngagementRecord) -> EngagementRecord {
         EngagementRecord {
             visible_name: self_entity.visible_name.clone(),
             turn: self_entity.turn,
@@ -2157,16 +2165,16 @@ impl EngagementRecord {
     }
     pub fn rehydrate(
         &self,
-        nodesroot: &Vec<Arc<root::Node>>,
-        systemsroot: &Vec<Arc<root::System>>,
-        factionsroot: &Vec<Arc<root::Faction>>,
-        shipclassesroot: &Vec<Arc<root::ShipClass>>,
-        squadronclassesroot: &Vec<Arc<root::SquadronClass>>,
-        shipsroot: &Vec<Arc<root::Ship>>,
-        squadronsroot: &Vec<Arc<root::Squadron>>,
-        hangarslist: &Vec<Arc<root::Hangar>>,
-    ) -> root::EngagementRecord {
-        root::EngagementRecord {
+        nodesroot: &Vec<Arc<export::Node>>,
+        systemsroot: &Vec<Arc<export::System>>,
+        factionsroot: &Vec<Arc<export::Faction>>,
+        shipclassesroot: &Vec<Arc<export::ShipClass>>,
+        squadronclassesroot: &Vec<Arc<export::SquadronClass>>,
+        shipsroot: &Vec<Arc<export::Ship>>,
+        squadronsroot: &Vec<Arc<export::Squadron>>,
+        hangarslist: &Vec<Arc<export::Hangar>>,
+    ) -> export::EngagementRecord {
+        export::EngagementRecord {
             visible_name: self.visible_name.clone(),
             turn: self.turn,
             coalitions: self
@@ -2226,7 +2234,7 @@ pub struct GlobalSalience {
 }
 
 impl GlobalSalience {
-    fn desiccate(self_entity: &root::GlobalSalience) -> GlobalSalience {
+    fn desiccate(self_entity: &export::GlobalSalience) -> GlobalSalience {
         GlobalSalience {
             faction_salience: self_entity.faction_salience.read().unwrap().clone(),
             resource_salience: self_entity.resource_salience.read().unwrap().clone(),
@@ -2238,8 +2246,8 @@ impl GlobalSalience {
                 .clone(),
         }
     }
-    fn rehydrate(&self) -> root::GlobalSalience {
-        root::GlobalSalience {
+    fn rehydrate(&self) -> export::GlobalSalience {
+        export::GlobalSalience {
             faction_salience: RwLock::new(self.faction_salience.clone()),
             resource_salience: RwLock::new(self.resource_salience.clone()),
             unitclass_salience: RwLock::new(self.unitclass_salience.clone()),
@@ -2250,27 +2258,27 @@ impl GlobalSalience {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Root {
-    pub config: root::Config,
-    pub nodeflavors: Vec<root::NodeFlavor>,
+    pub config: export::Config,
+    pub nodeflavors: Vec<export::NodeFlavor>,
     pub nodes: Vec<Node>,
     pub systems: Vec<System>,
-    pub edgeflavors: Vec<root::EdgeFlavor>,
+    pub edgeflavors: Vec<export::EdgeFlavor>,
     pub edges: HashMap<(usize, usize), usize>,
     pub neighbors: HashMap<usize, Vec<usize>>,
-    pub factions: Vec<root::Faction>,
+    pub factions: Vec<export::Faction>,
     pub wars: HashSet<(usize, usize)>,
-    pub resources: Vec<root::Resource>,
-    pub hangarclasses: Vec<root::HangarClass>,
+    pub resources: Vec<export::Resource>,
+    pub hangarclasses: Vec<export::HangarClass>,
     pub hangarcounter: u64,
     pub engineclasses: Vec<EngineClass>,
     pub repairerclasses: Vec<RepairerClass>,
     pub strategicweaponclasses: Vec<StrategicWeaponClass>,
     pub factoryclasses: Vec<FactoryClass>,
     pub shipyardclasses: Vec<ShipyardClass>,
-    pub subsystemclasses: Vec<root::SubsystemClass>,
+    pub subsystemclasses: Vec<export::SubsystemClass>,
     pub shipais: Vec<ShipAI>,
-    pub shipflavors: Vec<root::ShipFlavor>,
-    pub squadronflavors: Vec<root::SquadronFlavor>,
+    pub shipflavors: Vec<export::ShipFlavor>,
+    pub squadronflavors: Vec<export::SquadronFlavor>,
     pub shipclasses: Vec<ShipClass>,
     pub squadronclasses: Vec<SquadronClass>,
     pub ships: Vec<Ship>,
@@ -2282,7 +2290,7 @@ pub struct Root {
 }
 
 impl Root {
-    pub fn desiccate(self_entity: &root::Root) -> Root {
+    pub fn desiccate(self_entity: &export::Root) -> Root {
         Root {
             config: self_entity.config.clone(),
             nodeflavors: self_entity
@@ -2417,7 +2425,7 @@ impl Root {
             turn: self_entity.turn.load(atomic::Ordering::Relaxed),
         }
     }
-    pub fn rehydrate(mut self) -> root::Root {
+    pub fn rehydrate(mut self) -> export::Root {
         let config = self.config.clone();
         let nodeflavors = self.nodeflavors.drain(0..).map(|x| Arc::new(x)).collect();
         let edgeflavors = self.edgeflavors.drain(0..).map(|x| Arc::new(x)).collect();
@@ -2534,7 +2542,7 @@ impl Root {
                 )
             })
             .collect();
-        let ships: RwLock<Vec<Arc<root::Ship>>> = RwLock::new(
+        let ships: RwLock<Vec<Arc<export::Ship>>> = RwLock::new(
             self.ships
                 .iter()
                 .map(|x| {
@@ -2629,7 +2637,7 @@ impl Root {
         let globalsalience = self.globalsalience.rehydrate();
         let turn = Arc::new(AtomicU64::new(self.turn));
 
-        root::Root {
+        export::Root {
             config,
             nodeflavors,
             nodes,

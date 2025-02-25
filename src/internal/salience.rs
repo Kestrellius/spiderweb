@@ -1,8 +1,8 @@
-use crate::faction::{Faction, FactionID};
-use crate::node::{Locality, Node};
-use crate::resource::{Resource, ResourceProcess};
-use crate::root::Root;
-use crate::unit::{Mobility, ShipClass, SquadronClass, UnitClass};
+use crate::internal::faction::{Faction, FactionID};
+use crate::internal::node::{Locality, Node};
+use crate::internal::resource::{Resource, ResourceProcess};
+use crate::internal::root::Root;
+use crate::internal::unit::{Mobility, ShipClass, SquadronClass, UnitClass};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

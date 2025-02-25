@@ -1,7 +1,7 @@
-use crate::faction::Faction;
-use crate::node::{Locality, Node};
-use crate::root::{Objective, Root};
-use crate::unit::{Mobility, Unit, UnitClass, UnitLocation};
+use crate::internal::faction::Faction;
+use crate::internal::node::{Locality, Node};
+use crate::internal::root::{Objective, Root};
+use crate::internal::unit::{Mobility, Unit, UnitClass, UnitLocation};
 use rand::prelude::*;
 use rand_distr::*;
 use rand_hc::Hc128Rng;

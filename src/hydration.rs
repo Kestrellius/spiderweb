@@ -1,5 +1,5 @@
 //this is the section of the program that manages the json files defined by the modder
-use crate::root;
+use crate::internal::export;
 use itertools::Itertools;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -16,8 +16,8 @@ struct Config {
 }
 
 impl Config {
-    fn hydrate(self) -> root::Config {
-        root::Config {
+    fn hydrate(self) -> export::Config {
+        export::Config {
             salience_scalars: self.salience_scalars.hydrate(),
             entity_scalars: self.entity_scalars.hydrate(),
             battle_scalars: self.battle_scalars.hydrate(),
@@ -37,8 +37,8 @@ struct SalienceScalars {
 }
 
 impl SalienceScalars {
-    fn hydrate(self) -> root::SalienceScalars {
-        root::SalienceScalars {
+    fn hydrate(self) -> export::SalienceScalars {
+        export::SalienceScalars {
             faction_deg_mult: self.faction_deg_mult.unwrap_or(0.5),
             resource_deg_mult: self.resource_deg_mult.unwrap_or(0.5),
             unitclass_deg_mult: self.unitclass_deg_mult.unwrap_or(0.5),
@@ -59,8 +59,8 @@ struct EntityScalars {
 }
 
 impl EntityScalars {
-    fn hydrate(self) -> root::EntityScalars {
-        root::EntityScalars {
+    fn hydrate(self) -> export::EntityScalars {
+        export::EntityScalars {
             avg_speed: self.avg_speed.unwrap_or(1),
             defect_escape_scalar: self.defect_escape_scalar.unwrap_or(1.0),
             victor_morale_scalar: self.victor_morale_scalar.unwrap_or(1.0),
@@ -86,8 +86,8 @@ struct BattleScalars {
 }
 
 impl BattleScalars {
-    fn hydrate(self) -> root::BattleScalars {
-        root::BattleScalars {
+    fn hydrate(self) -> export::BattleScalars {
+        export::BattleScalars {
             avg_duration: self.avg_duration.unwrap_or(600),
             duration_log_exp: self.duration_log_exp.unwrap_or(1.0025),
             duration_dev: self.duration_dev.unwrap_or(0.25),
@@ -112,8 +112,8 @@ struct NodeFlavor {
 }
 
 impl NodeFlavor {
-    fn hydrate(self, index: usize) -> root::NodeFlavor {
-        root::NodeFlavor {
+    fn hydrate(self, index: usize) -> export::NodeFlavor {
+        export::NodeFlavor {
             id: index,
             visible_name: self.visible_name,
             description: self.description,
@@ -179,12 +179,12 @@ impl Node {
         index: usize,
         rng: &mut R,
         nodetemplates: &Vec<NodeTemplate>,
-        nodeflavor_id_map: &HashMap<String, Arc<root::NodeFlavor>>,
-        factions: &HashMap<String, Arc<root::Faction>>,
-        factoryclass_id_map: &HashMap<String, Arc<root::FactoryClass>>,
-        shipyardclass_id_map: &HashMap<String, Arc<root::ShipyardClass>>,
-        shipclasses: &Vec<Arc<root::ShipClass>>,
-    ) -> root::Node {
+        nodeflavor_id_map: &HashMap<String, Arc<export::NodeFlavor>>,
+        factions: &HashMap<String, Arc<export::Faction>>,
+        factoryclass_id_map: &HashMap<String, Arc<export::FactoryClass>>,
+        shipyardclass_id_map: &HashMap<String, Arc<export::ShipyardClass>>,
+        shipclasses: &Vec<Arc<export::ShipClass>>,
+    ) -> export::Node {
         let template = nodetemplates
             .iter()
             .find(|t| t.id == self.template)
@@ -201,7 +201,7 @@ impl Node {
             }))
             .expect("Allegiance field is not correctly defined!")
             .clone();
-        let node = root::Node {
+        let node = export::Node {
             id: index,
             visible_name: self
                 .visible_name
@@ -236,7 +236,7 @@ impl Node {
                         .clone()
                 }),
             },
-            mutables: RwLock::new(root::NodeMut {
+            mutables: RwLock::new(export::NodeMut {
                 visibility: self.visibility.unwrap_or(template.visibility),
                 flavor: nodeflavor_id_map
                     .get(&self.flavor.clone().unwrap_or({
@@ -253,7 +253,7 @@ impl Node {
                     Some(list) => list
                         .iter()
                         .map(|stringid| {
-                            root::FactoryClass::instantiate(
+                            export::FactoryClass::instantiate(
                                 factoryclass_id_map
                                     .get(stringid)
                                     .expect(&format!(
@@ -275,7 +275,7 @@ impl Node {
                                 .iter()
                                 .filter(|_| rng.gen_range(0.0..1.0) < *factor)
                                 .map(|_| {
-                                    root::FactoryClass::instantiate(
+                                    export::FactoryClass::instantiate(
                                         factoryclass_id_map
                                             .get(stringid)
                                             .expect(&format!(
@@ -294,7 +294,7 @@ impl Node {
                     Some(list) => list
                         .iter()
                         .map(|stringid| {
-                            root::ShipyardClass::instantiate(
+                            export::ShipyardClass::instantiate(
                                 shipyardclass_id_map
                                     .get(stringid)
                                     .expect(&format!(
@@ -317,7 +317,7 @@ impl Node {
                                 .iter()
                                 .filter(|_| rng.gen_range(0.0..1.0) < *factor)
                                 .map(|_| {
-                                    root::ShipyardClass::instantiate(
+                                    export::ShipyardClass::instantiate(
                                         shipyardclass_id_map
                                             .get(stringid)
                                             .expect(&format!(
@@ -349,7 +349,7 @@ impl Node {
                 resources_transacted: false,
                 units_transacted: false,
             }),
-            unit_container: RwLock::new(root::UnitContainer {
+            unit_container: RwLock::new(export::UnitContainer {
                 contents: Vec::new(),
             }),
         };
@@ -367,8 +367,12 @@ struct System {
 }
 
 impl System {
-    fn hydrate(self, index: usize, node_id_map: &HashMap<String, Arc<root::Node>>) -> root::System {
-        let rootsystem = root::System {
+    fn hydrate(
+        self,
+        index: usize,
+        node_id_map: &HashMap<String, Arc<export::Node>>,
+    ) -> export::System {
+        let rootsystem = export::System {
             id: index,
             visible_name: self.visible_name,
             description: self.description,
@@ -392,8 +396,8 @@ pub struct EdgeFlavor {
 }
 
 impl EdgeFlavor {
-    fn hydrate(self, index: usize) -> root::EdgeFlavor {
-        root::EdgeFlavor {
+    fn hydrate(self, index: usize) -> export::EdgeFlavor {
+        export::EdgeFlavor {
             id: index,
             visible_name: self.visible_name,
             description: self.description,
@@ -422,9 +426,9 @@ impl Faction {
     fn hydrate(
         self,
         index: usize,
-        faction_id_map: &HashMap<String, root::FactionID>,
-    ) -> root::Faction {
-        let faction = root::Faction {
+        faction_id_map: &HashMap<String, export::FactionID>,
+    ) -> export::Faction {
+        let faction = export::Faction {
             id: index,
             visible_name: self.visible_name,
             description: self.description,
@@ -457,8 +461,8 @@ struct Resource {
 }
 
 impl Resource {
-    fn hydrate(self, index: usize) -> root::Resource {
-        let resource = root::Resource {
+    fn hydrate(self, index: usize) -> export::Resource {
+        let resource = export::Resource {
             id: index,
             visible_name: self.visible_name,
             description: self.description,
@@ -485,9 +489,9 @@ pub struct UnipotentStockpile {
 impl UnipotentStockpile {
     fn hydrate(
         self,
-        resource_id_map: &HashMap<String, Arc<root::Resource>>,
-    ) -> root::UnipotentStockpile {
-        let stockpile = root::UnipotentStockpile {
+        resource_id_map: &HashMap<String, Arc<export::Resource>>,
+    ) -> export::UnipotentStockpile {
+        let stockpile = export::UnipotentStockpile {
             visibility: self.visibility.unwrap_or(true),
             resource_type: resource_id_map
                 .get(&self.resource_type)
@@ -516,9 +520,9 @@ pub struct PluripotentStockpile {
 impl PluripotentStockpile {
     fn hydrate(
         mut self,
-        resource_id_map: &HashMap<String, Arc<root::Resource>>,
-    ) -> root::PluripotentStockpile {
-        let stockpile = root::PluripotentStockpile {
+        resource_id_map: &HashMap<String, Arc<export::Resource>>,
+    ) -> export::PluripotentStockpile {
+        let stockpile = export::PluripotentStockpile {
             visibility: self.visibility.unwrap_or(true),
             contents: self
                 .contents
@@ -574,10 +578,10 @@ impl HangarClass {
     fn hydrate(
         mut self,
         index: usize,
-        shipclass_id_map: &HashMap<String, root::ShipClassID>,
-        squadronclass_id_map: &HashMap<String, root::SquadronClassID>,
-    ) -> root::HangarClass {
-        let hangarclass = root::HangarClass {
+        shipclass_id_map: &HashMap<String, export::ShipClassID>,
+        squadronclass_id_map: &HashMap<String, export::SquadronClassID>,
+    ) -> export::HangarClass {
+        let hangarclass = export::HangarClass {
             id: index,
             visible_name: self.visible_name,
             description: self.description,
@@ -589,9 +593,11 @@ impl HangarClass {
                     .iter()
                     .map(|x| {
                         if let Some(shipclassid) = shipclass_id_map.get(x) {
-                            root::UnitClassID::ShipClass(*shipclassid)
+                            export::UnitClassID::ShipClass(*shipclassid)
                         } else {
-                            root::UnitClassID::SquadronClass(*squadronclass_id_map.get(x).unwrap())
+                            export::UnitClassID::SquadronClass(
+                                *squadronclass_id_map.get(x).unwrap(),
+                            )
                         }
                     })
                     .collect()
@@ -603,9 +609,9 @@ impl HangarClass {
                     (
                         {
                             if let Some(shipclassid) = shipclass_id_map.get(&k) {
-                                root::UnitClassID::ShipClass(*shipclassid)
+                                export::UnitClassID::ShipClass(*shipclassid)
                             } else {
-                                root::UnitClassID::SquadronClass(
+                                export::UnitClassID::SquadronClass(
                                     *squadronclass_id_map.get(&k).unwrap(),
                                 )
                             }
@@ -644,11 +650,11 @@ impl EngineClass {
     fn hydrate(
         mut self,
         index: usize,
-        resource_id_map: &HashMap<String, Arc<root::Resource>>,
-        nodeflavor_id_map: &HashMap<String, Arc<root::NodeFlavor>>,
-        edgeflavor_id_map: &HashMap<String, Arc<root::EdgeFlavor>>,
-    ) -> root::EngineClass {
-        root::EngineClass {
+        resource_id_map: &HashMap<String, Arc<export::Resource>>,
+        nodeflavor_id_map: &HashMap<String, Arc<export::NodeFlavor>>,
+        edgeflavor_id_map: &HashMap<String, Arc<export::EdgeFlavor>>,
+    ) -> export::EngineClass {
+        export::EngineClass {
             id: index,
             visible_name: self.visible_name,
             description: self.description,
@@ -700,9 +706,9 @@ impl RepairerClass {
     fn hydrate(
         mut self,
         index: usize,
-        resource_id_map: &HashMap<String, Arc<root::Resource>>,
-    ) -> root::RepairerClass {
-        let repairerclass = root::RepairerClass {
+        resource_id_map: &HashMap<String, Arc<export::Resource>>,
+    ) -> export::RepairerClass {
+        let repairerclass = export::RepairerClass {
             id: index,
             visible_name: self.visible_name,
             description: self.description,
@@ -752,13 +758,13 @@ impl StrategicWeaponClass {
     fn hydrate(
         mut self,
         index: usize,
-        resource_id_map: &HashMap<String, Arc<root::Resource>>,
-        nodeflavor_id_map: &HashMap<String, Arc<root::NodeFlavor>>,
-        edgeflavor_id_map: &HashMap<String, Arc<root::EdgeFlavor>>,
-        shipflavor_id_map: &HashMap<String, Arc<root::ShipFlavor>>,
-        shipclass_id_map: &HashMap<String, root::ShipClassID>,
-    ) -> root::StrategicWeaponClass {
-        root::StrategicWeaponClass {
+        resource_id_map: &HashMap<String, Arc<export::Resource>>,
+        nodeflavor_id_map: &HashMap<String, Arc<export::NodeFlavor>>,
+        edgeflavor_id_map: &HashMap<String, Arc<export::EdgeFlavor>>,
+        shipflavor_id_map: &HashMap<String, Arc<export::ShipFlavor>>,
+        shipclass_id_map: &HashMap<String, export::ShipClassID>,
+    ) -> export::StrategicWeaponClass {
+        export::StrategicWeaponClass {
             id: index,
             visible_name: self.visible_name.clone(),
             description: self.description.clone(),
@@ -825,9 +831,9 @@ impl FactoryClass {
     fn hydrate(
         mut self,
         index: usize,
-        resource_id_map: &HashMap<String, Arc<root::Resource>>,
-    ) -> root::FactoryClass {
-        let factoryclass = root::FactoryClass {
+        resource_id_map: &HashMap<String, Arc<export::Resource>>,
+    ) -> export::FactoryClass {
+        let factoryclass = export::FactoryClass {
             id: index,
             visible_name: self.visible_name,
             description: self.description,
@@ -863,10 +869,10 @@ impl ShipyardClass {
     fn hydrate(
         mut self,
         index: usize,
-        resource_id_map: &HashMap<String, Arc<root::Resource>>,
-        shipclass_id_map: &HashMap<String, root::ShipClassID>,
-    ) -> root::ShipyardClass {
-        let shipyardclass = root::ShipyardClass {
+        resource_id_map: &HashMap<String, Arc<export::Resource>>,
+        shipclass_id_map: &HashMap<String, export::ShipClassID>,
+    ) -> export::ShipyardClass {
+        let shipyardclass = export::ShipyardClass {
             id: index,
             visible_name: self.visible_name,
             description: self.description,
@@ -899,8 +905,8 @@ pub struct SubsystemClass {
 }
 
 impl SubsystemClass {
-    fn hydrate(self, index: usize) -> root::SubsystemClass {
-        root::SubsystemClass {
+    fn hydrate(self, index: usize) -> export::SubsystemClass {
+        export::SubsystemClass {
             id: index,
             visible_name: self.visible_name,
             visibility: self.visibility.unwrap_or(true),
@@ -935,10 +941,10 @@ impl ShipAI {
     fn hydrate(
         self,
         index: usize,
-        resource_id_map: &HashMap<String, Arc<root::Resource>>,
-        shipclass_id_map: &HashMap<String, root::ShipClassID>,
-    ) -> root::ShipAI {
-        let shipai = root::ShipAI {
+        resource_id_map: &HashMap<String, Arc<export::Resource>>,
+        shipclass_id_map: &HashMap<String, export::ShipClassID>,
+    ) -> export::ShipAI {
+        let shipai = export::ShipAI {
             id: index,
             nav_threshold: self.nav_threshold.unwrap_or(1.0),
             ship_attract_specific: self.ship_attract_specific,
@@ -948,7 +954,7 @@ impl ShipAI {
                 .iter()
                 .map(|(stringid, v)| {
                     (
-                        root::UnitClassID::ShipClass(*shipclass_id_map.get(stringid).unwrap()),
+                        export::UnitClassID::ShipClass(*shipclass_id_map.get(stringid).unwrap()),
                         *v,
                     )
                 })
@@ -983,8 +989,8 @@ pub struct ShipFlavor {
 }
 
 impl ShipFlavor {
-    fn hydrate(self, index: usize) -> root::ShipFlavor {
-        root::ShipFlavor {
+    fn hydrate(self, index: usize) -> export::ShipFlavor {
+        export::ShipFlavor {
             id: index,
             visible_name: self.visible_name.clone(),
             description: self.description.clone(),
@@ -1030,20 +1036,20 @@ struct ShipClass {
 impl ShipClass {
     fn hydrate(
         &self,
-        shipclass_id_map: &HashMap<String, root::ShipClassID>,
-        shipflavor_id_map: &HashMap<String, Arc<root::ShipFlavor>>,
-        resource_id_map: &HashMap<String, Arc<root::Resource>>,
-        hangarclass_id_map: &HashMap<String, Arc<root::HangarClass>>,
-        engineclass_id_map: &HashMap<String, Arc<root::EngineClass>>,
-        repairerclass_id_map: &HashMap<String, Arc<root::RepairerClass>>,
-        strategicweaponclass_id_map: &HashMap<String, Arc<root::StrategicWeaponClass>>,
-        factoryclass_id_map: &HashMap<String, Arc<root::FactoryClass>>,
-        shipyardclass_id_map: &HashMap<String, Arc<root::ShipyardClass>>,
-        subsystemclass_id_map: &HashMap<String, Arc<root::SubsystemClass>>,
-        shipai_id_map: &HashMap<String, Arc<root::ShipAI>>,
-        factions: &HashMap<String, Arc<root::Faction>>,
-    ) -> root::ShipClass {
-        let shipclass = root::ShipClass {
+        shipclass_id_map: &HashMap<String, export::ShipClassID>,
+        shipflavor_id_map: &HashMap<String, Arc<export::ShipFlavor>>,
+        resource_id_map: &HashMap<String, Arc<export::Resource>>,
+        hangarclass_id_map: &HashMap<String, Arc<export::HangarClass>>,
+        engineclass_id_map: &HashMap<String, Arc<export::EngineClass>>,
+        repairerclass_id_map: &HashMap<String, Arc<export::RepairerClass>>,
+        strategicweaponclass_id_map: &HashMap<String, Arc<export::StrategicWeaponClass>>,
+        factoryclass_id_map: &HashMap<String, Arc<export::FactoryClass>>,
+        shipyardclass_id_map: &HashMap<String, Arc<export::ShipyardClass>>,
+        subsystemclass_id_map: &HashMap<String, Arc<export::SubsystemClass>>,
+        shipai_id_map: &HashMap<String, Arc<export::ShipAI>>,
+        factions: &HashMap<String, Arc<export::Faction>>,
+    ) -> export::ShipClass {
+        let shipclass = export::ShipClass {
             id: shipclass_id_map.get(&self.id).unwrap().index,
             visible_name: self.visible_name.clone(),
             description: self.description.clone(),
@@ -1189,8 +1195,8 @@ pub struct SquadronFlavor {
 }
 
 impl SquadronFlavor {
-    fn hydrate(self, index: usize) -> root::SquadronFlavor {
-        root::SquadronFlavor {
+    fn hydrate(self, index: usize) -> export::SquadronFlavor {
+        export::SquadronFlavor {
             id: index,
             visible_name: self.visible_name.clone(),
             description: self.description.clone(),
@@ -1249,14 +1255,14 @@ impl SquadronClass {
     fn hydrate(
         &self,
         index: usize,
-        shipclass_id_map: &HashMap<String, root::ShipClassID>,
-        squadronclass_id_map: &HashMap<String, root::SquadronClassID>,
-        squadronflavor_id_map: &HashMap<String, Arc<root::SquadronFlavor>>,
-        factions: &HashMap<String, Arc<root::Faction>>,
+        shipclass_id_map: &HashMap<String, export::ShipClassID>,
+        squadronclass_id_map: &HashMap<String, export::SquadronClassID>,
+        squadronflavor_id_map: &HashMap<String, Arc<export::SquadronFlavor>>,
+        factions: &HashMap<String, Arc<export::Faction>>,
         shipclasses: &Vec<ShipClass>,
         squadronclasses: &Vec<SquadronClass>,
-    ) -> root::SquadronClass {
-        let squadronclass = root::SquadronClass {
+    ) -> export::SquadronClass {
+        let squadronclass = export::SquadronClass {
             id: index,
             visible_name: self.visible_name.clone(),
             description: self.description.clone(),
@@ -1278,9 +1284,11 @@ impl SquadronClass {
                     .iter()
                     .map(|x| {
                         if let Some(shipclassid) = shipclass_id_map.get(x) {
-                            root::UnitClassID::ShipClass(*shipclassid)
+                            export::UnitClassID::ShipClass(*shipclassid)
                         } else {
-                            root::UnitClassID::SquadronClass(*squadronclass_id_map.get(x).unwrap())
+                            export::UnitClassID::SquadronClass(
+                                *squadronclass_id_map.get(x).unwrap(),
+                            )
                         }
                     })
                     .collect()
@@ -1292,9 +1300,9 @@ impl SquadronClass {
                     (
                         {
                             if let Some(shipclassid) = shipclass_id_map.get(&stringid.clone()) {
-                                root::UnitClassID::ShipClass(*shipclassid)
+                                export::UnitClassID::ShipClass(*shipclassid)
                             } else {
-                                root::UnitClassID::SquadronClass(
+                                export::UnitClassID::SquadronClass(
                                     *squadronclass_id_map.get(&stringid.clone()).unwrap(),
                                 )
                             }
@@ -1355,38 +1363,38 @@ pub struct Root {
 
 impl Root {
     //hydration method
-    pub fn hydrate(mut self) -> root::Root {
+    pub fn hydrate(mut self) -> export::Root {
         let unitclasscounter = Arc::new(AtomicUsize::new(0));
 
         let config = self.config.hydrate();
 
-        let nodeflavor_id_map: HashMap<String, Arc<root::NodeFlavor>> = self
+        let nodeflavor_id_map: HashMap<String, Arc<export::NodeFlavor>> = self
             .nodeflavors
             .drain(0..)
             .enumerate()
             .map(|(i, nodeflavor)| (nodeflavor.id.clone(), Arc::new(nodeflavor.hydrate(i))))
             .collect();
 
-        let edgeflavor_id_map: HashMap<String, Arc<root::EdgeFlavor>> = self
+        let edgeflavor_id_map: HashMap<String, Arc<export::EdgeFlavor>> = self
             .edgeflavors
             .drain(0..)
             .enumerate()
             .map(|(i, edgeflavor)| (edgeflavor.id.clone(), Arc::new(edgeflavor.hydrate(i))))
             .collect();
 
-        let faction_id_map: HashMap<String, root::FactionID> = self
+        let faction_id_map: HashMap<String, export::FactionID> = self
             .factions
             .iter()
             .enumerate()
             .map(|(i, faction)| {
                 let stringid = faction.id.clone();
-                let kv_pair = (stringid, root::FactionID::new_from_index(i));
+                let kv_pair = (stringid, export::FactionID::new_from_index(i));
                 kv_pair
             })
             .collect();
 
         //fairly simple hydration process
-        let factions: HashMap<String, Arc<root::Faction>> = self
+        let factions: HashMap<String, Arc<export::Faction>> = self
             .factions
             .drain(0..)
             .enumerate()
@@ -1400,7 +1408,7 @@ impl Root {
             })
             .collect();
 
-        let wars: HashSet<(Arc<root::Faction>, Arc<root::Faction>)> = self
+        let wars: HashSet<(Arc<export::Faction>, Arc<export::Faction>)> = self
             .wars
             .iter()
             .map(|(a, b)| {
@@ -1412,14 +1420,14 @@ impl Root {
             .collect();
 
         //same sort of deal here
-        let resource_id_map: HashMap<String, Arc<root::Resource>> = self
+        let resource_id_map: HashMap<String, Arc<export::Resource>> = self
             .resources
             .drain(0..)
             .enumerate()
             .map(|(i, resource)| (resource.id.clone(), Arc::new(resource.hydrate(i))))
             .collect();
 
-        let engineclass_id_map: HashMap<String, Arc<root::EngineClass>> = self
+        let engineclass_id_map: HashMap<String, Arc<export::EngineClass>> = self
             .engineclasses
             .drain(0..)
             .enumerate()
@@ -1436,7 +1444,7 @@ impl Root {
             })
             .collect();
 
-        let repairerclass_id_map: HashMap<String, Arc<root::RepairerClass>> = self
+        let repairerclass_id_map: HashMap<String, Arc<export::RepairerClass>> = self
             .repairerclasses
             .drain(0..)
             .enumerate()
@@ -1448,7 +1456,7 @@ impl Root {
             })
             .collect();
 
-        let factoryclass_id_map: HashMap<String, Arc<root::FactoryClass>> = self
+        let factoryclass_id_map: HashMap<String, Arc<export::FactoryClass>> = self
             .factoryclasses
             .drain(0..)
             .enumerate()
@@ -1460,7 +1468,7 @@ impl Root {
             })
             .collect();
 
-        let subsystemclass_id_map: HashMap<String, Arc<root::SubsystemClass>> = self
+        let subsystemclass_id_map: HashMap<String, Arc<export::SubsystemClass>> = self
             .subsystemclasses
             .drain(0..)
             .enumerate()
@@ -1508,32 +1516,33 @@ impl Root {
         };
 
         //here we create the shipclass_id_map, put the dummy ship class inside it, and then insert all the actual ship classes
-        let shipclass_id_map: HashMap<String, root::ShipClassID> = iter::once(&generic_demand_ship)
-            .chain(self.shipclasses.iter())
-            .map(|shipclass| {
-                (
-                    shipclass.id.clone(),
-                    root::ShipClassID::new_from_index(
-                        unitclasscounter.fetch_add(1, atomic::Ordering::Relaxed),
-                    ),
-                )
-            })
-            .collect();
+        let shipclass_id_map: HashMap<String, export::ShipClassID> =
+            iter::once(&generic_demand_ship)
+                .chain(self.shipclasses.iter())
+                .map(|shipclass| {
+                    (
+                        shipclass.id.clone(),
+                        export::ShipClassID::new_from_index(
+                            unitclasscounter.fetch_add(1, atomic::Ordering::Relaxed),
+                        ),
+                    )
+                })
+                .collect();
 
-        let squadronclass_id_map: HashMap<String, root::SquadronClassID> = self
+        let squadronclass_id_map: HashMap<String, export::SquadronClassID> = self
             .squadronclasses
             .iter()
             .map(|squadronclass| {
                 (
                     squadronclass.id.clone(),
-                    root::SquadronClassID::new_from_index(
+                    export::SquadronClassID::new_from_index(
                         unitclasscounter.fetch_add(1, atomic::Ordering::Relaxed),
                     ),
                 )
             })
             .collect();
 
-        let hangarclass_id_map: HashMap<String, Arc<root::HangarClass>> = self
+        let hangarclass_id_map: HashMap<String, Arc<export::HangarClass>> = self
             .hangarclasses
             .drain(0..)
             .enumerate()
@@ -1545,7 +1554,7 @@ impl Root {
             })
             .collect();
 
-        let shipyardclass_id_map: HashMap<String, Arc<root::ShipyardClass>> = self
+        let shipyardclass_id_map: HashMap<String, Arc<export::ShipyardClass>> = self
             .shipyardclasses
             .drain(0..)
             .enumerate()
@@ -1557,7 +1566,7 @@ impl Root {
             })
             .collect();
 
-        let shipai_id_map: HashMap<String, Arc<root::ShipAI>> = self
+        let shipai_id_map: HashMap<String, Arc<export::ShipAI>> = self
             .shipais
             .drain(0..)
             .enumerate()
@@ -1569,14 +1578,14 @@ impl Root {
             })
             .collect();
 
-        let shipflavor_id_map: HashMap<String, Arc<root::ShipFlavor>> = self
+        let shipflavor_id_map: HashMap<String, Arc<export::ShipFlavor>> = self
             .shipflavors
             .drain(0..)
             .enumerate()
             .map(|(i, shipflavor)| (shipflavor.id.clone(), Arc::new(shipflavor.hydrate(i))))
             .collect();
 
-        let strategicweaponclass_id_map: HashMap<String, Arc<root::StrategicWeaponClass>> = self
+        let strategicweaponclass_id_map: HashMap<String, Arc<export::StrategicWeaponClass>> = self
             .strategicweaponclasses
             .drain(0..)
             .enumerate()
@@ -1596,7 +1605,7 @@ impl Root {
             .collect();
 
         //we hydrate shipclasses, starting with the generic demand ship
-        let shipclasses: Vec<Arc<root::ShipClass>> = iter::once(&generic_demand_ship)
+        let shipclasses: Vec<Arc<export::ShipClass>> = iter::once(&generic_demand_ship)
             .chain(self.shipclasses.iter())
             .map(|shipclass| {
                 Arc::new(shipclass.hydrate(
@@ -1619,7 +1628,7 @@ impl Root {
         let mut rng = rand_hc::Hc128Rng::seed_from_u64(1138);
 
         //here we iterate over the json systems to create a map between nodes' json string-ids and root ids
-        let node_id_map: HashMap<String, Arc<root::Node>> = self
+        let node_id_map: HashMap<String, Arc<export::Node>> = self
             .systems
             .iter()
             .flat_map(|system| system.nodes.iter())
@@ -1640,21 +1649,21 @@ impl Root {
             .collect();
 
         //here we convert the json edge list into a set of pairs of root node ids
-        let mut edges: HashMap<(Arc<root::Node>, Arc<root::Node>), Arc<root::EdgeFlavor>> = self
-            .edges
-            .iter()
-            .map(|(a, b, f)| {
-                let aid = node_id_map.get(a).unwrap().clone();
-                let bid = node_id_map.get(b).unwrap().clone();
-                assert_ne!(aid, bid);
-                (
-                    (aid.clone().min(bid.clone()), bid.max(aid)),
-                    edgeflavor_id_map.get(f).unwrap().clone(),
-                )
-            })
-            .collect();
+        let mut edges: HashMap<(Arc<export::Node>, Arc<export::Node>), Arc<export::EdgeFlavor>> =
+            self.edges
+                .iter()
+                .map(|(a, b, f)| {
+                    let aid = node_id_map.get(a).unwrap().clone();
+                    let bid = node_id_map.get(b).unwrap().clone();
+                    assert_ne!(aid, bid);
+                    (
+                        (aid.clone().min(bid.clone()), bid.max(aid)),
+                        edgeflavor_id_map.get(f).unwrap().clone(),
+                    )
+                })
+                .collect();
 
-        let system_id_map: HashMap<String, Arc<root::System>> = self
+        let system_id_map: HashMap<String, Arc<export::System>> = self
             .systems
             .drain(0..)
             .enumerate()
@@ -1702,7 +1711,7 @@ impl Root {
             })
             .collect();
 
-        let neighbors: HashMap<Arc<root::Node>, Vec<Arc<root::Node>>> =
+        let neighbors: HashMap<Arc<export::Node>, Vec<Arc<export::Node>>> =
             edges.iter().fold(HashMap::new(), |mut acc, ((a, b), _)| {
                 acc.entry(a.clone())
                     .or_insert_with(Vec::new)
@@ -1713,7 +1722,7 @@ impl Root {
                 acc
             });
 
-        let squadronflavor_id_map: HashMap<String, Arc<root::SquadronFlavor>> = self
+        let squadronflavor_id_map: HashMap<String, Arc<export::SquadronFlavor>> = self
             .squadronflavors
             .drain(0..)
             .enumerate()
@@ -1725,7 +1734,7 @@ impl Root {
             })
             .collect();
 
-        let squadronclasses: HashMap<String, Arc<root::SquadronClass>> = self
+        let squadronclasses: HashMap<String, Arc<export::SquadronClass>> = self
             .squadronclasses
             .iter()
             .enumerate()
@@ -1745,7 +1754,7 @@ impl Root {
             })
             .collect();
 
-        root::Root {
+        export::Root {
             config: config,
             nodeflavors: nodeflavor_id_map
                 .values()
@@ -1837,7 +1846,7 @@ impl Root {
             squadrons: RwLock::new(Vec::new()),
             unit_counter: Arc::new(AtomicU64::new(0)),
             engagements: RwLock::new(Vec::new()),
-            global_salience: root::GlobalSalience {
+            global_salience: export::GlobalSalience {
                 faction_salience: RwLock::new(
                     factions
                         .iter()

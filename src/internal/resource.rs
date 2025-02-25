@@ -1,8 +1,8 @@
-use crate::engagement::UnitStatus;
-use crate::faction::{Faction, FactionID};
-use crate::node::{EdgeFlavor, Locality, Node, NodeFlavor};
-use crate::root::Root;
-use crate::unit::{Mobility, Ship, ShipClass, ShipClassID, ShipFlavor, Unit};
+use crate::internal::engagement::UnitStatus;
+use crate::internal::faction::{Faction, FactionID};
+use crate::internal::node::{EdgeFlavor, Locality, Node, NodeFlavor};
+use crate::internal::root::Root;
+use crate::internal::unit::{Mobility, Ship, ShipClass, ShipClassID, ShipFlavor, Unit};
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
