@@ -132,31 +132,7 @@ impl Salience<polarity::Supply> for Arc<Resource> {
         faction: Arc<Faction>,
         _battle_duration: u64,
     ) -> Option<f32> {
-        //NOTE: Currently this does not take input stockpiles of any kind into account. We may wish to change this.
-        //we add up all the resource quantity in factory output stockpiles in the node
-        let factorysupply: u64 = if node.mutables.read().unwrap().allegiance == faction {
-            node.mutables
-                .read()
-                .unwrap()
-                .factories
-                .iter()
-                .map(|factory| factory.get_resource_supply_total(self.clone()))
-                .sum::<u64>()
-        } else {
-            0
-        };
-        //then all the valid resource quantity in units
-        let shipsupply: u64 = node
-            .unit_container
-            .read()
-            .unwrap()
-            .contents
-            .iter()
-            .filter(|unit| unit.get_allegiance() == faction)
-            .map(|unit| unit.get_resource_supply(self.clone()))
-            .sum::<u64>();
-        //then sum them together
-        let sum = (factorysupply + shipsupply) as f32;
+        let sum = node.get_resource_supply(faction, self.clone()) as f32;
         if sum == 0_f32 {
             None
         } else {

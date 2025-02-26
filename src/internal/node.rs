@@ -1,6 +1,8 @@
 use crate::internal::faction::Faction;
 use crate::internal::hangar::{Hangar, UnitContainer};
-use crate::internal::resource::{Factory, Shipyard, Stockpileness, UnipotentStockpile};
+use crate::internal::resource::{
+    Factory, Resource, ResourceProcess, Shipyard, Stockpileness, UnipotentStockpile,
+};
 use crate::internal::root::Root;
 use crate::internal::unit::{
     Mobility, Ship, ShipClass, ShipMut, Squadron, SquadronClass, SquadronMut, Unit, UnitClassID,
@@ -77,6 +79,33 @@ pub struct Node {
 }
 
 impl Node {
+    pub fn get_resource_supply(&self, faction: Arc<Faction>, resource: Arc<Resource>) -> u64 {
+        //NOTE: Currently this does not take input stockpiles of any kind into account. We may wish to change this.
+        //we add up all the resource quantity in factory output stockpiles in the node
+        let factorysupply: u64 = if self.mutables.read().unwrap().allegiance == faction {
+            self.mutables
+                .read()
+                .unwrap()
+                .factories
+                .iter()
+                .map(|factory| factory.get_resource_supply_total(resource.clone()))
+                .sum::<u64>()
+        } else {
+            0
+        };
+        //then all the valid resource quantity in units
+        let shipsupply: u64 = self
+            .unit_container
+            .read()
+            .unwrap()
+            .contents
+            .iter()
+            .filter(|unit| unit.get_allegiance() == faction)
+            .map(|unit| unit.get_resource_supply(resource.clone()))
+            .sum::<u64>();
+        //then sum them together
+        factorysupply + shipsupply
+    }
     pub fn get_strength(&self, faction: Arc<Faction>, time: u64) -> u64 {
         self.unit_container
             .read()
