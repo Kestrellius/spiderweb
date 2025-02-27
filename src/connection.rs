@@ -205,7 +205,7 @@ impl Hash for Node {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct System {
+pub struct Cluster {
     pub id: usize,
     pub visible_name: String,
     pub description: String,
@@ -213,9 +213,9 @@ pub struct System {
     pub nodes: Vec<usize>,
 }
 
-impl System {
-    fn desiccate(self_entity: &export::System) -> System {
-        System {
+impl Cluster {
+    fn desiccate(self_entity: &export::Cluster) -> Cluster {
+        Cluster {
             id: self_entity.id,
             visible_name: self_entity.visible_name.clone(),
             description: self_entity.description.clone(),
@@ -223,8 +223,8 @@ impl System {
             nodes: self_entity.nodes.iter().map(|x| x.id).collect(),
         }
     }
-    fn rehydrate(&self, nodesroot: &Vec<Arc<export::Node>>) -> export::System {
-        export::System {
+    fn rehydrate(&self, nodesroot: &Vec<Arc<export::Node>>) -> export::Cluster {
+        export::Cluster {
             id: self.id,
             visible_name: self.visible_name.clone(),
             description: self.description.clone(),
@@ -1523,7 +1523,7 @@ impl Ship {
         ship: &Arc<export::Ship>,
         connectionships: &Vec<Ship>,
         nodesroot: &Vec<Arc<export::Node>>,
-        systemsroot: &Vec<Arc<export::System>>,
+        clustersroot: &Vec<Arc<export::Cluster>>,
         hangarclassesroot: &Vec<Arc<export::HangarClass>>,
         shipsroot: &Vec<Arc<export::Ship>>,
         squadronsroot: &Vec<Arc<export::Squadron>>,
@@ -1543,7 +1543,7 @@ impl Ship {
             .mutables
             .objectives
             .iter()
-            .map(|x| x.rehydrate(&nodesroot, &systemsroot, &shipsroot, &squadronsroot))
+            .map(|x| x.rehydrate(&nodesroot, &clustersroot, &shipsroot, &squadronsroot))
             .collect();
         root_hangars
     }
@@ -1741,7 +1741,7 @@ impl Squadron {
         squadron: &Arc<export::Squadron>,
         connectionsquadrons: &Vec<Squadron>,
         nodesroot: &Vec<Arc<export::Node>>,
-        systemsroot: &Vec<Arc<export::System>>,
+        clustersroot: &Vec<Arc<export::Cluster>>,
         shipsroot: &Vec<Arc<export::Ship>>,
         squadronsroot: &Vec<Arc<export::Squadron>>,
         hangarslist: &Vec<Arc<export::Hangar>>,
@@ -1760,7 +1760,7 @@ impl Squadron {
             .mutables
             .objectives
             .iter()
-            .map(|x| x.rehydrate(&nodesroot, &systemsroot, &shipsroot, &squadronsroot))
+            .map(|x| x.rehydrate(&nodesroot, &clustersroot, &shipsroot, &squadronsroot))
             .collect();
         squadron.mutables.write().unwrap().location = connection_squadron
             .mutables
@@ -1873,7 +1873,7 @@ impl UnitRecord {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ObjectiveTarget {
     Node(usize),
-    System(usize),
+    Cluster(usize),
     Unit(Unit),
 }
 
@@ -1881,21 +1881,21 @@ impl ObjectiveTarget {
     pub fn desiccate(self_entity: &export::ObjectiveTarget) -> ObjectiveTarget {
         match self_entity {
             export::ObjectiveTarget::Node(node) => ObjectiveTarget::Node(node.id),
-            export::ObjectiveTarget::System(system) => ObjectiveTarget::System(system.id),
+            export::ObjectiveTarget::Cluster(cluster) => ObjectiveTarget::Cluster(cluster.id),
             export::ObjectiveTarget::Unit(unit) => ObjectiveTarget::Unit(Unit::desiccate(unit)),
         }
     }
     pub fn rehydrate(
         &self,
         nodesroot: &Vec<Arc<export::Node>>,
-        systemsroot: &Vec<Arc<export::System>>,
+        clustersroot: &Vec<Arc<export::Cluster>>,
         shipsroot: &Vec<Arc<export::Ship>>,
         squadronsroot: &Vec<Arc<export::Squadron>>,
     ) -> export::ObjectiveTarget {
         match self {
             ObjectiveTarget::Node(node) => export::ObjectiveTarget::Node(nodesroot[*node].clone()),
-            ObjectiveTarget::System(system) => {
-                export::ObjectiveTarget::System(systemsroot[*system].clone())
+            ObjectiveTarget::Cluster(cluster) => {
+                export::ObjectiveTarget::Cluster(clustersroot[*cluster].clone())
             }
             ObjectiveTarget::Unit(unit) => {
                 export::ObjectiveTarget::Unit(unit.rehydrate(shipsroot, squadronsroot))
@@ -1938,14 +1938,14 @@ impl Objective {
     pub fn rehydrate(
         &self,
         nodesroot: &Vec<Arc<export::Node>>,
-        systemsroot: &Vec<Arc<export::System>>,
+        clustersroot: &Vec<Arc<export::Cluster>>,
         shipsroot: &Vec<Arc<export::Ship>>,
         squadronsroot: &Vec<Arc<export::Squadron>>,
     ) -> export::Objective {
         export::Objective {
             target: self
                 .target
-                .rehydrate(nodesroot, systemsroot, shipsroot, squadronsroot),
+                .rehydrate(nodesroot, clustersroot, shipsroot, squadronsroot),
             task: self.task,
             fraction: self.fraction,
             duration: self.duration,
@@ -1980,7 +1980,7 @@ impl Operation {
     pub fn rehydrate(
         &self,
         nodesroot: &Vec<Arc<export::Node>>,
-        systemsroot: &Vec<Arc<export::System>>,
+        clustersroot: &Vec<Arc<export::Cluster>>,
         shipsroot: &Vec<Arc<export::Ship>>,
         squadronsroot: &Vec<Arc<export::Squadron>>,
     ) -> export::Operation {
@@ -1989,7 +1989,7 @@ impl Operation {
             objectives: self
                 .objectives
                 .iter()
-                .map(|x| x.rehydrate(&nodesroot, &systemsroot, &shipsroot, &squadronsroot))
+                .map(|x| x.rehydrate(&nodesroot, &clustersroot, &shipsroot, &squadronsroot))
                 .collect(),
         }
     }
@@ -2166,7 +2166,7 @@ impl EngagementRecord {
     pub fn rehydrate(
         &self,
         nodesroot: &Vec<Arc<export::Node>>,
-        systemsroot: &Vec<Arc<export::System>>,
+        clustersroot: &Vec<Arc<export::Cluster>>,
         factionsroot: &Vec<Arc<export::Faction>>,
         shipclassesroot: &Vec<Arc<export::ShipClass>>,
         squadronclassesroot: &Vec<Arc<export::SquadronClass>>,
@@ -2212,7 +2212,7 @@ impl EngagementRecord {
                         factionsroot[*faction].clone(),
                         objs.iter()
                             .map(|x| {
-                                x.rehydrate(&nodesroot, &systemsroot, &shipsroot, &squadronsroot)
+                                x.rehydrate(&nodesroot, &clustersroot, &shipsroot, &squadronsroot)
                             })
                             .collect(),
                     )
@@ -2261,7 +2261,7 @@ pub struct Root {
     pub config: export::Config,
     pub nodeflavors: Vec<export::NodeFlavor>,
     pub nodes: Vec<Node>,
-    pub systems: Vec<System>,
+    pub clusters: Vec<Cluster>,
     pub edgeflavors: Vec<export::EdgeFlavor>,
     pub edges: HashMap<(usize, usize), usize>,
     pub neighbors: HashMap<usize, Vec<usize>>,
@@ -2303,10 +2303,10 @@ impl Root {
                 .iter()
                 .map(|x| Node::desiccate(x))
                 .collect(),
-            systems: self_entity
-                .systems
+            clusters: self_entity
+                .clusters
                 .iter()
-                .map(|x| System::desiccate(x))
+                .map(|x| Cluster::desiccate(x))
                 .collect(),
             edgeflavors: self_entity
                 .edgeflavors
@@ -2517,8 +2517,8 @@ impl Root {
                 ))
             })
             .collect();
-        let systems = self
-            .systems
+        let clusters = self
+            .clusters
             .iter()
             .map(|x| Arc::new(x.rehydrate(&nodes)))
             .collect();
@@ -2588,7 +2588,7 @@ impl Root {
                     ship,
                     &self.ships,
                     &nodes,
-                    &systems,
+                    &clusters,
                     &hangarclasses,
                     &ships.read().unwrap(),
                     &squadrons.read().unwrap(),
@@ -2610,7 +2610,7 @@ impl Root {
                 squadron,
                 &self.squadrons,
                 &nodes,
-                &systems,
+                &clusters,
                 &ships.read().unwrap(),
                 &squadrons.read().unwrap(),
                 &hangarslist,
@@ -2623,7 +2623,7 @@ impl Root {
                 .map(|x| {
                     x.rehydrate(
                         &nodes,
-                        &systems,
+                        &clusters,
                         &factions,
                         &shipclasses,
                         &squadronclasses,
@@ -2641,7 +2641,7 @@ impl Root {
             config,
             nodeflavors,
             nodes,
-            systems,
+            clusters,
             edgeflavors,
             edges,
             neighbors,

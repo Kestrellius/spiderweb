@@ -1,7 +1,7 @@
 use crate::internal::engagement::EngagementRecord;
 use crate::internal::faction::Faction;
 use crate::internal::hangar::HangarClass;
-use crate::internal::node::{EdgeFlavor, Locality, Node, NodeFlavor, System};
+use crate::internal::node::{Cluster, EdgeFlavor, Locality, Node, NodeFlavor};
 use crate::internal::resource::{
     EngineClass, FactoryClass, RepairerClass, Resource, ShipyardClass, StrategicWeaponClass,
 };
@@ -65,7 +65,7 @@ pub struct BattleScalars {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ObjectiveTarget {
     Node(Arc<Node>),
-    System(Arc<System>),
+    Cluster(Arc<Cluster>),
     Unit(Unit),
 }
 
@@ -103,7 +103,7 @@ pub struct Root {
     pub config: Config,
     pub nodeflavors: Vec<Arc<NodeFlavor>>,
     pub nodes: Vec<Arc<Node>>,
-    pub systems: Vec<Arc<System>>,
+    pub clusters: Vec<Arc<Cluster>>,
     pub edgeflavors: Vec<Arc<EdgeFlavor>>,
     pub edges: HashMap<(Arc<Node>, Arc<Node>), Arc<EdgeFlavor>>,
     pub neighbors: HashMap<Arc<Node>, Vec<Arc<Node>>>,
@@ -136,7 +136,7 @@ impl PartialEq for Root {
         self.config == other.config
             && self.nodeflavors == other.nodeflavors
             && self.nodes == other.nodes
-            && self.systems == other.systems
+            && self.clusters == other.clusters
             && self.edgeflavors == other.edgeflavors
             && self.edges == other.edges
             && self.neighbors == other.neighbors

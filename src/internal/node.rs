@@ -209,21 +209,21 @@ impl Node {
             .collect();
         (squadrons, ships)
     }
-    pub fn get_system(&self, root: &Root) -> Option<Arc<System>> {
-        let system = root.systems.iter().find(|system| {
-            system
+    pub fn get_cluster(&self, root: &Root) -> Option<Arc<Cluster>> {
+        let cluster = root.clusters.iter().find(|cluster| {
+            cluster
                 .nodes
                 .iter()
                 .find(|sys_node| sys_node.id == self.id)
                 .is_some()
         });
-        match system {
+        match cluster {
             Some(sys) => Some(sys.clone()),
             None => None,
         }
     }
-    pub fn is_in_system(&self, system: Arc<System>) -> bool {
-        system
+    pub fn is_in_cluster(&self, cluster: Arc<Cluster>) -> bool {
+        cluster
             .nodes
             .iter()
             .find(|sys_node| sys_node.id == self.id)
@@ -1981,7 +1981,7 @@ impl Locality for Arc<Node> {
 }
 
 #[derive(Debug, Clone)]
-pub struct System {
+pub struct Cluster {
     pub id: usize,
     pub visible_name: String,
     pub description: String,
@@ -1989,27 +1989,27 @@ pub struct System {
     pub nodes: Vec<Arc<Node>>,
 }
 
-impl PartialEq for System {
+impl PartialEq for Cluster {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
 
-impl Eq for System {}
+impl Eq for Cluster {}
 
-impl Ord for System {
+impl Ord for Cluster {
     fn cmp(&self, other: &Self) -> Ordering {
         self.id.cmp(&other.id)
     }
 }
 
-impl PartialOrd for System {
+impl PartialOrd for Cluster {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.id.partial_cmp(&other.id)
     }
 }
 
-impl Hash for System {
+impl Hash for Cluster {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id.hash(state);
     }
@@ -2052,7 +2052,7 @@ impl Hash for EdgeFlavor {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Edges {
     hyperlinks: HashSet<(Arc<Node>, Arc<Node>, Arc<EdgeFlavor>)>, //list of links between nodes
-    neighbormap: HashMap<Arc<Node>, Vec<Arc<Node>>>, //NOTE: investigate. Map of which nodes belong to which systems, for purposes of generating all-to-all links
+    neighbormap: HashMap<Arc<Node>, Vec<Arc<Node>>>, //NOTE: investigate. Map of which nodes belong to which clusters, for purposes of generating all-to-all links
 }
 
 impl Edges {

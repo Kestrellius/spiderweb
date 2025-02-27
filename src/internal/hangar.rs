@@ -3,7 +3,7 @@ pub use crate::internal::engagement::{
     UnitStatus,
 };
 pub use crate::internal::faction::{Faction, FactionID};
-pub use crate::internal::node::{EdgeFlavor, Edges, Locality, Node, NodeFlavor, NodeMut, System};
+pub use crate::internal::node::{Cluster, EdgeFlavor, Edges, Locality, Node, NodeFlavor, NodeMut};
 pub use crate::internal::resource::{
     Engine, EngineClass, Factory, FactoryClass, PluripotentStockpile, Repairer, RepairerClass,
     Resource, ResourceProcess, SharedStockpile, Shipyard, ShipyardClass, Stockpileness,

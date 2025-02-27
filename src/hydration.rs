@@ -132,7 +132,6 @@ struct NodeTemplate {
     shipyards: HashMap<String, (f32, u64, u64)>,
     environment: Vec<(String, u64)>, //name of the FRED environment to use for missions set in this node
     bitmap: Option<Vec<((String, f32), u64)>>,
-    orphan: Option<bool>, //an orphaned node does not get all-to-all edges automatically built with the other nodes in its system
     allegiance: Vec<(String, u64)>, //faction that currently holds the node
     efficiency: Option<f32>, //efficiency of any production facilities in this node; changes over time based on faction ownership
     balance_stockpiles: Option<bool>,
@@ -153,7 +152,6 @@ struct Node {
     shipyards: Option<Vec<String>>,
     environment: Option<String>, //name of the FRED environment to use for missions set in this node
     bitmap: Option<(String, f32)>,
-    orphan: Option<bool>, //an orphaned node does not get all-to-all edges automatically built with the other nodes in its system
     allegiance: Option<String>, //faction that currently holds the node
     efficiency: Option<f32>, //efficiency of any production facilities in this node; changes over time based on faction ownership
     balance_stockpiles: Option<bool>,
@@ -162,18 +160,6 @@ struct Node {
 }
 
 impl Node {
-    fn is_orphan(&self, nodetemplates: &Vec<NodeTemplate>) -> bool {
-        match self.orphan {
-            Some(val) => val,
-            None => nodetemplates
-                .iter()
-                .find(|t| t.id == self.template)
-                .unwrap()
-                .clone()
-                .orphan
-                .unwrap_or(false),
-        }
-    }
     fn hydrate<R: Rng>(
         &self,
         index: usize,
@@ -358,7 +344,7 @@ impl Node {
 }
 
 #[derive(Serialize, Deserialize)]
-struct System {
+struct Cluster {
     id: String,
     visible_name: String,
     description: String,
@@ -366,13 +352,13 @@ struct System {
     nodes: Vec<Node>,
 }
 
-impl System {
+impl Cluster {
     fn hydrate(
         self,
         index: usize,
         node_id_map: &HashMap<String, Arc<export::Node>>,
-    ) -> export::System {
-        let rootsystem = export::System {
+    ) -> export::Cluster {
+        let rootcluster = export::Cluster {
             id: index,
             visible_name: self.visible_name,
             description: self.description,
@@ -383,7 +369,7 @@ impl System {
                 .map(|node| node_id_map.get(&node.id).unwrap().clone())
                 .collect(),
         };
-        rootsystem
+        rootcluster
     }
 }
 
@@ -1339,7 +1325,7 @@ pub struct Root {
     config: Config,
     nodeflavors: Vec<NodeFlavor>,
     nodetemplates: Vec<NodeTemplate>,
-    systems: Vec<System>,
+    clusters: Vec<Cluster>,
     edgeflavors: Vec<EdgeFlavor>,
     pure_internal_edgeflavor: String,
     semi_internal_edgeflavor: String,
@@ -1627,11 +1613,11 @@ impl Root {
 
         let mut rng = rand_hc::Hc128Rng::seed_from_u64(1138);
 
-        //here we iterate over the json systems to create a map between nodes' json string-ids and root ids
+        //here we iterate over the json clusters to create a map between nodes' json string-ids and root ids
         let node_id_map: HashMap<String, Arc<export::Node>> = self
-            .systems
+            .clusters
             .iter()
-            .flat_map(|system| system.nodes.iter())
+            .flat_map(|cluster| cluster.nodes.iter())
             .enumerate()
             .map(|(i, node)| {
                 let nodehydration = node.hydrate(
@@ -1663,13 +1649,13 @@ impl Root {
                 })
                 .collect();
 
-        let system_id_map: HashMap<String, Arc<export::System>> = self
-            .systems
+        let cluster_id_map: HashMap<String, Arc<export::Cluster>> = self
+            .clusters
             .drain(0..)
             .enumerate()
-            .map(|(i, system)| {
+            .map(|(i, cluster)| {
                 let mut nodestringids: Vec<String> = Vec::new();
-                for node in &system.nodes {
+                for node in &cluster.nodes {
                     //we get the node's id from the id map
                     //we iterate over the nodeids, ensure that there aren't any duplicates, and push each pair of nodeids into edges
                     for rhs in &nodestringids {
@@ -1698,7 +1684,7 @@ impl Root {
                     }
                     nodestringids.push(node.id.clone());
                 }
-                (system.id.clone(), Arc::new(system.hydrate(i, &node_id_map)))
+                (cluster.id.clone(), Arc::new(cluster.hydrate(i, &node_id_map)))
             })
             .collect();
 
@@ -1757,7 +1743,7 @@ impl Root {
                 .cloned()
                 .sorted_by_key(|x| x.id)
                 .collect(),
-            systems: system_id_map
+            clusters: cluster_id_map
                 .values()
                 .cloned()
                 .sorted_by_key(|x| x.id)
