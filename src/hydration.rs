@@ -1670,39 +1670,30 @@ impl Root {
             .map(|(i, system)| {
                 let mut nodestringids: Vec<String> = Vec::new();
                 for node in &system.nodes {
-                    //we check whether the node is orphaned, and if it is we don't build any edges for it
-                    if !node.is_orphan(&self.nodetemplates) {
-                        //we get the node's id from the id map
-                        //we iterate over the nodeids, ensure that there aren't any duplicates, and push each pair of nodeids into edges
-                        for rhs in &nodestringids {
-                            let nodeid = node_id_map.get(&node.id).unwrap();
-                            let rhsid = node_id_map.get(rhs).unwrap();
-                            if !system
-                                .nodes
-                                .iter()
-                                .find(|n| n.id == *rhs)
-                                .unwrap()
-                                .is_orphan(&self.nodetemplates)
-                                && !(self.edges.iter().any(|(nodeid1, nodeid2, _)| {
-                                    (nodeid1 == &node.id && nodeid2 == rhs) || (nodeid2 == &node.id && nodeid1 == rhs)
-                                }))
-                            {
-                                let flavor = if self.edges.iter().any(|(nodeid1, nodeid2, _)| {
-                                    nodeid1 == &node.id
-                                        || nodeid1 == rhs
-                                        || nodeid2 == &node.id
-                                        || nodeid2 == rhs
-                                }) {
-                                    edgeflavor_id_map.get(&self.semi_internal_edgeflavor).expect("Specified semi_internal_edgeflavor is not a valid edgeflavor id!").clone()
-                                } else {
-                                    edgeflavor_id_map.get(&self.pure_internal_edgeflavor).expect("Specified pure_internal_edgeflavor is not a valid edgeflavor id!").clone()
-                                };
-                                assert_ne!(nodeid, rhsid, "Same node ID appears twice.");
-                                edges.insert(
-                                    (nodeid.min(rhsid).clone(), nodeid.max(rhsid).clone()),
-                                    flavor,
-                                );
-                            }
+                    //we get the node's id from the id map
+                    //we iterate over the nodeids, ensure that there aren't any duplicates, and push each pair of nodeids into edges
+                    for rhs in &nodestringids {
+                        let nodeid = node_id_map.get(&node.id).unwrap();
+                        let rhsid = node_id_map.get(rhs).unwrap();
+                        if !(self.edges.iter().any(|(nodeid1, nodeid2, _)| {
+                                (nodeid1 == &node.id && nodeid2 == rhs) || (nodeid2 == &node.id && nodeid1 == rhs)
+                            }))
+                        {
+                            let flavor = if self.edges.iter().any(|(nodeid1, nodeid2, _)| {
+                                nodeid1 == &node.id
+                                    || nodeid1 == rhs
+                                    || nodeid2 == &node.id
+                                    || nodeid2 == rhs
+                            }) {
+                                edgeflavor_id_map.get(&self.semi_internal_edgeflavor).expect("Specified semi_internal_edgeflavor is not a valid edgeflavor id!").clone()
+                            } else {
+                                edgeflavor_id_map.get(&self.pure_internal_edgeflavor).expect("Specified pure_internal_edgeflavor is not a valid edgeflavor id!").clone()
+                            };
+                            assert_ne!(nodeid, rhsid, "Same node ID appears twice.");
+                            edges.insert(
+                                (nodeid.min(rhsid).clone(), nodeid.max(rhsid).clone()),
+                                flavor,
+                            );
                         }
                     }
                     nodestringids.push(node.id.clone());
