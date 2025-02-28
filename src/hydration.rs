@@ -154,8 +154,8 @@ struct Node {
     bitmap: Option<(String, f32)>,
     allegiance: Option<String>, //faction that currently holds the node
     efficiency: Option<f32>, //efficiency of any production facilities in this node; changes over time based on faction ownership
-    balance_stockpiles: Option<bool>,
-    balance_hangars: Option<bool>,
+    transact_resources: Option<bool>,
+    transact_units: Option<bool>,
     check_for_battles: Option<bool>,
 }
 
@@ -324,10 +324,10 @@ impl Node {
                     .efficiency
                     .unwrap_or(template.efficiency.unwrap_or(faction.efficiency_default)),
                 transact_resources: self
-                    .balance_stockpiles
+                    .transact_resources
                     .unwrap_or(template.balance_stockpiles.unwrap_or(true)),
                 transact_units: self
-                    .balance_hangars
+                    .transact_units
                     .unwrap_or(template.balance_hangars.unwrap_or(true)),
                 check_for_battles: self
                     .check_for_battles

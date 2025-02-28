@@ -80,7 +80,7 @@
             ]
         }
     ],
-    "systems": [
+    "clusters": [
         {
             "id": "coruscant",
             "visible_name": "Coruscant",

@@ -216,6 +216,22 @@ pub trait Mobility {
     fn get_squadron(&self) -> Option<Arc<Squadron>>;
     fn get_id(&self) -> u64;
     fn get_visible_name(&self) -> String;
+    fn get_class_visible_name(&self) -> String;
+    fn get_tree_description(&self, depth: usize) -> String {
+        iter::repeat(String::from("  "))
+            .take(depth)
+            .chain(iter::once(format!(
+                "{}: {}\n",
+                self.get_class_visible_name(),
+                self.get_visible_name()
+            )))
+            .chain(
+                self.get_daughters()
+                    .iter()
+                    .map(|daughter| daughter.get_tree_description(depth + 1)),
+            )
+            .collect()
+    }
     fn is_ship(&self) -> bool;
     fn get_location(&self) -> UnitLocation;
     fn check_location_coherency(&self);
@@ -1230,6 +1246,9 @@ impl Mobility for Arc<Ship> {
     }
     fn get_visible_name(&self) -> String {
         self.visible_name.clone()
+    }
+    fn get_class_visible_name(&self) -> String {
+        self.class.visible_name.clone()
     }
     fn is_ship(&self) -> bool {
         true
@@ -2347,6 +2366,9 @@ impl Mobility for Arc<Squadron> {
     fn get_visible_name(&self) -> String {
         self.visible_name.clone()
     }
+    fn get_class_visible_name(&self) -> String {
+        self.class.visible_name.clone()
+    }
     fn is_ship(&self) -> bool {
         false
     }
@@ -2996,6 +3018,12 @@ impl Mobility for Unit {
         match self {
             Unit::Ship(ship) => ship.get_visible_name(),
             Unit::Squadron(squadron) => squadron.get_visible_name(),
+        }
+    }
+    fn get_class_visible_name(&self) -> String {
+        match self {
+            Unit::Ship(ship) => ship.get_class_visible_name(),
+            Unit::Squadron(squadron) => squadron.get_class_visible_name(),
         }
     }
     fn is_ship(&self) -> bool {
