@@ -221,9 +221,10 @@ pub trait Mobility {
         iter::repeat(String::from("    "))
             .take(depth)
             .chain(iter::once(format!(
-                "{}: {}\n",
+                "{}: {}; ghost: {}\n",
                 self.get_class_visible_name(),
-                self.get_visible_name()
+                self.get_visible_name(),
+                self.is_ghost(),
             )))
             .chain(
                 self.get_daughters()
@@ -233,6 +234,7 @@ pub trait Mobility {
             .collect()
     }
     fn is_ship(&self) -> bool;
+    fn is_ghost(&self) -> bool;
     fn get_location(&self) -> UnitLocation;
     fn check_location_coherency(&self);
     fn is_in_node(&self) -> bool {
@@ -1252,6 +1254,9 @@ impl Mobility for Arc<Ship> {
     }
     fn is_ship(&self) -> bool {
         true
+    }
+    fn is_ghost(&self) -> bool {
+        false
     }
     fn get_location(&self) -> UnitLocation {
         self.mutables.read().unwrap().location.clone()
@@ -2372,6 +2377,9 @@ impl Mobility for Arc<Squadron> {
     fn is_ship(&self) -> bool {
         false
     }
+    fn is_ghost(&self) -> bool {
+        self.mutables.read().unwrap().ghost
+    }
     fn get_location(&self) -> UnitLocation {
         self.mutables.read().unwrap().location.clone()
     }
@@ -3030,6 +3038,12 @@ impl Mobility for Unit {
         match self {
             Unit::Ship(ship) => ship.is_ship(),
             Unit::Squadron(squadron) => squadron.is_ship(),
+        }
+    }
+    fn is_ghost(&self) -> bool {
+        match self {
+            Unit::Ship(ship) => ship.is_ghost(),
+            Unit::Squadron(squadron) => squadron.is_ghost(),
         }
     }
     fn get_location(&self) -> UnitLocation {
