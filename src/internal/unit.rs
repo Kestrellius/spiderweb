@@ -218,7 +218,7 @@ pub trait Mobility {
     fn get_visible_name(&self) -> String;
     fn get_class_visible_name(&self) -> String;
     fn get_tree_description(&self, depth: usize) -> String {
-        iter::repeat(String::from("  "))
+        iter::repeat(String::from("    "))
             .take(depth)
             .chain(iter::once(format!(
                 "{}: {}\n",
