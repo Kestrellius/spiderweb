@@ -141,22 +141,22 @@ struct NodeTemplate {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Node {
-    id: String,
-    template: String,
-    visible_name: Option<String>, //location name as shown to player
-    position: Option<[i64; 3]>, //node's position in 3d space; this is used for autogenerating skyboxes and determining reinforcement delay between nodes
-    description: Option<String>,
-    visibility: Option<bool>,
-    flavor: Option<String>, //type of location this node is -- planet, asteroid field, hyperspace transit zone
-    factories: Option<Vec<String>>, //a list of the factories this node has, in the form of FactoryClass IDs
-    shipyards: Option<Vec<String>>,
-    environment: Option<String>, //name of the FRED environment to use for missions set in this node
-    bitmap: Option<(String, f32)>,
-    allegiance: Option<String>, //faction that currently holds the node
-    efficiency: Option<f32>, //efficiency of any production facilities in this node; changes over time based on faction ownership
-    transact_resources: Option<bool>,
-    transact_units: Option<bool>,
-    check_for_battles: Option<bool>,
+    pub id: String,
+    pub template: String,
+    pub visible_name: Option<String>, //location name as shown to player
+    pub position: Option<[i64; 3]>, //node's position in 3d space; this is used for autogenerating skyboxes and determining reinforcement delay between nodes
+    pub description: Option<String>,
+    pub visibility: Option<bool>,
+    pub flavor: Option<String>, //type of location this node is -- planet, asteroid field, hyperspace transit zone
+    pub factories: Option<Vec<String>>, //a list of the factories this node has, in the form of FactoryClass IDs
+    pub shipyards: Option<Vec<String>>,
+    pub environment: Option<String>, //name of the FRED environment to use for missions set in this node
+    pub bitmap: Option<(String, f32)>,
+    pub allegiance: Option<String>, //faction that currently holds the node
+    pub efficiency: Option<f32>, //efficiency of any production facilities in this node; changes over time based on faction ownership
+    pub transact_resources: Option<bool>,
+    pub transact_units: Option<bool>,
+    pub check_for_battles: Option<bool>,
 }
 
 impl Node {
@@ -345,11 +345,11 @@ impl Node {
 
 #[derive(Serialize, Deserialize)]
 pub struct Cluster {
-    id: String,
-    visible_name: String,
-    description: String,
-    visibility: Option<bool>,
-    nodes: Vec<Node>,
+    pub id: String,
+    pub visible_name: String,
+    pub description: String,
+    pub visibility: Option<bool>,
+    pub nodes: Vec<Node>,
 }
 
 impl Cluster {
