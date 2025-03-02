@@ -1325,7 +1325,7 @@ pub struct Root {
     config: Config,
     nodeflavors: Vec<NodeFlavor>,
     nodetemplates: Vec<NodeTemplate>,
-    clusters: Vec<Cluster>,
+    pub clusters: Vec<Cluster>,
     edgeflavors: Vec<EdgeFlavor>,
     pure_internal_edgeflavor: String,
     semi_internal_edgeflavor: String,
