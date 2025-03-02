@@ -140,7 +140,7 @@ struct NodeTemplate {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct Node {
+pub struct Node {
     id: String,
     template: String,
     visible_name: Option<String>, //location name as shown to player
@@ -344,7 +344,7 @@ impl Node {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Cluster {
+pub struct Cluster {
     id: String,
     visible_name: String,
     description: String,
