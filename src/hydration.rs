@@ -346,9 +346,6 @@ impl Node {
 #[derive(Serialize, Deserialize)]
 pub struct Cluster {
     pub id: String,
-    pub visible_name: String,
-    pub description: String,
-    pub visibility: Option<bool>,
     pub nodes: Vec<Node>,
 }
 
@@ -360,9 +357,6 @@ impl Cluster {
     ) -> export::Cluster {
         let rootcluster = export::Cluster {
             id: index,
-            visible_name: self.visible_name,
-            description: self.description,
-            visibility: self.visibility.unwrap_or(true),
             nodes: self
                 .nodes
                 .iter()

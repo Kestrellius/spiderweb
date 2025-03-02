@@ -1983,9 +1983,6 @@ impl Locality for Arc<Node> {
 #[derive(Debug, Clone)]
 pub struct Cluster {
     pub id: usize,
-    pub visible_name: String,
-    pub description: String,
-    pub visibility: bool,
     pub nodes: Vec<Arc<Node>>,
 }
 

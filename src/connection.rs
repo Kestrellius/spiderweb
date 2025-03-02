@@ -207,9 +207,6 @@ impl Hash for Node {
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Cluster {
     pub id: usize,
-    pub visible_name: String,
-    pub description: String,
-    pub visibility: bool,
     pub nodes: Vec<usize>,
 }
 
@@ -217,18 +214,12 @@ impl Cluster {
     fn desiccate(self_entity: &export::Cluster) -> Cluster {
         Cluster {
             id: self_entity.id,
-            visible_name: self_entity.visible_name.clone(),
-            description: self_entity.description.clone(),
-            visibility: self_entity.visibility.clone(),
             nodes: self_entity.nodes.iter().map(|x| x.id).collect(),
         }
     }
     fn rehydrate(&self, nodesroot: &Vec<Arc<export::Node>>) -> export::Cluster {
         export::Cluster {
             id: self.id,
-            visible_name: self.visible_name.clone(),
-            description: self.description.clone(),
-            visibility: self.visibility.clone(),
             nodes: self.nodes.iter().map(|x| nodesroot[*x].clone()).collect(),
         }
     }
