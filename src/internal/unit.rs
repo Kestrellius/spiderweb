@@ -223,7 +223,7 @@ pub trait Mobility {
             .chain(iter::once(format!(
                 "{}: {}",
                 self.get_class_visible_name(),
-                self.get_visible_name(),
+                self.get_strength(600),
             )))
             .chain(iter::once(if self.is_ghost() {
                 "; ghost\n".to_string()
