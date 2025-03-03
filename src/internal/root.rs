@@ -528,6 +528,8 @@ impl Root {
             .filter(|node| !node.mutables.read().unwrap().units_transacted)
             .for_each(|node| node.transact_units(self));
 
+        self.remove_dead();
+
         //transmit root data to frontend
 
         let number_of_ships = &self.ships.read().unwrap().len();
