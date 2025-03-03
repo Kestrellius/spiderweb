@@ -494,22 +494,7 @@ pub trait Mobility {
             .ship_cargo_attract
             .iter()
             .map(|(unitclassid, scalar)| {
-                let attractive_unitclass = match unitclassid {
-                    UnitClassID::ShipClass(shipclassid) => UnitClass::ShipClass(
-                        root.shipclasses
-                            .iter()
-                            .find(|shipclass| shipclass.id == shipclassid.index)
-                            .unwrap()
-                            .clone(),
-                    ),
-                    UnitClassID::SquadronClass(squadronclassid) => UnitClass::SquadronClass(
-                        root.squadronclasses
-                            .iter()
-                            .find(|squadronclass| squadronclass.id == squadronclassid.index)
-                            .unwrap()
-                            .clone(),
-                    ),
-                };
+                let attractive_unitclass = unitclassid.get_unitclass(root).clone();
                 let demand = unitclass_salience[allegiance.id][unitclassid.get_index()][node.id][0];
                 let supply = unitclass_salience[allegiance.id][unitclassid.get_index()][node.id][1];
                 (demand - supply)
@@ -527,22 +512,7 @@ pub trait Mobility {
                 //NOTE: Previously, we got demand by indexing by nodeid, not location.
                 //I believe using the ship's current position to calculate demand
                 //will eliminate a pathology and produce more correct gradient-following behavior.
-                let attractive_unitclass = match unitclassid {
-                    UnitClassID::ShipClass(shipclassid) => UnitClass::ShipClass(
-                        root.shipclasses
-                            .iter()
-                            .find(|shipclass| shipclass.id == shipclassid.index)
-                            .unwrap()
-                            .clone(),
-                    ),
-                    UnitClassID::SquadronClass(squadronclassid) => UnitClass::SquadronClass(
-                        root.squadronclasses
-                            .iter()
-                            .find(|squadronclass| squadronclass.id == squadronclassid.index)
-                            .unwrap()
-                            .clone(),
-                    ),
-                };
+                let attractive_unitclass = unitclassid.get_unitclass(root).clone();
                 let demand =
                     unitclass_salience[allegiance.id][unitclassid.get_index()][location.id][0];
                 let supply = unitclass_salience[allegiance.id][unitclassid.get_index()][node.id][1];
@@ -2936,20 +2906,12 @@ impl UnitClassID {
         }
     }
     pub fn get_unitclass(&self, root: &Root) -> UnitClass {
+        //shipclasses and squadronclasses have a single continuous chain of indices, so that unitclasses can be non-redundant
+        //so in order to index into the squadronclasses vec, we have to subtract the number of shipclasses from our index
         match self {
-            UnitClassID::ShipClass(sc) => UnitClass::ShipClass(
-                root.shipclasses
-                    .iter()
-                    .find(|shipclass| shipclass.id == sc.index)
-                    .unwrap()
-                    .clone(),
-            ),
+            UnitClassID::ShipClass(sc) => UnitClass::ShipClass(root.shipclasses[sc.index].clone()),
             UnitClassID::SquadronClass(fc) => UnitClass::SquadronClass(
-                root.squadronclasses
-                    .iter()
-                    .find(|squadronclass| squadronclass.id == fc.index)
-                    .unwrap()
-                    .clone(),
+                root.squadronclasses[fc.index - root.shipclasses.len()].clone(),
             ),
         }
     }

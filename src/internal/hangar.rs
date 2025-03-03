@@ -87,15 +87,8 @@ impl HangarClass {
     pub fn get_ideal_strength(&self, root: &Root) -> u64 {
         self.ideal
             .iter()
-            .map(|(unitclass, v)| {
-                let ideal_strength = match unitclass {
-                    UnitClassID::ShipClass(sc) => {
-                        root.shipclasses[sc.index].get_ideal_strength(root)
-                    }
-                    UnitClassID::SquadronClass(fc) => {
-                        root.squadronclasses[fc.index].get_ideal_strength(root)
-                    }
-                };
+            .map(|(unitclassid, v)| {
+                let ideal_strength = unitclassid.get_unitclass(root).get_ideal_strength(root);
                 ideal_strength * v
             })
             .sum()

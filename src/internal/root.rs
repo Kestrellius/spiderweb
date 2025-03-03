@@ -242,6 +242,8 @@ impl Root {
             self,
         ));
 
+        //NOTE: This block appears to be pointless and probably I should delete it,
+        //but I don't feel confident enough right now and I'm in the middle of something.
         class.ideal.iter().for_each(|(unitclass, _)| {
             let num = location
                 .get_mother_node()
