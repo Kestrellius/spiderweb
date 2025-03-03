@@ -382,8 +382,8 @@ impl EngagementPrep {
                                             false => {
                                                 if unit.is_in_node() {
                                                     UnitLocation::Node(
-                                                        unit.navigate(root, neighbors)
-                                                            .unwrap_or(self.location.clone()),
+                                                        unit.navigate(root, neighbors, true)
+                                                            .expect("Defeated ship is attempting to stay on battlefield! Investigate."),
                                                     )
                                                 } else {
                                                     unit.get_location()

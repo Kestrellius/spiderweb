@@ -221,11 +221,15 @@ pub trait Mobility {
         iter::repeat(String::from("    "))
             .take(depth)
             .chain(iter::once(format!(
-                "{}: {}; ghost: {}\n",
+                "{}: {}",
                 self.get_class_visible_name(),
                 self.get_visible_name(),
-                self.is_ghost(),
             )))
+            .chain(iter::once(if self.is_ghost() {
+                "; ghost\n".to_string()
+            } else {
+                "\n".to_string()
+            }))
             .chain(
                 self.get_daughters()
                     .iter()
@@ -668,6 +672,7 @@ pub trait Mobility {
         &self,
         root: &Root,
         destinations: &Vec<Arc<Node>>,
+        retreating: bool,
     ) -> Option<Arc<Node>> {
         let location = self.get_mother_node();
         //we iterate over the destinations to determine which neighbor is most desirable
@@ -688,8 +693,9 @@ pub trait Mobility {
             .iter()
             .max_by_key(|(_, val)| val)
             .unwrap_or(&null_pair);
-        if best_neighbor.1
-            > self.get_node_nav_attractiveness(root, location) * self.get_nav_threshold()
+        if (best_neighbor.1
+            > self.get_node_nav_attractiveness(root, location) * self.get_nav_threshold())
+            || retreating
         {
             Some(best_neighbor.0.clone())
         } else {
@@ -705,7 +711,7 @@ pub trait Mobility {
             .clone();
         if (self.is_alive()) && self.is_in_node() {
             if let Some(destinations) = self.destinations_check(root, &neighbors) {
-                let destination_option = self.navigate(root, &destinations);
+                let destination_option = self.navigate(root, &destinations, false);
                 match destination_option.clone() {
                     Some(destination) => {
                         self.traverse(root, destination.clone());
