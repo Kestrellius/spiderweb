@@ -1344,7 +1344,8 @@ pub struct Root {
 impl Root {
     //hydration method
     pub fn hydrate(mut self) -> export::Root {
-        let unitclasscounter = Arc::new(AtomicUsize::new(0));
+        let shipclass_counter = Arc::new(AtomicUsize::new(0));
+        let squadronclass_counter = Arc::new(AtomicUsize::new(0));
 
         let config = self.config.hydrate();
 
@@ -1503,7 +1504,7 @@ impl Root {
                     (
                         shipclass.id.clone(),
                         export::ShipClassID::new_from_index(
-                            unitclasscounter.fetch_add(1, atomic::Ordering::Relaxed),
+                            shipclass_counter.fetch_add(1, atomic::Ordering::Relaxed),
                         ),
                     )
                 })
@@ -1516,7 +1517,7 @@ impl Root {
                 (
                     squadronclass.id.clone(),
                     export::SquadronClassID::new_from_index(
-                        unitclasscounter.fetch_add(1, atomic::Ordering::Relaxed),
+                        squadronclass_counter.fetch_add(1, atomic::Ordering::Relaxed),
                     ),
                 )
             })
