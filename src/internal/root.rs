@@ -293,12 +293,13 @@ impl Root {
             .unwrap()
             .iter()
             .filter(|squadron| {
-                if squadron.mutables.read().unwrap().ghost {
-                    (squadron.get_strength(self.config.battle_scalars.avg_duration) as f32)
-                        < (squadron.ideal_strength as f32 * squadron.class.disband_threshold)
-                } else {
-                    0 >= squadron.get_strength(self.config.battle_scalars.avg_duration)
-                }
+                //if squadron.mutables.read().unwrap().ghost {
+                //    (squadron.get_strength(self.config.battle_scalars.avg_duration) as f32)
+                //        < (squadron.ideal_strength as f32 * squadron.class.disband_threshold)
+                //} else {
+                //    0 >= squadron.get_strength(self.config.battle_scalars.avg_duration)
+                //}
+                false
             })
             .cloned()
             .collect::<Vec<_>>();

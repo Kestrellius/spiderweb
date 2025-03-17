@@ -1121,6 +1121,11 @@ impl Locality for Arc<Node> {
                 .map(|squadron| (squadron.id, squadron.clone()))
                 .collect();
 
+            //we have to acquire write locks on every unit-related rwlock in this node,
+            //because this needs to be thread-safe, and if we didn't have locks for the entire duration,
+            //then between the time we figured out how many of what unit everything needed,
+            //and the time we transferred things,
+            //another thread might come along and change the configuration of things in the node.
             let mut all_squadrons_mut_lock: HashMap<u64, RwLockWriteGuard<SquadronMut>> =
                 all_squadrons_indexed
                     .iter()
@@ -1149,6 +1154,9 @@ impl Locality for Arc<Node> {
                 .map(|ship| (ship.id, ship.mutables.write().unwrap()))
                 .collect();
 
+            //we need to know the speed of the ships hangars are attached to,
+            //because it's going to be relevant later for figuring out how much demand we allot
+            //hangars that are purely for transporting ships
             let all_hangars_indexed_with_speed: HashMap<u64, (Arc<Hangar>, f32)> =
                 all_ships_mut_lock
                     .iter()
@@ -1579,28 +1587,7 @@ impl Locality for Arc<Node> {
                         (*index, proper_cargo_volumes_by_unitclass)
                     })
                     .collect();
-            /*
-            all_squadrons_indexed.iter().for_each(|(index, squadron)| {
-                unitclasses
-                    .iter()
-                    .enumerate()
-                    .filter(|(classindex, unitclass)| {
-                        squadron
-                            .class
-                            .ideal
-                            .contains_key(&UnitClassID::new_from_unitclass(unitclass))
-                    })
-                    .for_each(|(classindex, unitclass)| {
-                        println!(
-                            "{}: {} allotted: {}",
-                            squadron.visible_name,
-                            unitclass.get_visible_name(),
-                            squadrons_proper_cargo_volumes.get(index).unwrap()[classindex]
-                                / unitclass.get_ideal_volume(),
-                        );
-                    })
-            });
-            */
+
             unitclasses.iter().for_each(|unitclass| {
                 all_squadrons_indexed.iter().for_each(|(index, squadron)| {
                     let container = all_squadrons_containers_lock.get(index).unwrap();
