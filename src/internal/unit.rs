@@ -2244,6 +2244,8 @@ impl Squadron {
             0
         }
     }
+    //because this is used for transact_units, we need to get the total volume the squadron wants
+    //so this is different from regular demand, which subtracts whatever it currently has
     pub fn get_unitclass_demand_local(
         &self,
         unit_container: &RwLockWriteGuard<UnitContainer>,
@@ -2259,39 +2261,29 @@ impl Squadron {
             .map(|allowed_vec| allowed_vec.contains(&unitclass_id))
             .unwrap_or(true)
         {
-            let daughters = &unit_container.contents;
-            let daughter_unitclass_volume = daughters
-                .iter()
-                .filter(|unit| {
-                    unit.get_ship()
-                        .map(|ship| ships_mut_lock.get(&ship.id).unwrap().hull.get() > 0)
-                        .unwrap_or(true)
-                })
-                .filter(|unit| &unit.get_unitclass() == &unitclass)
-                .map(|unit| unit.get_real_volume_locked(squadrons_containers_lock, ships_mut_lock))
-                .sum::<u64>();
             let ideal_volume = self
                 .class
                 .ideal
                 .get(&UnitClassID::new_from_unitclass(&unitclass))
                 .unwrap_or(&0)
                 * unitclass.get_ideal_volume();
-            let ideal_demand = ideal_volume.saturating_sub(daughter_unitclass_volume);
             let non_ideal_demand = (self
                 .class
                 .target
                 .saturating_sub(
-                    daughters
+                    unit_container
+                        .contents
                         .iter()
+                        .filter(|unit| unit.get_unitclass() != unitclass)
                         .map(|daughter| {
                             daughter
                                 .get_real_volume_locked(squadrons_containers_lock, ships_mut_lock)
                         })
                         .sum(),
                 )
-                .saturating_sub(ideal_demand) as f32
+                .saturating_sub(ideal_volume) as f32
                 * self.class.non_ideal_demand_scalar) as u64;
-            ideal_demand + non_ideal_demand
+            ideal_volume + non_ideal_demand
         } else {
             0
         }
@@ -2858,11 +2850,11 @@ impl Mobility for Arc<Squadron> {
             .for_each(|daughter| daughter.kill());
     }
     fn is_alive(&self) -> bool {
-        self.mutables.read().unwrap().ghost || (!self.get_daughters().is_empty())
+        self.is_ghost() || (!self.get_daughters().is_empty())
     }
     fn is_alive_locked(
         &self,
-        ships_mut_lock: &HashMap<u64, RwLockWriteGuard<ShipMut>>,
+        _ships_mut_lock: &HashMap<u64, RwLockWriteGuard<ShipMut>>,
         squadrons_mut_lock: &HashMap<u64, RwLockWriteGuard<SquadronMut>>,
         container_is_not_empty_map: &HashMap<u64, bool>,
     ) -> bool {

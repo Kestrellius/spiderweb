@@ -13,6 +13,7 @@ struct Config {
     salience_scalars: SalienceScalars,
     entity_scalars: EntityScalars,
     battle_scalars: BattleScalars,
+    soft_ship_limit: Option<u64>,
 }
 
 impl Config {
@@ -21,6 +22,7 @@ impl Config {
             salience_scalars: self.salience_scalars.hydrate(),
             entity_scalars: self.entity_scalars.hydrate(),
             battle_scalars: self.battle_scalars.hydrate(),
+            soft_ship_limit: self.soft_ship_limit.unwrap_or(u64::MAX),
         }
     }
 }
@@ -396,6 +398,7 @@ struct Faction {
     efficiency_default: f32, //starting value for production facility efficiency
     efficiency_target: f32, //end value for efficiency, toward which efficiency changes over time in a node held by this faction
     efficiency_delta: f32,  //rate at which efficiency changes
+    soft_ship_limit: Option<u64>,
     battle_scalar: Option<f32>,
     value_mult: Option<f32>,
     volume_strength_ratio: Option<f32>,
@@ -417,6 +420,7 @@ impl Faction {
             efficiency_default: self.efficiency_default,
             efficiency_target: self.efficiency_target,
             efficiency_delta: self.efficiency_delta,
+            soft_ship_limit: self.soft_ship_limit.unwrap_or(u64::MAX),
             battle_scalar: self.battle_scalar.unwrap_or(1.0),
             value_mult: self.value_mult.clone().unwrap_or(1.0),
             volume_strength_ratio: self.volume_strength_ratio.unwrap_or(1.0),
@@ -1204,7 +1208,7 @@ struct SquadronClass {
     de_ghost_threshold: Option<f32>,
     disband_threshold: f32,
     deploys_self: Option<bool>,
-    deploys_daughters: Option<Option<u64>>,
+    deploys_daughters: Option<u64>,
     mother_loyalty_scalar: Option<f32>,
     defect_chance: Option<HashMap<String, (f32, f32)>>, //first number is probability scalar for defection *from* the associated faction; second is scalar for defection *to* it
     defect_escape_mod: Option<f32>,
@@ -1298,7 +1302,7 @@ impl SquadronClass {
             de_ghost_threshold: self.de_ghost_threshold.unwrap_or(self.disband_threshold),
             disband_threshold: self.disband_threshold,
             deploys_self: self.deploys_self.unwrap_or(true),
-            deploys_daughters: self.deploys_daughters.unwrap_or(None),
+            deploys_daughters: self.deploys_daughters,
             mother_loyalty_scalar: self.mother_loyalty_scalar.unwrap_or(2.0),
             defect_chance: self
                 .defect_chance
@@ -1708,12 +1712,12 @@ impl Root {
         let squadronclasses: HashMap<String, Arc<export::SquadronClass>> = self
             .squadronclasses
             .iter()
-            .enumerate()
-            .map(|(i, squadronclass)| {
+            .map(|squadronclass| {
                 (
                     squadronclass.id.clone(),
                     Arc::new(squadronclass.hydrate(
-                        i,
+                        //NOTE: figuring-out in progress
+                        squadronclass_id_map.get(&squadronclass.id).unwrap().index,
                         &shipclass_id_map,
                         &squadronclass_id_map,
                         &squadronflavor_id_map,

@@ -25,6 +25,7 @@ pub struct Config {
     pub salience_scalars: SalienceScalars,
     pub entity_scalars: EntityScalars,
     pub battle_scalars: BattleScalars,
+    pub soft_ship_limit: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -209,23 +210,35 @@ impl Root {
         class: Arc<ShipClass>,
         location: UnitLocation,
         faction: Arc<Faction>,
-    ) -> Arc<Ship> {
-        //we call the shipclass instantiate method, and feed it the parameters it wants
-        let new_ship = Arc::new(ShipClass::instantiate(
-            class.clone(),
-            location.clone(),
-            faction,
-            self,
-        ));
-        class.build_hangars(new_ship.clone(), &self.shipclasses, &self.hangar_counter);
-        //NOTE: Is this thread-safe? There might be enough space in here
-        //for something to go interact with the ship in root and fail to get the arc from location.
-        self.ships.write().unwrap().push(new_ship.clone());
-        location.insert_unit(
-            &mut location.get_unit_container_write(),
-            new_ship.get_unit(),
-        );
-        new_ship
+    ) -> Option<Arc<Ship>> {
+        let mut ships_lock = self.ships.write().unwrap();
+        let current_ship_num = ships_lock.len() as u64;
+        let current_faction_ship_num = ships_lock
+            .iter()
+            .filter(|ship| ship.get_allegiance() == faction)
+            .count() as u64;
+        if current_ship_num < self.config.soft_ship_limit
+            && current_faction_ship_num < faction.soft_ship_limit
+        {
+            //we call the shipclass instantiate method, and feed it the parameters it wants
+            let new_ship = Arc::new(ShipClass::instantiate(
+                class.clone(),
+                location.clone(),
+                faction,
+                self,
+            ));
+            class.build_hangars(new_ship.clone(), &self.shipclasses, &self.hangar_counter);
+            ships_lock.push(new_ship.clone());
+            location.insert_unit(
+                &mut location.get_unit_container_write(),
+                new_ship.get_unit(),
+            );
+            drop(ships_lock);
+            Some(new_ship)
+        } else {
+            drop(ships_lock);
+            None
+        }
     }
     pub fn create_squadron(
         &self,
@@ -242,31 +255,15 @@ impl Root {
             self,
         ));
 
-        //NOTE: This block appears to be pointless and probably I should delete it,
-        //but I don't feel confident enough right now and I'm in the middle of something.
-        class.ideal.iter().for_each(|(unitclass, _)| {
-            let num = location
-                .get_mother_node()
-                .unit_container
-                .read()
-                .unwrap()
-                .contents
-                .iter()
-                .filter(|unit| unit.is_alive())
-                .filter(|unit| &unit.get_allegiance() == &faction)
-                .filter(|unit| {
-                    &&UnitClassID::new_from_unitclass(&unit.get_unitclass()) == &unitclass
-                })
-                .count();
-        });
-
         //NOTE: Is this thread-safe? There might be enough space in here
         //for something to go interact with the squadron in root and fail to get the arc from location.
-        self.squadrons.write().unwrap().push(new_squadron.clone());
+        let mut squadrons_lock = self.squadrons.write().unwrap();
+        squadrons_lock.push(new_squadron.clone());
         location.insert_unit(
             &mut location.get_unit_container_write(),
             new_squadron.get_unit(),
         );
+        drop(squadrons_lock);
         new_squadron
     }
     pub fn engagement_check(&self, node: Arc<Node>, actor: Arc<Faction>) -> Option<Arc<Faction>> {
@@ -293,13 +290,12 @@ impl Root {
             .unwrap()
             .iter()
             .filter(|squadron| {
-                //if squadron.mutables.read().unwrap().ghost {
-                //    (squadron.get_strength(self.config.battle_scalars.avg_duration) as f32)
-                //        < (squadron.ideal_strength as f32 * squadron.class.disband_threshold)
-                //} else {
-                //    0 >= squadron.get_strength(self.config.battle_scalars.avg_duration)
-                //}
-                false
+                if squadron.mutables.read().unwrap().ghost {
+                    (squadron.get_strength(self.config.battle_scalars.avg_duration) as f32)
+                        < (squadron.ideal_strength as f32 * squadron.class.disband_threshold)
+                } else {
+                    0 >= squadron.get_strength(self.config.battle_scalars.avg_duration)
+                }
             })
             .cloned()
             .collect::<Vec<_>>();

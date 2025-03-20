@@ -335,6 +335,8 @@ impl Hangar {
             0
         }
     }
+    //because this is used for transact_units, we need to get the total volume the squadron wants
+    //so this is different from regular demand, which subtracts whatever it currently has
     pub fn get_unitclass_demand_local(
         &self,
         unit_container: &RwLockWriteGuard<UnitContainer>,
@@ -350,24 +352,12 @@ impl Hangar {
             .map(|allowed_vec| allowed_vec.contains(&unitclass_id))
             .unwrap_or(true)
         {
-            let daughter_volume = unit_container
-                .contents
-                .iter()
-                .filter(|unit| {
-                    unit.get_ship()
-                        .map(|ship| ships_mut_lock.get(&ship.id).unwrap().hull.get() > 0)
-                        .unwrap_or(true)
-                })
-                .filter(|unit| &unit.get_unitclass() == &unitclass)
-                .map(|unit| unit.get_real_volume_locked(squadrons_containers_lock, ships_mut_lock))
-                .sum::<u64>();
             let ideal_volume = self
                 .class
                 .ideal
                 .get(&UnitClassID::new_from_unitclass(&unitclass))
                 .unwrap_or(&0)
                 * unitclass.get_ideal_volume();
-            let ideal_demand = ideal_volume.saturating_sub(daughter_volume);
             let non_ideal_demand = (self
                 .class
                 .target
@@ -375,19 +365,15 @@ impl Hangar {
                     unit_container
                         .contents
                         .iter()
-                        .filter(|unit| {
-                            unit.get_ship()
-                                .map(|ship| ships_mut_lock.get(&ship.id).unwrap().hull.get() > 0)
-                                .unwrap_or(true)
-                        })
+                        .filter(|unit| unit.get_unitclass() != unitclass)
                         .map(|unit| {
                             unit.get_real_volume_locked(squadrons_containers_lock, ships_mut_lock)
                         })
                         .sum::<u64>(),
                 )
-                .saturating_sub(ideal_demand) as f32
+                .saturating_sub(ideal_volume) as f32
                 * self.class.non_ideal_demand_scalar) as u64;
-            ideal_demand + non_ideal_demand
+            ideal_volume + non_ideal_demand
         } else {
             0
         }

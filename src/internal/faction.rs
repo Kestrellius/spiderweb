@@ -24,6 +24,7 @@ pub struct Faction {
     pub efficiency_default: f32, //starting value for production facility efficiency
     pub efficiency_target: f32, //end value for efficiency, toward which efficiency changes over time in a node held by this faction
     pub efficiency_delta: f32,  //rate at which efficiency changes
+    pub soft_ship_limit: u64, //number of ships belonging to this faction above which it will stop building new ones
     pub battle_scalar: f32,
     pub value_mult: f32, //how valuable the AI considers one point of this faction's threat to be
     pub volume_strength_ratio: f32, //faction's multiplier for resource/unitclass supply points when comparing to threat values for faction demand calcs
