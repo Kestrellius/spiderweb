@@ -1020,6 +1020,7 @@ struct ShipClass {
 impl ShipClass {
     fn hydrate(
         &self,
+        index: usize,
         shipclass_id_map: &HashMap<String, export::ShipClassID>,
         shipflavor_id_map: &HashMap<String, Arc<export::ShipFlavor>>,
         resource_id_map: &HashMap<String, Arc<export::Resource>>,
@@ -1034,7 +1035,7 @@ impl ShipClass {
         factions: &HashMap<String, Arc<export::Faction>>,
     ) -> export::ShipClass {
         let shipclass = export::ShipClass {
-            id: shipclass_id_map.get(&self.id).unwrap().index,
+            id: index,
             visible_name: self.visible_name.clone(),
             description: self.description.clone(),
             shipflavor: shipflavor_id_map.get(&self.shipflavor).unwrap().clone(),
@@ -1348,8 +1349,6 @@ pub struct Root {
 impl Root {
     //hydration method
     pub fn hydrate(mut self) -> export::Root {
-        let unitclass_counter = Arc::new(AtomicUsize::new(0));
-
         let config = self.config.hydrate();
 
         let nodeflavor_id_map: HashMap<String, Arc<export::NodeFlavor>> = self
@@ -1499,29 +1498,24 @@ impl Root {
             value_mult: None,
         };
 
-        //here we create the shipclass_id_map, put the dummy ship class inside it, and then insert all the actual ship classes
+        //here we create the shipclass_id_map, put the dummy ship class inside it, and then insert all the actual ship classes later
         let shipclass_id_map: HashMap<String, export::ShipClassID> =
             iter::once(&generic_demand_ship)
                 .chain(self.shipclasses.iter())
-                .map(|shipclass| {
-                    (
-                        shipclass.id.clone(),
-                        export::ShipClassID::new_from_index(
-                            unitclass_counter.fetch_add(1, atomic::Ordering::Relaxed),
-                        ),
-                    )
+                .enumerate()
+                .map(|(i, shipclass)| {
+                    (shipclass.id.clone(), export::ShipClassID::new_from_index(i))
                 })
                 .collect();
 
         let squadronclass_id_map: HashMap<String, export::SquadronClassID> = self
             .squadronclasses
             .iter()
-            .map(|squadronclass| {
+            .enumerate()
+            .map(|(i, squadronclass)| {
                 (
                     squadronclass.id.clone(),
-                    export::SquadronClassID::new_from_index(
-                        unitclass_counter.fetch_add(1, atomic::Ordering::Relaxed),
-                    ),
+                    export::SquadronClassID::new_from_index(i),
                 )
             })
             .collect();
@@ -1591,8 +1585,10 @@ impl Root {
         //we hydrate shipclasses, starting with the generic demand ship
         let shipclasses: Vec<Arc<export::ShipClass>> = iter::once(&generic_demand_ship)
             .chain(self.shipclasses.iter())
-            .map(|shipclass| {
+            .enumerate()
+            .map(|(i, shipclass)| {
                 Arc::new(shipclass.hydrate(
+                    i,
                     &shipclass_id_map,
                     &shipflavor_id_map,
                     &resource_id_map,
@@ -1712,12 +1708,12 @@ impl Root {
         let squadronclasses: HashMap<String, Arc<export::SquadronClass>> = self
             .squadronclasses
             .iter()
-            .map(|squadronclass| {
+            .enumerate()
+            .map(|(i, squadronclass)| {
                 (
                     squadronclass.id.clone(),
                     Arc::new(squadronclass.hydrate(
-                        //NOTE: figuring-out in progress
-                        squadronclass_id_map.get(&squadronclass.id).unwrap().index,
+                        i,
                         &shipclass_id_map,
                         &squadronclass_id_map,
                         &squadronflavor_id_map,

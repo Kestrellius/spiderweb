@@ -2885,26 +2885,28 @@ pub enum UnitClassID {
 impl UnitClassID {
     pub fn new_from_unitclass(unitclass: &UnitClass) -> Self {
         match unitclass {
-            UnitClass::ShipClass(sc) => UnitClassID::ShipClass(ShipClassID::new_from_index(sc.id)),
-            UnitClass::SquadronClass(fc) => {
-                UnitClassID::SquadronClass(SquadronClassID::new_from_index(fc.id))
+            UnitClass::ShipClass(scid) => {
+                UnitClassID::ShipClass(ShipClassID::new_from_index(scid.id))
+            }
+            UnitClass::SquadronClass(sqcid) => {
+                UnitClassID::SquadronClass(SquadronClassID::new_from_index(sqcid.id))
             }
         }
     }
     pub fn get_index(&self) -> usize {
         match self {
-            UnitClassID::ShipClass(sc) => sc.index,
-            UnitClassID::SquadronClass(fc) => fc.index,
+            UnitClassID::ShipClass(scid) => scid.index,
+            UnitClassID::SquadronClass(sqcid) => sqcid.index,
         }
     }
     pub fn get_unitclass(&self, root: &Root) -> UnitClass {
-        //shipclasses and squadronclasses have a single continuous chain of indices, so that unitclasses can be non-redundant
-        //so in order to index into the squadronclasses vec, we have to subtract the number of shipclasses from our index
         match self {
-            UnitClassID::ShipClass(sc) => UnitClass::ShipClass(root.shipclasses[sc.index].clone()),
-            UnitClassID::SquadronClass(fc) => UnitClass::SquadronClass(
-                root.squadronclasses[fc.index - root.shipclasses.len()].clone(),
-            ),
+            UnitClassID::ShipClass(scid) => {
+                UnitClass::ShipClass(root.shipclasses[scid.index].clone())
+            }
+            UnitClassID::SquadronClass(sqcid) => {
+                UnitClass::SquadronClass(root.squadronclasses[sqcid.index].clone())
+            }
         }
     }
 }
