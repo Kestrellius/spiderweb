@@ -1523,6 +1523,8 @@ impl Root {
             .map(|(i, squadronclass)| {
                 (
                     squadronclass.id.clone(),
+                    //we add 1 for the generic demand ship
+                    //this is ugly and I don't like it, but for now I don't see a better option
                     export::SquadronClassID::new_from_index(i + self.shipclasses.len() + 1),
                 )
             })
@@ -1604,12 +1606,11 @@ impl Root {
 
         let unitclass_id_map: HashMap<String, export::UnitClass> = iter::once(&generic_demand_ship)
             .chain(self.shipclasses.iter())
-            .enumerate()
-            .map(|(i, shipclass)| {
+            .map(|shipclass| {
                 (
                     shipclass.id.clone(),
                     export::UnitClass::ShipClass(Arc::new(shipclass.hydrate(
-                        i,
+                        shipclass_id_map.get(&shipclass.id).unwrap().index,
                         &shipclass_id_map,
                         &shipflavor_id_map,
                         &resource_id_map,
@@ -1625,25 +1626,20 @@ impl Root {
                     ))),
                 )
             })
-            .chain(
-                self.squadronclasses
-                    .iter()
-                    .enumerate()
-                    .map(|(i, squadronclass)| {
-                        (
-                            squadronclass.id.clone(),
-                            export::UnitClass::SquadronClass(Arc::new(squadronclass.hydrate(
-                                i,
-                                &shipclass_id_map,
-                                &squadronclass_id_map,
-                                &squadronflavor_id_map,
-                                &factions,
-                                &self.shipclasses,
-                                &self.squadronclasses,
-                            ))),
-                        )
-                    }),
-            )
+            .chain(self.squadronclasses.iter().map(|squadronclass| {
+                (
+                    squadronclass.id.clone(),
+                    export::UnitClass::SquadronClass(Arc::new(squadronclass.hydrate(
+                        squadronclass_id_map.get(&squadronclass.id).unwrap().index,
+                        &shipclass_id_map,
+                        &squadronclass_id_map,
+                        &squadronflavor_id_map,
+                        &factions,
+                        &self.shipclasses,
+                        &self.squadronclasses,
+                    ))),
+                )
+            }))
             .collect();
 
         let mut rng = rand_hc::Hc128Rng::seed_from_u64(1138);
