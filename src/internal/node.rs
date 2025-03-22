@@ -290,10 +290,7 @@ pub trait Locality {
         forbidden_nodeflavors: &Vec<Arc<NodeFlavor>>,
         forbidden_edgeflavors: &Vec<Arc<EdgeFlavor>>,
     ) -> Vec<Arc<Node>>;
-    fn plan_ships(
-        &self,
-        shipclasses: &Vec<Arc<ShipClass>>,
-    ) -> Vec<(Arc<ShipClass>, UnitLocation, Arc<Faction>)>;
+    fn plan_ships(&self) -> Vec<(Arc<ShipClass>, UnitLocation, Arc<Faction>)>;
     fn plan_squadrons(&self, root: &Root) -> Vec<(Arc<SquadronClass>, UnitLocation, Arc<Faction>)>;
     fn transact_resources(&self, root: &Root);
     fn transact_units(&self, root: &Root);
@@ -378,10 +375,7 @@ impl Locality for Arc<Node> {
         );
         touched.into_keys().collect::<Vec<_>>()
     }
-    fn plan_ships(
-        &self,
-        shipclasses: &Vec<Arc<ShipClass>>,
-    ) -> Vec<(Arc<ShipClass>, UnitLocation, Arc<Faction>)> {
+    fn plan_ships(&self) -> Vec<(Arc<ShipClass>, UnitLocation, Arc<Faction>)> {
         let mut mutables = self.mutables.write().unwrap();
         let efficiency = mutables.efficiency;
         let allegiance = mutables.allegiance.clone();
@@ -389,7 +383,7 @@ impl Locality for Arc<Node> {
             .shipyards
             .iter_mut()
             .map(|shipyard| {
-                let ship_plans = shipyard.plan_ships(efficiency, shipclasses);
+                let ship_plans = shipyard.plan_ships(efficiency);
                 //here we take the list of ships for a specific shipyard and tag them with the location and allegiance they should have when they're built
                 ship_plans
                     .iter()
@@ -411,30 +405,27 @@ impl Locality for Arc<Node> {
         root.factions
             .iter()
             .map(|faction| {
-                let mut avail_units: HashMap<UnitClassID, u64> =
-                    root.shipclasses
-                        .iter()
-                        .map(|shipclass| ShipClass::get_unitclass(shipclass.clone()))
-                        .chain(root.squadronclasses.iter().map(|squadronclass| {
-                            SquadronClass::get_unitclass(squadronclass.clone())
-                        }))
-                        .map(|unitclass| {
-                            (
-                                UnitClassID::new_from_unitclass(&unitclass),
-                                self.unit_container
-                                    .read()
-                                    .unwrap()
-                                    .contents
-                                    .iter()
-                                    .filter(|unit| unit.is_alive())
-                                    .filter(|unit| &unit.get_allegiance() == faction)
-                                    .filter(|unit| &unit.get_unitclass() == &unitclass)
-                                    .count() as u64,
-                            )
-                        })
-                        .collect();
-                root.squadronclasses
+                let mut avail_units: HashMap<UnitClassID, u64> = root
+                    .unitclasses
                     .iter()
+                    .map(|unitclass| {
+                        (
+                            UnitClassID::new_from_unitclass(&unitclass),
+                            self.unit_container
+                                .read()
+                                .unwrap()
+                                .contents
+                                .iter()
+                                .filter(|unit| unit.is_alive())
+                                .filter(|unit| &unit.get_allegiance() == faction)
+                                .filter(|unit| &unit.get_unitclass() == unitclass)
+                                .count() as u64,
+                        )
+                    })
+                    .collect();
+                root.unitclasses
+                    .iter()
+                    .filter_map(|unitclass| unitclass.get_squadronclass())
                     .map(move |squadronclass| {
                         let mut adding_squadrons = true;
                         let mut added_squadrons = Vec::new();
@@ -1180,16 +1171,7 @@ impl Locality for Arc<Node> {
                     .map(|(_, (hangar, _))| (hangar.id, hangar.unit_container.write().unwrap()))
                     .collect();
 
-            let unitclasses = root
-                .shipclasses
-                .iter()
-                .map(|shipclass| ShipClass::get_unitclass(shipclass.clone()))
-                .chain(
-                    root.squadronclasses
-                        .iter()
-                        .map(|squadronclass| SquadronClass::get_unitclass(squadronclass.clone())),
-                )
-                .collect::<Vec<_>>();
+            let unitclasses = &root.unitclasses;
 
             struct UnitClassTransactionData {
                 supply_demand_ratio: f32,
@@ -1355,7 +1337,7 @@ impl Locality for Arc<Node> {
 
                     let num = all_units
                         .iter()
-                        .filter(|unit| &unit.get_unitclass() == unitclass)
+                        .filter(|unit| unit.get_unitclass() == *unitclass)
                         .count() as u64;
 
                     UnitClassTransactionData {
@@ -1397,7 +1379,7 @@ impl Locality for Arc<Node> {
                                 .min(allowed_cargo_volume);
                                 let class_units = all_units
                                     .iter()
-                                    .filter(|unit| &unit.get_unitclass() == unitclass)
+                                    .filter(|unit| unit.get_unitclass() == *unitclass)
                                     .collect::<Vec<_>>();
                                 let mother_loyalty_average = class_units
                                     .iter()
@@ -1462,7 +1444,7 @@ impl Locality for Arc<Node> {
                                 .min(allowed_cargo_volume);
                                 let class_units = all_units
                                     .iter()
-                                    .filter(|unit| &unit.get_unitclass() == unitclass)
+                                    .filter(|unit| unit.get_unitclass() == *unitclass)
                                     .collect::<Vec<_>>();
                                 let mother_loyalty_average = class_units
                                     .iter()

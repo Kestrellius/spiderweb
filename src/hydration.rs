@@ -171,7 +171,7 @@ impl Node {
         factions: &HashMap<String, Arc<export::Faction>>,
         factoryclass_id_map: &HashMap<String, Arc<export::FactoryClass>>,
         shipyardclass_id_map: &HashMap<String, Arc<export::ShipyardClass>>,
-        shipclasses: &Vec<Arc<export::ShipClass>>,
+        unitclass_id_map: &HashMap<String, export::UnitClass>,
     ) -> export::Node {
         let template = nodetemplates
             .iter()
@@ -290,7 +290,11 @@ impl Node {
                                         stringid
                                     ))
                                     .clone(),
-                                shipclasses,
+                                &unitclass_id_map
+                                    .values()
+                                    .sorted_by_key(|x| x.get_id())
+                                    .cloned()
+                                    .collect(),
                             )
                         })
                         .collect(),
@@ -313,7 +317,11 @@ impl Node {
                                                 stringid
                                             ))
                                             .clone(),
-                                        shipclasses,
+                                        &unitclass_id_map
+                                            .values()
+                                            .sorted_by_key(|x| x.get_id())
+                                            .cloned()
+                                            .collect(),
                                     )
                                 })
                                 .collect::<Vec<_>>()
@@ -1515,7 +1523,7 @@ impl Root {
             .map(|(i, squadronclass)| {
                 (
                     squadronclass.id.clone(),
-                    export::SquadronClassID::new_from_index(i),
+                    export::SquadronClassID::new_from_index(i + self.shipclasses.len() + 1),
                 )
             })
             .collect();
@@ -1582,27 +1590,60 @@ impl Root {
             })
             .collect();
 
-        //we hydrate shipclasses, starting with the generic demand ship
-        let shipclasses: Vec<Arc<export::ShipClass>> = iter::once(&generic_demand_ship)
+        let squadronflavor_id_map: HashMap<String, Arc<export::SquadronFlavor>> = self
+            .squadronflavors
+            .drain(0..)
+            .enumerate()
+            .map(|(i, squadronflavor)| {
+                (
+                    squadronflavor.id.clone(),
+                    Arc::new(squadronflavor.hydrate(i)),
+                )
+            })
+            .collect();
+
+        let unitclass_id_map: HashMap<String, export::UnitClass> = iter::once(&generic_demand_ship)
             .chain(self.shipclasses.iter())
             .enumerate()
             .map(|(i, shipclass)| {
-                Arc::new(shipclass.hydrate(
-                    i,
-                    &shipclass_id_map,
-                    &shipflavor_id_map,
-                    &resource_id_map,
-                    &hangarclass_id_map,
-                    &engineclass_id_map,
-                    &repairerclass_id_map,
-                    &strategicweaponclass_id_map,
-                    &factoryclass_id_map,
-                    &shipyardclass_id_map,
-                    &subsystemclass_id_map,
-                    &shipai_id_map,
-                    &factions,
-                ))
+                (
+                    shipclass.id.clone(),
+                    export::UnitClass::ShipClass(Arc::new(shipclass.hydrate(
+                        i,
+                        &shipclass_id_map,
+                        &shipflavor_id_map,
+                        &resource_id_map,
+                        &hangarclass_id_map,
+                        &engineclass_id_map,
+                        &repairerclass_id_map,
+                        &strategicweaponclass_id_map,
+                        &factoryclass_id_map,
+                        &shipyardclass_id_map,
+                        &subsystemclass_id_map,
+                        &shipai_id_map,
+                        &factions,
+                    ))),
+                )
             })
+            .chain(
+                self.squadronclasses
+                    .iter()
+                    .enumerate()
+                    .map(|(i, squadronclass)| {
+                        (
+                            squadronclass.id.clone(),
+                            export::UnitClass::SquadronClass(Arc::new(squadronclass.hydrate(
+                                i,
+                                &shipclass_id_map,
+                                &squadronclass_id_map,
+                                &squadronflavor_id_map,
+                                &factions,
+                                &self.shipclasses,
+                                &self.squadronclasses,
+                            ))),
+                        )
+                    }),
+            )
             .collect();
 
         let mut rng = rand_hc::Hc128Rng::seed_from_u64(1138);
@@ -1622,7 +1663,7 @@ impl Root {
                     &factions,
                     &factoryclass_id_map,
                     &shipyardclass_id_map,
-                    &shipclasses,
+                    &unitclass_id_map,
                 );
                 (node.id.clone(), Arc::new(nodehydration))
             })
@@ -1692,38 +1733,6 @@ impl Root {
                     .push(a.clone());
                 acc
             });
-
-        let squadronflavor_id_map: HashMap<String, Arc<export::SquadronFlavor>> = self
-            .squadronflavors
-            .drain(0..)
-            .enumerate()
-            .map(|(i, squadronflavor)| {
-                (
-                    squadronflavor.id.clone(),
-                    Arc::new(squadronflavor.hydrate(i)),
-                )
-            })
-            .collect();
-
-        let squadronclasses: HashMap<String, Arc<export::SquadronClass>> = self
-            .squadronclasses
-            .iter()
-            .enumerate()
-            .map(|(i, squadronclass)| {
-                (
-                    squadronclass.id.clone(),
-                    Arc::new(squadronclass.hydrate(
-                        i,
-                        &shipclass_id_map,
-                        &squadronclass_id_map,
-                        &squadronflavor_id_map,
-                        &factions,
-                        &self.shipclasses,
-                        &self.squadronclasses,
-                    )),
-                )
-            })
-            .collect();
 
         export::Root {
             config: config,
@@ -1807,11 +1816,10 @@ impl Root {
                 .cloned()
                 .sorted_by_key(|x| x.id)
                 .collect(),
-            shipclasses: shipclasses.clone(),
-            squadronclasses: squadronclasses
+            unitclasses: unitclass_id_map
                 .values()
                 .cloned()
-                .sorted_by_key(|x| x.id)
+                .sorted_by_key(|x| x.get_id())
                 .collect(),
             ships: RwLock::new(Vec::new()),
             squadrons: RwLock::new(Vec::new()),
@@ -1844,7 +1852,7 @@ impl Root {
                     factions
                         .iter()
                         .map(|_| {
-                            shipclasses
+                            unitclass_id_map
                                 .iter()
                                 .map(|_| node_id_map.iter().map(|_| [0.0; 2]).collect())
                                 .collect()

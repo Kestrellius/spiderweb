@@ -85,7 +85,7 @@ impl NodeMut {
         resourcesroot: &Vec<Arc<export::Resource>>,
         factoryclassesroot: &Vec<Arc<export::FactoryClass>>,
         shipyardclassesroot: &Vec<Arc<export::ShipyardClass>>,
-        shipclassesroot: &Vec<Arc<export::ShipClass>>,
+        unitclassesroot: &Vec<export::UnitClass>,
     ) -> export::NodeMut {
         export::NodeMut {
             visibility: self.visibility,
@@ -98,7 +98,7 @@ impl NodeMut {
             shipyards: self
                 .shipyardlist
                 .iter()
-                .map(|x| x.rehydrate(&resourcesroot, &shipyardclassesroot, &shipclassesroot))
+                .map(|x| x.rehydrate(&resourcesroot, &shipyardclassesroot, &unitclassesroot))
                 .collect(),
             allegiance: factionsroot[self.allegiance].clone(),
             efficiency: self.efficiency,
@@ -143,7 +143,7 @@ impl Node {
         resourcesroot: &Vec<Arc<export::Resource>>,
         factoryclassesroot: &Vec<Arc<export::FactoryClass>>,
         shipyardclassesroot: &Vec<Arc<export::ShipyardClass>>,
-        shipclassesroot: &Vec<Arc<export::ShipClass>>,
+        unitclassesroot: &Vec<export::UnitClass>,
     ) -> export::Node {
         export::Node {
             id: self.id,
@@ -158,7 +158,7 @@ impl Node {
                 &resourcesroot,
                 &factoryclassesroot,
                 &shipyardclassesroot,
-                &shipclassesroot,
+                &unitclassesroot,
             )),
             unit_container: RwLock::new(export::UnitContainer::new()),
         }
@@ -965,7 +965,7 @@ impl Shipyard {
         &self,
         resourcesroot: &Vec<Arc<export::Resource>>,
         shipyardclassesroot: &Vec<Arc<export::ShipyardClass>>,
-        shipclassesroot: &Vec<Arc<export::ShipClass>>,
+        unitclassesroot: &Vec<export::UnitClass>,
     ) -> export::Shipyard {
         export::Shipyard {
             class: shipyardclassesroot[self.class].clone(),
@@ -978,7 +978,9 @@ impl Shipyard {
             outputs: self
                 .outputs
                 .iter()
-                .map(|(shipclass, count)| (shipclassesroot[*shipclass].clone(), *count))
+                .map(|(shipclass, count)| {
+                    (unitclassesroot[*shipclass].get_shipclass().unwrap(), *count)
+                })
                 .collect(),
             construct_points: self.constructpoints,
             efficiency: self.efficiency,
@@ -1397,7 +1399,7 @@ impl ShipMut {
         shipyardclassesroot: &Vec<Arc<export::ShipyardClass>>,
         subsystemclassesroot: &Vec<Arc<export::SubsystemClass>>,
         shipaisroot: &Vec<Arc<export::ShipAI>>,
-        shipclassesroot: &Vec<Arc<export::ShipClass>>,
+        unitclassesroot: &Vec<export::UnitClass>,
     ) -> export::ShipMut {
         export::ShipMut {
             hull: self.hull,
@@ -1440,7 +1442,7 @@ impl ShipMut {
             shipyards: self
                 .shipyards
                 .iter()
-                .map(|x| x.rehydrate(&resourcesroot, &shipyardclassesroot, &shipclassesroot))
+                .map(|x| x.rehydrate(&resourcesroot, &shipyardclassesroot, &unitclassesroot))
                 .collect(),
             subsystems: self
                 .subsystems
@@ -1487,12 +1489,12 @@ impl Ship {
         shipyardclassesroot: &Vec<Arc<export::ShipyardClass>>,
         subsystemclassesroot: &Vec<Arc<export::SubsystemClass>>,
         shipaisroot: &Vec<Arc<export::ShipAI>>,
-        shipclassesroot: &Vec<Arc<export::ShipClass>>,
+        unitclassesroot: &Vec<export::UnitClass>,
     ) -> export::Ship {
         export::Ship {
             id: self.id,
             visible_name: self.visible_name.clone(),
-            class: shipclassesroot[self.class].clone(),
+            class: unitclassesroot[self.class].get_shipclass().unwrap(),
             mutables: RwLock::new(self.mutables.rehydrate(
                 nodeflavorsroot,
                 nodesroot,
@@ -1506,7 +1508,7 @@ impl Ship {
                 shipyardclassesroot,
                 subsystemclassesroot,
                 shipaisroot,
-                shipclassesroot,
+                unitclassesroot,
             )),
         }
     }
@@ -1717,12 +1719,12 @@ impl Squadron {
         &self,
         nodesroot: &Vec<Arc<export::Node>>,
         factionsroot: &Vec<Arc<export::Faction>>,
-        squadronclassesroot: &Vec<Arc<export::SquadronClass>>,
+        unitclassesroot: &Vec<export::UnitClass>,
     ) -> export::Squadron {
         export::Squadron {
             id: self.id,
             visible_name: self.visible_name.clone(),
-            class: squadronclassesroot[self.class].clone(),
+            class: unitclassesroot[self.class].get_squadronclass().unwrap(),
             ideal_strength: self.idealstrength,
             mutables: RwLock::new(self.mutables.rehydrate(&nodesroot, &factionsroot)),
             unit_container: RwLock::new(export::UnitContainer::new()),
@@ -1760,31 +1762,53 @@ impl Squadron {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum UnitClass {
-    ShipClass(usize),
-    SquadronClass(usize),
+    ShipClass(ShipClass),
+    SquadronClass(SquadronClass),
 }
 
 impl UnitClass {
     fn desiccate(self_entity: &export::UnitClass) -> UnitClass {
         match self_entity {
-            export::UnitClass::ShipClass(shc) => UnitClass::ShipClass(shc.id),
-            export::UnitClass::SquadronClass(sqc) => UnitClass::SquadronClass(sqc.id),
+            export::UnitClass::ShipClass(shc) => UnitClass::ShipClass(ShipClass::desiccate(shc)),
+            export::UnitClass::SquadronClass(sqc) => {
+                UnitClass::SquadronClass(SquadronClass::desiccate(sqc))
+            }
         }
     }
     fn rehydrate(
         &self,
-        shipclassesroot: &Vec<Arc<export::ShipClass>>,
-        squadronclassesroot: &Vec<Arc<export::SquadronClass>>,
+        factionsroot: &Vec<Arc<export::Faction>>,
+        resourcesroot: &Vec<Arc<export::Resource>>,
+        hangarclassesroot: &Vec<Arc<export::HangarClass>>,
+        engineclassesroot: &Vec<Arc<export::EngineClass>>,
+        repairerclassesroot: &Vec<Arc<export::RepairerClass>>,
+        strategicweaponclassesroot: &Vec<Arc<export::StrategicWeaponClass>>,
+        factoryclassesroot: &Vec<Arc<export::FactoryClass>>,
+        shipyardclassesroot: &Vec<Arc<export::ShipyardClass>>,
+        subsystemclassesroot: &Vec<Arc<export::SubsystemClass>>,
+        shipaisroot: &Vec<Arc<export::ShipAI>>,
+        shipflavorsroot: &Vec<Arc<export::ShipFlavor>>,
+        squadronflavorsroot: &Vec<Arc<export::SquadronFlavor>>,
     ) -> export::UnitClass {
         match self {
-            UnitClass::ShipClass(shc) => {
-                export::UnitClass::ShipClass(shipclassesroot[*shc].clone())
-            }
-            UnitClass::SquadronClass(sqc) => {
-                export::UnitClass::SquadronClass(squadronclassesroot[*sqc].clone())
-            }
+            UnitClass::ShipClass(shc) => export::UnitClass::ShipClass(Arc::new(shc.rehydrate(
+                factionsroot,
+                resourcesroot,
+                hangarclassesroot,
+                engineclassesroot,
+                repairerclassesroot,
+                strategicweaponclassesroot,
+                factoryclassesroot,
+                shipyardclassesroot,
+                subsystemclassesroot,
+                shipaisroot,
+                shipflavorsroot,
+            ))),
+            UnitClass::SquadronClass(sqc) => export::UnitClass::SquadronClass(Arc::new(
+                sqc.rehydrate(&factionsroot, &squadronflavorsroot),
+            )),
         }
     }
 }
@@ -1830,7 +1854,7 @@ impl Unit {
 pub struct UnitRecord {
     id: u64,
     visible_name: String,
-    class: UnitClass,
+    class: usize,
     allegiance: usize,
     daughters: Vec<u64>,
 }
@@ -1840,7 +1864,7 @@ impl UnitRecord {
         UnitRecord {
             id: self_entity.id,
             visible_name: self_entity.visible_name.clone(),
-            class: UnitClass::desiccate(&self_entity.class),
+            class: self_entity.class.get_id(),
             allegiance: self_entity.allegiance.id,
             daughters: self_entity.daughters.clone(),
         }
@@ -1848,13 +1872,12 @@ impl UnitRecord {
     fn rehydrate(
         &self,
         factionsroot: &Vec<Arc<export::Faction>>,
-        shipclassesroot: &Vec<Arc<export::ShipClass>>,
-        squadronclassesroot: &Vec<Arc<export::SquadronClass>>,
+        unitclassesroot: &Vec<export::UnitClass>,
     ) -> export::UnitRecord {
         export::UnitRecord {
             id: self.id,
             visible_name: self.visible_name.clone(),
-            class: self.class.rehydrate(shipclassesroot, squadronclassesroot),
+            class: unitclassesroot[self.class].clone(),
             allegiance: factionsroot[self.allegiance].clone(),
             daughters: self.daughters.clone(),
         }
@@ -2024,8 +2047,7 @@ impl FactionForcesRecord {
         &self,
         nodesroot: &Vec<Arc<export::Node>>,
         factionsroot: &Vec<Arc<export::Faction>>,
-        shipclassesroot: &Vec<Arc<export::ShipClass>>,
-        squadronclassesroot: &Vec<Arc<export::SquadronClass>>,
+        unitclassesroot: &Vec<export::UnitClass>,
         shipsroot: &Vec<Arc<export::Ship>>,
         squadronsroot: &Vec<Arc<export::Squadron>>,
         hangarslist: &Vec<Arc<export::Hangar>>,
@@ -2036,7 +2058,7 @@ impl FactionForcesRecord {
                 .iter()
                 .map(|(record, status)| {
                     (
-                        record.rehydrate(factionsroot, shipclassesroot, squadronclassesroot),
+                        record.rehydrate(factionsroot, unitclassesroot),
                         status.rehydrate(nodesroot, squadronsroot, hangarslist),
                     )
                 })
@@ -2052,11 +2074,7 @@ impl FactionForcesRecord {
                             .iter()
                             .map(|(record, status)| {
                                 (
-                                    record.rehydrate(
-                                        factionsroot,
-                                        shipclassesroot,
-                                        squadronclassesroot,
-                                    ),
+                                    record.rehydrate(factionsroot, unitclassesroot),
                                     status.rehydrate(nodesroot, squadronsroot, hangarslist),
                                 )
                             })
@@ -2159,8 +2177,7 @@ impl EngagementRecord {
         nodesroot: &Vec<Arc<export::Node>>,
         clustersroot: &Vec<Arc<export::Cluster>>,
         factionsroot: &Vec<Arc<export::Faction>>,
-        shipclassesroot: &Vec<Arc<export::ShipClass>>,
-        squadronclassesroot: &Vec<Arc<export::SquadronClass>>,
+        unitclassesroot: &Vec<export::UnitClass>,
         shipsroot: &Vec<Arc<export::Ship>>,
         squadronsroot: &Vec<Arc<export::Squadron>>,
         hangarslist: &Vec<Arc<export::Hangar>>,
@@ -2182,8 +2199,7 @@ impl EngagementRecord {
                                     forces.rehydrate(
                                         &nodesroot,
                                         &factionsroot,
-                                        &shipclassesroot,
-                                        &squadronclassesroot,
+                                        &unitclassesroot,
                                         &shipsroot,
                                         &squadronsroot,
                                         &hangarslist,
@@ -2270,8 +2286,7 @@ pub struct Root {
     pub shipais: Vec<ShipAI>,
     pub shipflavors: Vec<export::ShipFlavor>,
     pub squadronflavors: Vec<export::SquadronFlavor>,
-    pub shipclasses: Vec<ShipClass>,
-    pub squadronclasses: Vec<SquadronClass>,
+    pub unitclasses: Vec<UnitClass>,
     pub ships: Vec<Ship>,
     pub squadrons: Vec<Squadron>,
     pub unitcounter: u64,
@@ -2380,15 +2395,10 @@ impl Root {
                 .iter()
                 .map(|x| Arc::unwrap_or_clone(x.clone()))
                 .collect(),
-            shipclasses: self_entity
-                .shipclasses
+            unitclasses: self_entity
+                .unitclasses
                 .iter()
-                .map(|x| ShipClass::desiccate(x))
-                .collect(),
-            squadronclasses: self_entity
-                .squadronclasses
-                .iter()
-                .map(|x| SquadronClass::desiccate(x))
+                .map(|x| UnitClass::desiccate(x))
                 .collect(),
             ships: self_entity
                 .ships
@@ -2460,6 +2470,7 @@ impl Root {
             .map(|x| Arc::new(x.rehydrate(&resources)))
             .collect();
         let shipflavors = self.shipflavors.drain(0..).map(|x| Arc::new(x)).collect();
+
         let squadronflavors = self
             .squadronflavors
             .drain(0..)
@@ -2470,11 +2481,12 @@ impl Root {
             .drain(0..)
             .map(|x| Arc::new(x.rehydrate(&resources, &nodeflavors, &edgeflavors, &shipflavors)))
             .collect();
-        let shipclasses = self
-            .shipclasses
+
+        let unitclasses = self
+            .unitclasses
             .iter()
             .map(|x| {
-                Arc::new(x.rehydrate(
+                x.rehydrate(
                     &factions,
                     &resources,
                     &hangarclasses,
@@ -2486,13 +2498,9 @@ impl Root {
                     &subsystemclasses,
                     &shipais,
                     &shipflavors,
-                ))
+                    &squadronflavors,
+                )
             })
-            .collect();
-        let squadronclasses = self
-            .squadronclasses
-            .iter()
-            .map(|x| Arc::new(x.rehydrate(&factions, &squadronflavors)))
             .collect();
         let nodes = self
             .nodes
@@ -2504,7 +2512,7 @@ impl Root {
                     &resources,
                     &factoryclasses,
                     &shipyardclasses,
-                    &shipclasses,
+                    &unitclasses,
                 ))
             })
             .collect();
@@ -2550,7 +2558,7 @@ impl Root {
                         &shipyardclasses,
                         &subsystemclasses,
                         &shipais,
-                        &shipclasses,
+                        &unitclasses,
                     ))
                 })
                 .collect(),
@@ -2558,7 +2566,7 @@ impl Root {
         let squadrons = RwLock::new(
             self.squadrons
                 .iter()
-                .map(|x| Arc::new(x.rehydrate(&nodes, &factions, &squadronclasses)))
+                .map(|x| Arc::new(x.rehydrate(&nodes, &factions, &unitclasses)))
                 .collect(),
         );
         //here we go through and add the units to the nodes, now that we have the data for unit s
@@ -2616,8 +2624,7 @@ impl Root {
                         &nodes,
                         &clusters,
                         &factions,
-                        &shipclasses,
-                        &squadronclasses,
+                        &unitclasses,
                         &ships.read().unwrap(),
                         &squadrons.read().unwrap(),
                         &hangarslist,
@@ -2650,8 +2657,7 @@ impl Root {
             shipais,
             shipflavors,
             squadronflavors,
-            shipclasses,
-            squadronclasses,
+            unitclasses,
             ships,
             squadrons,
             unit_counter: unitcounter,

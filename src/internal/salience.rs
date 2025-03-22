@@ -439,18 +439,18 @@ impl Root {
         self.factions
             .par_iter()
             .map(|faction| {
-                self.shipclasses
+                self.unitclasses
                     .par_iter()
-                    .map(|shipclass| {
-                        if shipclass.propagates {
+                    .map(|unitclass| {
+                        if unitclass.propagates() {
                             let supply = self.calculate_salience::<UnitClass, polarity::Supply>(
-                                ShipClass::get_unitclass(shipclass.clone()),
+                                unitclass.clone(),
                                 faction.clone(),
                                 self.config.salience_scalars.unitclass_deg_mult,
                                 self.config.salience_scalars.unitclass_prop_iters,
                             );
                             let demand = self.calculate_salience::<UnitClass, polarity::Demand>(
-                                ShipClass::get_unitclass(shipclass.clone()),
+                                unitclass.clone(),
                                 faction.clone(),
                                 self.config.salience_scalars.unitclass_deg_mult,
                                 self.config.salience_scalars.unitclass_prop_iters,
@@ -464,29 +464,6 @@ impl Root {
                             self.nodes.iter().map(|_| [0.0; 2]).collect()
                         }
                     })
-                    .chain(self.squadronclasses.par_iter().map(|squadronclass| {
-                        if squadronclass.propagates {
-                            let supply = self.calculate_salience::<UnitClass, polarity::Supply>(
-                                SquadronClass::get_unitclass(squadronclass.clone()),
-                                faction.clone(),
-                                self.config.salience_scalars.unitclass_deg_mult,
-                                self.config.salience_scalars.unitclass_prop_iters,
-                            );
-                            let demand = self.calculate_salience::<UnitClass, polarity::Demand>(
-                                SquadronClass::get_unitclass(squadronclass.clone()),
-                                faction.clone(),
-                                self.config.salience_scalars.unitclass_deg_mult,
-                                self.config.salience_scalars.unitclass_prop_iters,
-                            );
-                            supply
-                                .iter()
-                                .zip(demand.iter())
-                                .map(|(s, d)| [*s, *d])
-                                .collect()
-                        } else {
-                            self.nodes.iter().map(|_| [0.0; 2]).collect()
-                        }
-                    }))
                     .collect()
             })
             .collect()

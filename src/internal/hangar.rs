@@ -93,12 +93,7 @@ impl HangarClass {
             })
             .sum()
     }
-    pub fn instantiate(
-        class: Arc<Self>,
-        mother: Arc<Ship>,
-        _shipclasses: &Vec<Arc<ShipClass>>,
-        counter: &Arc<AtomicU64>,
-    ) -> Hangar {
+    pub fn instantiate(class: Arc<Self>, mother: Arc<Ship>, counter: &Arc<AtomicU64>) -> Hangar {
         let index = counter.fetch_add(1, atomic::Ordering::Relaxed);
         Hangar {
             id: index,

@@ -2,7 +2,7 @@ use crate::internal::engagement::UnitStatus;
 use crate::internal::faction::{Faction, FactionID};
 use crate::internal::node::{EdgeFlavor, Locality, Node, NodeFlavor};
 use crate::internal::root::Root;
-use crate::internal::unit::{Mobility, Ship, ShipClass, ShipClassID, ShipFlavor, Unit};
+use crate::internal::unit::{Mobility, Ship, ShipClass, ShipClassID, ShipFlavor, Unit, UnitClass};
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -1142,7 +1142,7 @@ pub struct ShipyardClass {
 }
 
 impl ShipyardClass {
-    pub fn instantiate(class: Arc<Self>, shipclasses: &Vec<Arc<ShipClass>>) -> Shipyard {
+    pub fn instantiate(class: Arc<Self>, unitclasses: &Vec<UnitClass>) -> Shipyard {
         Shipyard {
             class: class.clone(),
             visibility: class.visibility,
@@ -1152,11 +1152,7 @@ impl ShipyardClass {
                 .iter()
                 .map(|(shipclassid, num)| {
                     (
-                        shipclasses
-                            .iter()
-                            .find(|shipclass| shipclass.id == shipclassid.index)
-                            .unwrap()
-                            .clone(),
+                        unitclasses[shipclassid.index].get_shipclass().unwrap(),
                         *num,
                     )
                 })
@@ -1214,10 +1210,7 @@ impl Shipyard {
         }
     }
 
-    pub fn try_choose_ship(
-        &mut self,
-        _shipclasses: &Vec<Arc<ShipClass>>,
-    ) -> Option<Arc<ShipClass>> {
+    pub fn try_choose_ship(&mut self) -> Option<Arc<ShipClass>> {
         //we go through the list of ships the shipyard can produce, specified as its outputs, and grab the one with the highest desirability weight
         let shipclass = self
             .outputs
@@ -1237,15 +1230,9 @@ impl Shipyard {
     }
 
     //this uses try_choose_ship to generate the list of ships the shipyard is building this turn
-    pub fn plan_ships(
-        &mut self,
-        location_efficiency: f32,
-        shipclasses: &Vec<Arc<ShipClass>>,
-    ) -> Vec<Arc<ShipClass>> {
+    pub fn plan_ships(&mut self, location_efficiency: f32) -> Vec<Arc<ShipClass>> {
         self.process(location_efficiency);
-        (0..)
-            .map_while(|_| self.try_choose_ship(shipclasses))
-            .collect()
+        (0..).map_while(|_| self.try_choose_ship()).collect()
     }
 }
 

@@ -8,7 +8,7 @@ use crate::internal::resource::{
 use crate::internal::salience::GlobalSalience;
 use crate::internal::unit::{
     Mobility, Ship, ShipAI, ShipClass, ShipFlavor, Squadron, SquadronClass, SquadronFlavor,
-    SubsystemClass, Unit, UnitClassID, UnitLocation,
+    SubsystemClass, Unit, UnitClass, UnitClassID, UnitLocation,
 };
 use itertools::Itertools;
 use rand::prelude::*;
@@ -122,8 +122,7 @@ pub struct Root {
     pub shipais: Vec<Arc<ShipAI>>,
     pub shipflavors: Vec<Arc<ShipFlavor>>,
     pub squadronflavors: Vec<Arc<SquadronFlavor>>,
-    pub shipclasses: Vec<Arc<ShipClass>>,
-    pub squadronclasses: Vec<Arc<SquadronClass>>,
+    pub unitclasses: Vec<UnitClass>,
     pub ships: RwLock<Vec<Arc<Ship>>>,
     pub squadrons: RwLock<Vec<Arc<Squadron>>>,
     pub unit_counter: Arc<AtomicU64>,
@@ -154,8 +153,7 @@ impl PartialEq for Root {
             && self.shipais == other.shipais
             && self.shipflavors == other.shipflavors
             && self.squadronflavors == other.squadronflavors
-            && self.shipclasses == other.shipclasses
-            && self.squadronclasses == other.squadronclasses
+            && self.unitclasses == other.unitclasses
             && self.ships.read().unwrap().clone() == other.ships.read().unwrap().clone()
             && self.squadrons.read().unwrap().clone() == other.squadrons.read().unwrap().clone()
             && self.unit_counter.load(atomic::Ordering::Relaxed)
@@ -227,7 +225,7 @@ impl Root {
                 faction,
                 self,
             ));
-            class.build_hangars(new_ship.clone(), &self.shipclasses, &self.hangar_counter);
+            class.build_hangars(new_ship.clone(), &self.hangar_counter);
             ships_lock.push(new_ship.clone());
             location.insert_unit(
                 &mut location.get_unit_container_write(),
@@ -415,14 +413,14 @@ impl Root {
         let ship_plan_list: Vec<(Arc<ShipClass>, UnitLocation, Arc<Faction>)> = self
             .nodes
             .iter()
-            .map(|node| node.clone().plan_ships(&self.shipclasses))
+            .map(|node| node.clone().plan_ships())
             .chain(
                 self.ships
                     .write()
                     .unwrap()
                     .iter()
-                    .filter(|unit| unit.is_alive())
-                    .map(|ship| ship.plan_ships(&self.shipclasses)),
+                    .filter(|ship| ship.is_alive())
+                    .map(|ship| ship.plan_ships()),
             )
             .flatten()
             .collect();

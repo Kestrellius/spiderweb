@@ -1004,7 +1004,7 @@ impl ShipClass {
                     .shipyards
                     .iter()
                     .map(|shipyardclass| {
-                        ShipyardClass::instantiate(shipyardclass.clone(), &root.shipclasses)
+                        ShipyardClass::instantiate(shipyardclass.clone(), &root.unitclasses)
                     })
                     .collect(),
                 subsystems: class
@@ -1021,12 +1021,7 @@ impl ShipClass {
         }
     }
     //NOTE: having this be a method feels a little odd when instantiate isn't one
-    pub fn build_hangars(
-        &self,
-        ship: Arc<Ship>,
-        shipclasses: &Vec<Arc<ShipClass>>,
-        counter: &Arc<AtomicU64>,
-    ) {
+    pub fn build_hangars(&self, ship: Arc<Ship>, counter: &Arc<AtomicU64>) {
         let hangars: Vec<_> = self
             .hangars
             .iter()
@@ -1034,7 +1029,6 @@ impl ShipClass {
                 Arc::new(HangarClass::instantiate(
                     hangarclass.clone(),
                     ship.clone(),
-                    shipclasses,
                     counter,
                 ))
             })
@@ -1148,10 +1142,7 @@ impl Ship {
             .iter_mut()
             .for_each(|sy| sy.process(efficiency));
     }
-    pub fn plan_ships(
-        &self,
-        shipclasses: &Vec<Arc<ShipClass>>,
-    ) -> Vec<(Arc<ShipClass>, UnitLocation, Arc<Faction>)> {
+    pub fn plan_ships(&self) -> Vec<(Arc<ShipClass>, UnitLocation, Arc<Faction>)> {
         let mut mutables = self.mutables.write().unwrap();
         let efficiency = mutables.efficiency;
         let location = mutables.location.clone();
@@ -1160,7 +1151,7 @@ impl Ship {
             .shipyards
             .iter_mut()
             .map(|shipyard| {
-                let ship_plans = shipyard.plan_ships(efficiency, shipclasses);
+                let ship_plans = shipyard.plan_ships(efficiency);
                 //here we take the list of ships for a specific shipyard and tag them with the location and allegiance they should have when they're built
                 ship_plans
                     .iter()
@@ -2901,12 +2892,8 @@ impl UnitClassID {
     }
     pub fn get_unitclass(&self, root: &Root) -> UnitClass {
         match self {
-            UnitClassID::ShipClass(scid) => {
-                UnitClass::ShipClass(root.shipclasses[scid.index].clone())
-            }
-            UnitClassID::SquadronClass(sqcid) => {
-                UnitClass::SquadronClass(root.squadronclasses[sqcid.index].clone())
-            }
+            UnitClassID::ShipClass(scid) => root.unitclasses[scid.index].clone(),
+            UnitClassID::SquadronClass(sqcid) => root.unitclasses[sqcid.index].clone(),
         }
     }
 }
@@ -2918,6 +2905,24 @@ pub enum UnitClass {
 }
 
 impl UnitClass {
+    pub fn get_shipclass(&self) -> Option<Arc<ShipClass>> {
+        match self {
+            UnitClass::ShipClass(sc) => Some(sc.clone()),
+            UnitClass::SquadronClass(_) => None,
+        }
+    }
+    pub fn get_squadronclass(&self) -> Option<Arc<SquadronClass>> {
+        match self {
+            UnitClass::ShipClass(_) => None,
+            UnitClass::SquadronClass(sqc) => Some(sqc.clone()),
+        }
+    }
+    pub fn propagates(&self) -> bool {
+        match self {
+            UnitClass::ShipClass(sc) => sc.propagates,
+            UnitClass::SquadronClass(sqc) => sqc.propagates,
+        }
+    }
     pub fn get_id(&self) -> usize {
         match self {
             UnitClass::ShipClass(sc) => sc.id,
