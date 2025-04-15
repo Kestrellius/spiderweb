@@ -1920,6 +1920,7 @@ impl ObjectiveTarget {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Objective {
+    pub visible_name: Option<String>,
     pub target: ObjectiveTarget,
     pub task: export::ObjectiveTask,
     pub fraction: Option<f32>,
@@ -1931,11 +1932,14 @@ pub struct Objective {
     pub strengthscalar: f32,
     pub toughness_scalar: f32,
     pub battleescapescalar: f32,
+    pub required_subgoals: Vec<Objective>,
+    pub optional_subgoals: Vec<Objective>,
 }
 
 impl Objective {
     pub fn desiccate(self_entity: &export::Objective) -> Objective {
         Objective {
+            visible_name: self_entity.visible_name.clone(),
             target: ObjectiveTarget::desiccate(&self_entity.target),
             task: self_entity.task,
             fraction: self_entity.fraction,
@@ -1947,6 +1951,16 @@ impl Objective {
             strengthscalar: self_entity.strength_scalar,
             toughness_scalar: self_entity.toughness_scalar,
             battleescapescalar: self_entity.battle_escape_scalar,
+            required_subgoals: self_entity
+                .required_subgoals
+                .iter()
+                .map(|x| Objective::desiccate(x))
+                .collect(),
+            optional_subgoals: self_entity
+                .optional_subgoals
+                .iter()
+                .map(|x| Objective::desiccate(x))
+                .collect(),
         }
     }
     pub fn rehydrate(
@@ -1957,6 +1971,7 @@ impl Objective {
         squadronsroot: &Vec<Arc<export::Squadron>>,
     ) -> export::Objective {
         export::Objective {
+            visible_name: self.visible_name.clone(),
             target: self
                 .target
                 .rehydrate(nodesroot, clustersroot, shipsroot, squadronsroot),
@@ -1970,40 +1985,15 @@ impl Objective {
             strength_scalar: self.strengthscalar,
             toughness_scalar: self.toughness_scalar,
             battle_escape_scalar: self.battleescapescalar,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Operation {
-    pub visible_name: String,
-    pub objectives: Vec<Objective>,
-}
-
-impl Operation {
-    pub fn desiccate(self_entity: &export::Operation) -> Operation {
-        Operation {
-            visible_name: self_entity.visible_name.clone(),
-            objectives: self_entity
-                .objectives
+            required_subgoals: self
+                .required_subgoals
                 .iter()
-                .map(|x| Objective::desiccate(x))
+                .map(|x| x.rehydrate(nodesroot, clustersroot, shipsroot, squadronsroot))
                 .collect(),
-        }
-    }
-    pub fn rehydrate(
-        &self,
-        nodesroot: &Vec<Arc<export::Node>>,
-        clustersroot: &Vec<Arc<export::Cluster>>,
-        shipsroot: &Vec<Arc<export::Ship>>,
-        squadronsroot: &Vec<Arc<export::Squadron>>,
-    ) -> export::Operation {
-        export::Operation {
-            visible_name: self.visible_name.clone(),
-            objectives: self
-                .objectives
+            optional_subgoals: self
+                .optional_subgoals
                 .iter()
-                .map(|x| x.rehydrate(&nodesroot, &clustersroot, &shipsroot, &squadronsroot))
+                .map(|x| x.rehydrate(nodesroot, clustersroot, shipsroot, squadronsroot))
                 .collect(),
         }
     }

@@ -1730,6 +1730,17 @@ impl Root {
                 acc
             });
 
+        let unitclasses: Vec<export::UnitClass> = unitclass_id_map
+            .values()
+            .cloned()
+            .sorted_by_key(|x| x.get_id())
+            .collect();
+
+        unitclasses
+            .iter()
+            .enumerate()
+            .for_each(|(i, unitclass)| assert!(unitclass.get_id() == i));
+
         export::Root {
             config: config,
             nodeflavors: nodeflavor_id_map

@@ -1,7 +1,9 @@
+use crate::internal::root::Root;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct FactionID {
@@ -54,5 +56,23 @@ impl PartialOrd for Faction {
 impl Hash for Faction {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id.hash(state);
+    }
+}
+
+impl Faction {
+    pub fn get_enemies(&self, root: &Root) -> Vec<Arc<Faction>> {
+        root.factions
+            .iter()
+            .cloned()
+            .filter(|rhs_faction| {
+                root.wars.iter().any(|(a, b)| {
+                    (a.id, b.id)
+                        == (
+                            (rhs_faction.id).min(self.id).clone(),
+                            (self.id).max(rhs_faction.id),
+                        )
+                })
+            })
+            .collect::<Vec<_>>()
     }
 }

@@ -780,17 +780,7 @@ impl StrategicWeapon {
         allegiance: &Arc<Faction>,
         faction: &Arc<Faction>,
     ) -> bool {
-        let enemies = root
-            .factions
-            .iter()
-            .cloned()
-            .filter(|rhs_faction| {
-                root.wars.contains(&(
-                    (rhs_faction).min(&allegiance).clone(),
-                    (allegiance).max(&rhs_faction).clone(),
-                ))
-            })
-            .collect::<Vec<_>>();
+        let enemies = Faction::get_enemies(allegiance.clone(), root);
         (self.class.targets_enemies && enemies.contains(&faction))
             || (self.class.targets_allies && faction == allegiance)
             || (self.class.targets_neutrals

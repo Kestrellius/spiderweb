@@ -5,7 +5,7 @@ use crate::internal::node::{Cluster, EdgeFlavor, Locality, Node, NodeFlavor};
 use crate::internal::resource::{
     EngineClass, FactoryClass, RepairerClass, Resource, ShipyardClass, StrategicWeaponClass,
 };
-use crate::internal::salience::GlobalSalience;
+use crate::internal::salience::{polarity::Demand, polarity::Supply, GlobalSalience, Salience};
 use crate::internal::unit::{
     Mobility, Ship, ShipAI, ShipClass, ShipFlavor, Squadron, SquadronClass, SquadronFlavor,
     SubsystemClass, Unit, UnitClass, UnitClassID, UnitLocation,
@@ -70,17 +70,26 @@ pub enum ObjectiveTarget {
     Unit(Unit),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ObjectiveTask {
-    Reach,
-    Kill,
-    Protect,
-    Capture,
+    Reach(ObjectiveTarget),
+    Kill(ObjectiveTarget),
+    Protect(ObjectiveTarget),
+    Capture(ObjectiveTarget),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ObjectiveState {
+    Complete,
+    Incomplete(f32),
+    Failed,
+    Expired,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Objective {
-    pub target: ObjectiveTarget,
+    pub visible_name: Option<String>,
+    pub start_turn: u64,
     pub task: ObjectiveTask,
     pub fraction: Option<f32>,
     pub duration: Option<u64>,
@@ -91,12 +100,137 @@ pub struct Objective {
     pub strength_scalar: f32,
     pub toughness_scalar: f32,
     pub battle_escape_scalar: f32,
+    pub required_subgoals: Vec<Objective>,
+    pub optional_subgoals: Vec<Objective>,
 }
 
-#[derive(Debug)]
-pub struct Operation {
-    pub visible_name: String,
-    pub objectives: Vec<Objective>,
+impl Objective {
+    pub fn evaluate(&self, self_unit: Unit, root: &Root) -> ObjectiveState {
+        let base_state: ObjectiveState = match self.task {
+            ObjectiveTask::Reach(target) => match target {
+                ObjectiveTarget::Node(node) => {
+                    if self_unit.get_mother_node() == node {
+                        ObjectiveState::Complete
+                    } else {
+                        ObjectiveState::Incomplete(0.0)
+                    }
+                }
+                ObjectiveTarget::Cluster(cluster) => {
+                    if cluster.nodes.contains(&self_unit.get_mother_node()) {
+                        ObjectiveState::Complete
+                    } else {
+                        ObjectiveState::Incomplete(0.0)
+                    }
+                }
+                ObjectiveTarget::Unit(target_unit) => {
+                    if self_unit.get_mother_node() == target_unit.get_mother_node() {
+                        ObjectiveState::Complete
+                    } else {
+                        ObjectiveState::Incomplete(0.0)
+                    }
+                }
+            },
+            ObjectiveTask::Kill(target) => match target {
+                ObjectiveTarget::Unit(target_unit) => {
+                    if !target_unit.is_alive() {
+                        ObjectiveState::Complete
+                    } else {
+                        ObjectiveState::Incomplete(
+                            target_unit.get_hull() as f32 / target_unit.get_base_hull() as f32,
+                        )
+                    }
+                }
+                _ => panic!(),
+            },
+            ObjectiveTask::Protect(target) => match target {
+                ObjectiveTarget::Node(node) => {
+                    let any_enemy_allegiance = self_unit
+                        .get_allegiance()
+                        .get_enemies(root)
+                        .iter()
+                        .any(|enemy| &node.mutables.read().unwrap().allegiance == enemy);
+                    if any_enemy_allegiance {
+                        ObjectiveState::Failed
+                    } else {
+                        let completion = self.duration
+                            .map(|dur| {
+                                dur as f32
+                                    / (root
+                                        .get_turn()
+                                        .saturating_sub(self.start_turn))
+                                        as f32
+                            })
+                            .unwrap_or(1.0);
+                        if completion >= 1.0 {
+                            ObjectiveState::Complete
+                        } else {
+                            ObjectiveState::Incomplete(completion)
+                        }
+                    }
+                },
+                ObjectiveTarget::Cluster(cluster) => {
+                    let enemy_allegiance_fraction = cluster.nodes.iter().filter(|node| {
+                        self_unit
+                            .get_allegiance()
+                            .get_enemies(root)
+                            .iter()
+                            .any(|enemy| &node.mutables.read().unwrap().allegiance == enemy)
+                    }).count() as f32 / cluster.nodes.len() as f32;
+                    if (1.0 - enemy_allegiance_fraction) > self.fraction.unwrap_or(1.0) {
+                        ObjectiveState::Failed
+                    } else {
+                        let completion = self.duration
+                            .map(|dur| {
+                                dur as f32
+                                    / (root
+                                        .get_turn()
+                                        .saturating_sub(self.start_turn))
+                                        as f32
+                            })
+                            .unwrap_or(1.0);
+                        if completion >= 1.0 {
+                            ObjectiveState::Complete
+                        } else {
+                            ObjectiveState::Incomplete(completion)
+                        }
+                    }
+                }
+                ObjectiveTarget::Unit(target_unit) => {
+                    if target_unit.is_alive() {
+                        let completion = self
+                            .duration
+                            .map(|dur| {
+                                dur as f32
+                                    / (root
+                                        .get_turn()
+                                        .saturating_sub(self.start_turn))
+                                        as f32
+                            })
+                            .unwrap_or(1.0);
+                        if completion >= 1.0 {
+                            ObjectiveState::Complete
+                        } else {
+                            ObjectiveState::Incomplete(completion)
+                        }
+                    } else {
+                        ObjectiveState::Failed
+                    }
+                }
+            },
+            ObjectiveTask::Capture => {}
+        };
+        match base_state {
+            ObjectiveState::Incomplete(_) => {
+                if self.time_limit.map(|dur| root.get_turn() >= self.start_turn + dur).unwrap_or(false) {
+                    ObjectiveState::Expired
+                } else {
+                    base_state
+                }
+            }
+            _ => base_state,
+        }
+        
+    }
 }
 
 #[derive(Debug)]
@@ -195,12 +329,15 @@ impl PartialEq for Root {
                     .read()
                     .unwrap()
                     .clone()
-            && self.turn.load(atomic::Ordering::Relaxed)
-                == other.turn.load(atomic::Ordering::Relaxed)
+            && self.get_turn()
+                == other.get_turn()
     }
 }
 
 impl Root {
+    pub fn get_turn(&self) -> u64 {
+        self.turn.load(atomic::Ordering::Relaxed)
+    }
     //this is the method for creating a ship
     //duh
     pub fn create_ship(
@@ -253,8 +390,6 @@ impl Root {
             self,
         ));
 
-        //NOTE: Is this thread-safe? There might be enough space in here
-        //for something to go interact with the squadron in root and fail to get the arc from location.
         let mut squadrons_lock = self.squadrons.write().unwrap();
         squadrons_lock.push(new_squadron.clone());
         location.insert_unit(
