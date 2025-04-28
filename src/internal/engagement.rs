@@ -19,6 +19,29 @@ pub struct UnitRecord {
     pub daughters: Vec<u64>,
 }
 
+impl UnitRecord {
+    pub fn get_unit(&self, root: &Root) -> Option<Unit> {
+        //find is slow, which may or may not matter here
+        //consider switching the ships and squadrons vecs to a hashmap of u64 to unit?
+        match self.class {
+            UnitClass::ShipClass(_) => root
+                .ships
+                .read()
+                .unwrap()
+                .iter()
+                .find(|ship| ship.id == self.id)
+                .map(|ship| ship.get_unit()),
+            UnitClass::SquadronClass(_) => root
+                .squadrons
+                .read()
+                .unwrap()
+                .iter()
+                .find(|squadron| squadron.id == self.id)
+                .map(|squadron| squadron.get_unit()),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct FactionForces {
     pub local_forces: Vec<Unit>,

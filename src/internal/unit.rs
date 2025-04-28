@@ -966,7 +966,9 @@ impl ShipClass {
         faction: Arc<Faction>,
         root: &Root,
     ) -> Ship {
-        let index = root.unit_counter.fetch_add(1, atomic::Ordering::Relaxed);
+        let index = root
+            .unit_creation_counter
+            .fetch_add(1, atomic::Ordering::Relaxed);
         Ship {
             id: index,
             visible_name: uuid::Uuid::new_v4().to_string(),
@@ -2123,7 +2125,9 @@ impl SquadronClass {
         faction: Arc<Faction>,
         root: &Root,
     ) -> Squadron {
-        let index = root.unit_counter.fetch_add(1, atomic::Ordering::Relaxed);
+        let index = root
+            .unit_creation_counter
+            .fetch_add(1, atomic::Ordering::Relaxed);
         Squadron {
             id: index,
             visible_name: uuid::Uuid::new_v4().to_string(),

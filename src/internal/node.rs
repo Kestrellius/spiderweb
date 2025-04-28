@@ -79,6 +79,9 @@ pub struct Node {
 }
 
 impl Node {
+    pub fn get_allegiance(&self) -> Arc<Faction> {
+        self.mutables.read().unwrap().allegiance.clone()
+    }
     pub fn get_resource_supply(&self, faction: Arc<Faction>, resource: Arc<Resource>) -> u64 {
         //NOTE: Currently this does not take input stockpiles of any kind into account. We may wish to change this.
         //we add up all the resource quantity in factory output stockpiles in the node

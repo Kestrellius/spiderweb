@@ -1830,7 +1830,8 @@ impl Root {
                 .collect(),
             ships: RwLock::new(Vec::new()),
             squadrons: RwLock::new(Vec::new()),
-            unit_counter: Arc::new(AtomicU64::new(0)),
+            unit_creation_counter: Arc::new(AtomicU64::new(0)),
+            unit_death_counter: Arc::new(AtomicU64::new(0)),
             engagements: RwLock::new(Vec::new()),
             global_salience: export::GlobalSalience {
                 faction_salience: RwLock::new(

@@ -780,7 +780,7 @@ impl StrategicWeapon {
         allegiance: &Arc<Faction>,
         faction: &Arc<Faction>,
     ) -> bool {
-        let enemies = Faction::get_enemies(allegiance.clone(), root);
+        let enemies = Faction::get_enemies(&allegiance.clone(), root);
         (self.class.targets_enemies && enemies.contains(&faction))
             || (self.class.targets_allies && faction == allegiance)
             || (self.class.targets_neutrals

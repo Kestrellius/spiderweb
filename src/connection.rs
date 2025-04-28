@@ -1888,7 +1888,7 @@ impl UnitRecord {
 pub enum ObjectiveTarget {
     Node(usize),
     Cluster(usize),
-    Unit(Unit),
+    Unit(UnitRecord),
 }
 
 impl ObjectiveTarget {
@@ -1896,7 +1896,9 @@ impl ObjectiveTarget {
         match self_entity {
             export::ObjectiveTarget::Node(node) => ObjectiveTarget::Node(node.id),
             export::ObjectiveTarget::Cluster(cluster) => ObjectiveTarget::Cluster(cluster.id),
-            export::ObjectiveTarget::Unit(unit) => ObjectiveTarget::Unit(Unit::desiccate(unit)),
+            export::ObjectiveTarget::Unit(unit) => {
+                ObjectiveTarget::Unit(UnitRecord::desiccate(unit))
+            }
         }
     }
     pub fn rehydrate(
@@ -1919,19 +1921,80 @@ impl ObjectiveTarget {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ObjectiveTask {
+    Reach(ObjectiveTarget),
+    Protect(ObjectiveTarget),
+    Kill(ObjectiveTarget),
+    Capture(ObjectiveTarget),
+}
+
+impl ObjectiveTask {
+    pub fn desiccate(self_entity: &export::ObjectiveTask) -> ObjectiveTask {
+        match self_entity {
+            export::ObjectiveTask::Reach(target) => {
+                ObjectiveTask::Reach(ObjectiveTarget::desiccate(target))
+            }
+            export::ObjectiveTask::Protect(target) => {
+                ObjectiveTask::Protect(ObjectiveTarget::desiccate(target))
+            }
+            export::ObjectiveTask::Kill(target) => {
+                ObjectiveTask::Kill(ObjectiveTarget::desiccate(target))
+            }
+            export::ObjectiveTask::Capture(target) => {
+                ObjectiveTask::Capture(ObjectiveTarget::desiccate(target))
+            }
+        }
+    }
+    pub fn rehydrate(
+        &self,
+        nodesroot: &Vec<Arc<export::Node>>,
+        clustersroot: &Vec<Arc<export::Cluster>>,
+        shipsroot: &Vec<Arc<export::Ship>>,
+        squadronsroot: &Vec<Arc<export::Squadron>>,
+    ) -> export::ObjectiveTask {
+        match self {
+            ObjectiveTask::Reach(target) => export::ObjectiveTask::Reach(target.rehydrate(
+                nodesroot,
+                clustersroot,
+                shipsroot,
+                squadronsroot,
+            )),
+            ObjectiveTask::Protect(target) => export::ObjectiveTask::Protect(target.rehydrate(
+                nodesroot,
+                clustersroot,
+                shipsroot,
+                squadronsroot,
+            )),
+            ObjectiveTask::Kill(target) => export::ObjectiveTask::Kill(target.rehydrate(
+                nodesroot,
+                clustersroot,
+                shipsroot,
+                squadronsroot,
+            )),
+            ObjectiveTask::Capture(target) => export::ObjectiveTask::Capture(target.rehydrate(
+                nodesroot,
+                clustersroot,
+                shipsroot,
+                squadronsroot,
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Objective {
     pub visible_name: Option<String>,
-    pub target: ObjectiveTarget,
-    pub task: export::ObjectiveTask,
+    pub start_turn: u64,
+    pub task: ObjectiveTask,
     pub fraction: Option<f32>,
     pub duration: Option<u64>,
     pub time_limit: Option<u64>,
     pub difficulty: f32,
     pub cost: u64,
-    pub durationscalar: f32,
-    pub strengthscalar: f32,
+    pub duration_scalar: f32,
+    pub strength_scalar: f32,
     pub toughness_scalar: f32,
-    pub battleescapescalar: f32,
+    pub battle_escape_scalar: f32,
     pub required_subgoals: Vec<Objective>,
     pub optional_subgoals: Vec<Objective>,
 }
@@ -1940,17 +2003,17 @@ impl Objective {
     pub fn desiccate(self_entity: &export::Objective) -> Objective {
         Objective {
             visible_name: self_entity.visible_name.clone(),
-            target: ObjectiveTarget::desiccate(&self_entity.target),
-            task: self_entity.task,
+            start_turn: self_entity.start_turn,
+            task: ObjectiveTask::desiccate(&self_entity.task),
             fraction: self_entity.fraction,
             duration: self_entity.duration,
             time_limit: self_entity.time_limit,
             difficulty: self_entity.difficulty,
             cost: self_entity.cost,
-            durationscalar: self_entity.duration_scalar,
-            strengthscalar: self_entity.strength_scalar,
+            duration_scalar: self_entity.duration_scalar,
+            strength_scalar: self_entity.strength_scalar,
             toughness_scalar: self_entity.toughness_scalar,
-            battleescapescalar: self_entity.battle_escape_scalar,
+            battle_escape_scalar: self_entity.battle_escape_scalar,
             required_subgoals: self_entity
                 .required_subgoals
                 .iter()
@@ -1972,19 +2035,19 @@ impl Objective {
     ) -> export::Objective {
         export::Objective {
             visible_name: self.visible_name.clone(),
-            target: self
-                .target
+            start_turn: self.start_turn,
+            task: self
+                .task
                 .rehydrate(nodesroot, clustersroot, shipsroot, squadronsroot),
-            task: self.task,
             fraction: self.fraction,
             duration: self.duration,
             time_limit: self.time_limit,
             difficulty: self.difficulty,
             cost: self.cost,
-            duration_scalar: self.durationscalar,
-            strength_scalar: self.strengthscalar,
+            duration_scalar: self.duration_scalar,
+            strength_scalar: self.strength_scalar,
             toughness_scalar: self.toughness_scalar,
-            battle_escape_scalar: self.battleescapescalar,
+            battle_escape_scalar: self.battle_escape_scalar,
             required_subgoals: self
                 .required_subgoals
                 .iter()
@@ -2404,7 +2467,9 @@ impl Root {
                 .iter()
                 .map(|x| Squadron::desiccate(x))
                 .collect(),
-            unitcounter: self_entity.unit_counter.load(atomic::Ordering::Relaxed),
+            unitcounter: self_entity
+                .unit_creation_counter
+                .load(atomic::Ordering::Relaxed),
             engagements: self_entity
                 .engagements
                 .read()
@@ -2650,7 +2715,7 @@ impl Root {
             unitclasses,
             ships,
             squadrons,
-            unit_counter: unitcounter,
+            unit_creation_counter: unitcounter,
             engagements,
             global_salience: globalsalience,
             turn,

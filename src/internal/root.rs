@@ -1,4 +1,4 @@
-use crate::internal::engagement::EngagementRecord;
+use crate::internal::engagement::{EngagementRecord, UnitRecord};
 use crate::internal::faction::Faction;
 use crate::internal::hangar::HangarClass;
 use crate::internal::node::{Cluster, EdgeFlavor, Locality, Node, NodeFlavor};
@@ -19,6 +19,7 @@ use std::sync::atomic::{self, AtomicU64};
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::Instant;
+use std::fmt::Debug;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Config {
@@ -67,7 +68,7 @@ pub struct BattleScalars {
 pub enum ObjectiveTarget {
     Node(Arc<Node>),
     Cluster(Arc<Cluster>),
-    Unit(Unit),
+    Unit(UnitRecord),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -78,8 +79,9 @@ pub enum ObjectiveTask {
     Capture(ObjectiveTarget),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ObjectiveState {
+    Obstructed,
     Complete,
     Incomplete(f32),
     Failed,
@@ -102,134 +104,221 @@ pub struct Objective {
     pub battle_escape_scalar: f32,
     pub required_subgoals: Vec<Objective>,
     pub optional_subgoals: Vec<Objective>,
+    pub state: ObjectiveState,
 }
 
 impl Objective {
-    pub fn evaluate(&self, self_unit: Unit, root: &Root) -> ObjectiveState {
-        let base_state: ObjectiveState = match self.task {
-            ObjectiveTask::Reach(target) => match target {
-                ObjectiveTarget::Node(node) => {
-                    if self_unit.get_mother_node() == node {
-                        ObjectiveState::Complete
-                    } else {
-                        ObjectiveState::Incomplete(0.0)
-                    }
-                }
-                ObjectiveTarget::Cluster(cluster) => {
-                    if cluster.nodes.contains(&self_unit.get_mother_node()) {
-                        ObjectiveState::Complete
-                    } else {
-                        ObjectiveState::Incomplete(0.0)
-                    }
-                }
-                ObjectiveTarget::Unit(target_unit) => {
-                    if self_unit.get_mother_node() == target_unit.get_mother_node() {
-                        ObjectiveState::Complete
-                    } else {
-                        ObjectiveState::Incomplete(0.0)
-                    }
-                }
-            },
-            ObjectiveTask::Kill(target) => match target {
-                ObjectiveTarget::Unit(target_unit) => {
-                    if !target_unit.is_alive() {
-                        ObjectiveState::Complete
-                    } else {
-                        ObjectiveState::Incomplete(
-                            target_unit.get_hull() as f32 / target_unit.get_base_hull() as f32,
-                        )
-                    }
-                }
-                _ => panic!(),
-            },
-            ObjectiveTask::Protect(target) => match target {
-                ObjectiveTarget::Node(node) => {
-                    let any_enemy_allegiance = self_unit
-                        .get_allegiance()
-                        .get_enemies(root)
-                        .iter()
-                        .any(|enemy| &node.mutables.read().unwrap().allegiance == enemy);
-                    if any_enemy_allegiance {
-                        ObjectiveState::Failed
-                    } else {
-                        let completion = self.duration
-                            .map(|dur| {
-                                dur as f32
-                                    / (root
-                                        .get_turn()
-                                        .saturating_sub(self.start_turn))
-                                        as f32
-                            })
-                            .unwrap_or(1.0);
-                        if completion >= 1.0 {
-                            ObjectiveState::Complete
-                        } else {
-                            ObjectiveState::Incomplete(completion)
-                        }
-                    }
-                },
-                ObjectiveTarget::Cluster(cluster) => {
-                    let enemy_allegiance_fraction = cluster.nodes.iter().filter(|node| {
-                        self_unit
-                            .get_allegiance()
-                            .get_enemies(root)
-                            .iter()
-                            .any(|enemy| &node.mutables.read().unwrap().allegiance == enemy)
-                    }).count() as f32 / cluster.nodes.len() as f32;
-                    if (1.0 - enemy_allegiance_fraction) > self.fraction.unwrap_or(1.0) {
-                        ObjectiveState::Failed
-                    } else {
-                        let completion = self.duration
-                            .map(|dur| {
-                                dur as f32
-                                    / (root
-                                        .get_turn()
-                                        .saturating_sub(self.start_turn))
-                                        as f32
-                            })
-                            .unwrap_or(1.0);
-                        if completion >= 1.0 {
-                            ObjectiveState::Complete
-                        } else {
-                            ObjectiveState::Incomplete(completion)
-                        }
-                    }
-                }
-                ObjectiveTarget::Unit(target_unit) => {
-                    if target_unit.is_alive() {
-                        let completion = self
-                            .duration
-                            .map(|dur| {
-                                dur as f32
-                                    / (root
-                                        .get_turn()
-                                        .saturating_sub(self.start_turn))
-                                        as f32
-                            })
-                            .unwrap_or(1.0);
-                        if completion >= 1.0 {
-                            ObjectiveState::Complete
-                        } else {
-                            ObjectiveState::Incomplete(completion)
-                        }
-                    } else {
-                        ObjectiveState::Failed
-                    }
-                }
-            },
-            ObjectiveTask::Capture => {}
-        };
-        match base_state {
-            ObjectiveState::Incomplete(_) => {
-                if self.time_limit.map(|dur| root.get_turn() >= self.start_turn + dur).unwrap_or(false) {
-                    ObjectiveState::Expired
+    pub fn update(
+        &mut self,
+        self_unit: Unit,
+        root: &Root,
+        propagated_state: Option<ObjectiveState>,
+    ) {
+        let new_state = match &self.state {
+            ObjectiveState::Complete => self.state,
+            ObjectiveState::Failed => self.state,
+            ObjectiveState::Expired => self.state,
+            _ => {
+                if let Some(higher_state) = propagated_state {
+                    higher_state
                 } else {
-                    base_state
+                    let self_faction = self_unit.get_allegiance();
+                    let base_state: ObjectiveState = match &self.task {
+                        ObjectiveTask::Reach(target) => match target {
+                            ObjectiveTarget::Node(node) => {
+                                if self_unit.get_mother_node() == node.clone() {
+                                    ObjectiveState::Complete
+                                } else {
+                                    ObjectiveState::Incomplete(0.0)
+                                }
+                            }
+                            ObjectiveTarget::Cluster(cluster) => {
+                                if cluster.nodes.contains(&self_unit.get_mother_node()) {
+                                    ObjectiveState::Complete
+                                } else {
+                                    ObjectiveState::Incomplete(0.0)
+                                }
+                            }
+                            ObjectiveTarget::Unit(target_unit) => {
+                                if let Some(target_unit_actual) = target_unit.get_unit(root) {
+                                    if self_unit.get_mother_node()
+                                        == target_unit_actual.get_mother_node()
+                                    {
+                                        ObjectiveState::Complete
+                                    } else {
+                                        ObjectiveState::Incomplete(0.0)
+                                    }
+                                } else {
+                                    ObjectiveState::Failed
+                                }
+                            }
+                        },
+                        ObjectiveTask::Kill(target) => match target {
+                            ObjectiveTarget::Unit(target_unit) => {
+                                if let Some(target_unit_actual) = target_unit.get_unit(root) {
+                                    ObjectiveState::Incomplete(
+                                        target_unit_actual.get_hull() as f32
+                                            / target_unit_actual.get_base_hull() as f32,
+                                    )
+                                } else {
+                                    ObjectiveState::Complete
+                                }
+                            }
+                            _ => panic!(),
+                        },
+                        ObjectiveTask::Protect(target) => match target {
+                            ObjectiveTarget::Node(node) => {
+                                let any_enemy_allegiance = self_faction
+                                    .get_enemies(root)
+                                    .iter()
+                                    .any(|enemy| &node.get_allegiance() == enemy);
+                                if any_enemy_allegiance {
+                                    ObjectiveState::Failed
+                                } else {
+                                    let completion = self
+                                        .duration
+                                        .map(|dur| {
+                                            dur as f32
+                                                / (root.get_turn().saturating_sub(self.start_turn))
+                                                    as f32
+                                        })
+                                        .unwrap_or(1.0);
+                                    if completion >= 1.0 {
+                                        ObjectiveState::Complete
+                                    } else {
+                                        ObjectiveState::Incomplete(completion)
+                                    }
+                                }
+                            }
+                            ObjectiveTarget::Cluster(cluster) => {
+                                let enemy_allegiance_fraction = cluster
+                                    .nodes
+                                    .iter()
+                                    .filter(|node| {
+                                        self_faction
+                                            .get_enemies(root)
+                                            .iter()
+                                            .any(|enemy| &node.get_allegiance() == enemy)
+                                    })
+                                    .count()
+                                    as f32
+                                    / cluster.nodes.len() as f32;
+                                if (1.0 - enemy_allegiance_fraction) > self.fraction.unwrap_or(1.0)
+                                {
+                                    ObjectiveState::Failed
+                                } else {
+                                    let completion = self
+                                        .duration
+                                        .map(|dur| {
+                                            dur as f32
+                                                / (root.get_turn().saturating_sub(self.start_turn))
+                                                    as f32
+                                        })
+                                        .unwrap_or(1.0);
+                                    if completion >= 1.0 {
+                                        ObjectiveState::Complete
+                                    } else {
+                                        ObjectiveState::Incomplete(completion)
+                                    }
+                                }
+                            }
+                            ObjectiveTarget::Unit(target_unit) => {
+                                if let Some(target_unit_actual) = target_unit.get_unit(root) {
+                                    let completion = self
+                                        .duration
+                                        .map(|dur| {
+                                            dur as f32
+                                                / (root.get_turn().saturating_sub(self.start_turn))
+                                                    as f32
+                                        })
+                                        .unwrap_or(1.0);
+                                    if completion >= 1.0 {
+                                        ObjectiveState::Complete
+                                    } else {
+                                        ObjectiveState::Incomplete(completion)
+                                    }
+                                } else {
+                                    ObjectiveState::Failed
+                                }
+                            }
+                        },
+                        //at some point this will need some further complexity to deal with things being held by allied factions, probably
+                        ObjectiveTask::Capture(target) => match target {
+                            ObjectiveTarget::Node(node) => {
+                                if node.get_allegiance() == self_faction {
+                                    ObjectiveState::Complete
+                                } else {
+                                    ObjectiveState::Incomplete(0.0)
+                                }
+                            }
+                            ObjectiveTarget::Cluster(cluster) => {
+                                let fraction = cluster
+                                    .nodes
+                                    .iter()
+                                    .filter(|node| node.get_allegiance() == self_faction)
+                                    .count() as f32
+                                    / cluster.nodes.len() as f32;
+                                if fraction >= 1.0 {
+                                    ObjectiveState::Complete
+                                } else {
+                                    ObjectiveState::Incomplete(fraction)
+                                }
+                            }
+                            ObjectiveTarget::Unit(target_unit) => {
+                                if let Some(target_unit_actual) = target_unit.get_unit(root) {
+                                    if target_unit_actual.get_allegiance() == self_faction {
+                                        ObjectiveState::Complete
+                                    } else {
+                                        ObjectiveState::Incomplete(0.0)
+                                    }
+                                } else {
+                                    ObjectiveState::Failed
+                                }
+                            }
+                        },
+                    };
+                    let true_state = match base_state {
+                        ObjectiveState::Incomplete(_) => {
+                            if self
+                                .time_limit
+                                .map(|dur| root.get_turn() >= self.start_turn + dur)
+                                .unwrap_or(false)
+                            {
+                                ObjectiveState::Expired
+                            } else {
+                                base_state
+                            }
+                        }
+                        _ => base_state,
+                    };
+                    true_state
                 }
             }
-            _ => base_state,
+        };
+
+        let state_for_propagation = match new_state {
+            ObjectiveState::Complete => Some(new_state),
+            ObjectiveState::Failed => Some(new_state),
+            ObjectiveState::Expired => Some(new_state),
+            _ => None,
+        };
+
+        self.required_subgoals
+            .iter_mut()
+            .for_each(|objective| objective.update(self_unit.clone(), root, state_for_propagation));
+        self.optional_subgoals
+            .iter_mut()
+            .for_each(|objective| objective.update(self_unit.clone(), root, state_for_propagation));
+
+        if !self.required_subgoals.iter().all(|objective| {
+            objective.state == ObjectiveState::Complete
+                || objective.state == ObjectiveState::Expired
+                || objective.state == ObjectiveState::Failed
+        }) {
+            self.state = ObjectiveState::Obstructed;
+        } else {
+            self.state = new_state;
         }
-        
     }
 }
 
@@ -259,7 +348,8 @@ pub struct Root {
     pub unitclasses: Vec<UnitClass>,
     pub ships: RwLock<Vec<Arc<Ship>>>,
     pub squadrons: RwLock<Vec<Arc<Squadron>>>,
-    pub unit_counter: Arc<AtomicU64>,
+    pub unit_creation_counter: Arc<AtomicU64>,
+    pub unit_death_counter: Arc<AtomicU64>,
     pub engagements: RwLock<Vec<EngagementRecord>>,
     pub global_salience: GlobalSalience,
     pub turn: Arc<AtomicU64>,
@@ -290,8 +380,10 @@ impl PartialEq for Root {
             && self.unitclasses == other.unitclasses
             && self.ships.read().unwrap().clone() == other.ships.read().unwrap().clone()
             && self.squadrons.read().unwrap().clone() == other.squadrons.read().unwrap().clone()
-            && self.unit_counter.load(atomic::Ordering::Relaxed)
-                == other.unit_counter.load(atomic::Ordering::Relaxed)
+            && self.unit_creation_counter.load(atomic::Ordering::Relaxed)
+                == other.unit_creation_counter.load(atomic::Ordering::Relaxed)
+            && self.unit_death_counter.load(atomic::Ordering::Relaxed)
+                == other.unit_death_counter.load(atomic::Ordering::Relaxed)
             && self.engagements.read().unwrap().clone() == other.engagements.read().unwrap().clone()
             && self
                 .global_salience
@@ -329,8 +421,7 @@ impl PartialEq for Root {
                     .read()
                     .unwrap()
                     .clone()
-            && self.get_turn()
-                == other.get_turn()
+            && self.get_turn() == other.get_turn()
     }
 }
 
@@ -496,6 +587,8 @@ impl Root {
             .write()
             .unwrap()
             .retain(|squadron| !all_dead.contains(&squadron.get_unit()));
+        self.unit_death_counter
+            .fetch_add(all_dead.len() as u64, atomic::Ordering::Relaxed);
     }
     pub fn process_turn(&mut self) {
         let turn_start = Instant::now();

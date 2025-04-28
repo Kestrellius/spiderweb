@@ -195,3 +195,14 @@ QUESTIONS FOR AMARYLLIS:
 [x] Hangarinstances not being in root
 [ ] Will the duplicated sequential application of damage in fn-fire work correctly, and is there a better way?
 [ ] Will read locks on shipmuts in fn-transfer reliably live long enough to lock out writes until the transfer is finished?
+
+SHIPYARD REWORK NOTES:
+- ships under construction are their own struct which implements Mobility
+- ShipUnderConstruction fields: class, input stockpiles, completion fraction
+- ShipClass has a hashmap of resource costs, and a number of turns for completion
+- when laying down a new ship, hashmap gets converted into stockpiles
+- a shipyard has a UnitContainer which holds its ships under construction
+- if all the ship's stockpiles have enough resources to be processed, the ship's construction advances by one turn
+- construction stockpiles in the same shipyard have their demand weighted according to the desirability of the ship they're constructing
+- (...except maybe in special cases for things like stations or unique one-offs? This kind of gets back to the question of what ultimately drives production)
+- ships under construction count as supply for salience propagation, but it's multiplied by the completion fraction
