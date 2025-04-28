@@ -1520,6 +1520,8 @@ impl Ship {
         hangarclassesroot: &Vec<Arc<export::HangarClass>>,
         shipsroot: &Vec<Arc<export::Ship>>,
         squadronsroot: &Vec<Arc<export::Squadron>>,
+        factionsroot: &Vec<Arc<export::Faction>>,
+        unitclassesroot: &Vec<export::UnitClass>,
     ) -> Vec<Arc<export::Hangar>> {
         let connection_ship = connectionships
             .iter()
@@ -1536,7 +1538,7 @@ impl Ship {
             .mutables
             .objectives
             .iter()
-            .map(|x| x.rehydrate(&nodesroot, &clustersroot, &shipsroot, &squadronsroot))
+            .map(|x| x.rehydrate(&nodesroot, &clustersroot, &factionsroot, &unitclassesroot))
             .collect();
         root_hangars
     }
@@ -1738,6 +1740,8 @@ impl Squadron {
         shipsroot: &Vec<Arc<export::Ship>>,
         squadronsroot: &Vec<Arc<export::Squadron>>,
         hangarslist: &Vec<Arc<export::Hangar>>,
+        factionsroot: &Vec<Arc<export::Faction>>,
+        unitclassesroot: &Vec<export::UnitClass>,
     ) {
         let connection_squadron = connectionsquadrons
             .iter()
@@ -1753,7 +1757,7 @@ impl Squadron {
             .mutables
             .objectives
             .iter()
-            .map(|x| x.rehydrate(&nodesroot, &clustersroot, &shipsroot, &squadronsroot))
+            .map(|x| x.rehydrate(&nodesroot, &clustersroot, &factionsroot, &unitclassesroot))
             .collect();
         squadron.mutables.write().unwrap().location = connection_squadron
             .mutables
@@ -1896,8 +1900,8 @@ impl ObjectiveTarget {
         match self_entity {
             export::ObjectiveTarget::Node(node) => ObjectiveTarget::Node(node.id),
             export::ObjectiveTarget::Cluster(cluster) => ObjectiveTarget::Cluster(cluster.id),
-            export::ObjectiveTarget::Unit(unit) => {
-                ObjectiveTarget::Unit(UnitRecord::desiccate(unit))
+            export::ObjectiveTarget::Unit(unitrecord) => {
+                ObjectiveTarget::Unit(UnitRecord::desiccate(unitrecord))
             }
         }
     }
@@ -1905,16 +1909,16 @@ impl ObjectiveTarget {
         &self,
         nodesroot: &Vec<Arc<export::Node>>,
         clustersroot: &Vec<Arc<export::Cluster>>,
-        shipsroot: &Vec<Arc<export::Ship>>,
-        squadronsroot: &Vec<Arc<export::Squadron>>,
+        factionsroot: &Vec<Arc<export::Faction>>,
+        unitclassesroot: &Vec<export::UnitClass>,
     ) -> export::ObjectiveTarget {
         match self {
             ObjectiveTarget::Node(node) => export::ObjectiveTarget::Node(nodesroot[*node].clone()),
             ObjectiveTarget::Cluster(cluster) => {
                 export::ObjectiveTarget::Cluster(clustersroot[*cluster].clone())
             }
-            ObjectiveTarget::Unit(unit) => {
-                export::ObjectiveTarget::Unit(unit.rehydrate(shipsroot, squadronsroot))
+            ObjectiveTarget::Unit(unitrecord) => {
+                export::ObjectiveTarget::Unit(unitrecord.rehydrate(factionsroot, unitclassesroot))
             }
         }
     }
@@ -1949,33 +1953,33 @@ impl ObjectiveTask {
         &self,
         nodesroot: &Vec<Arc<export::Node>>,
         clustersroot: &Vec<Arc<export::Cluster>>,
-        shipsroot: &Vec<Arc<export::Ship>>,
-        squadronsroot: &Vec<Arc<export::Squadron>>,
+        factionsroot: &Vec<Arc<export::Faction>>,
+        unitclassesroot: &Vec<export::UnitClass>,
     ) -> export::ObjectiveTask {
         match self {
             ObjectiveTask::Reach(target) => export::ObjectiveTask::Reach(target.rehydrate(
                 nodesroot,
                 clustersroot,
-                shipsroot,
-                squadronsroot,
+                factionsroot,
+                unitclassesroot,
             )),
             ObjectiveTask::Protect(target) => export::ObjectiveTask::Protect(target.rehydrate(
                 nodesroot,
                 clustersroot,
-                shipsroot,
-                squadronsroot,
+                factionsroot,
+                unitclassesroot,
             )),
             ObjectiveTask::Kill(target) => export::ObjectiveTask::Kill(target.rehydrate(
                 nodesroot,
                 clustersroot,
-                shipsroot,
-                squadronsroot,
+                factionsroot,
+                unitclassesroot,
             )),
             ObjectiveTask::Capture(target) => export::ObjectiveTask::Capture(target.rehydrate(
                 nodesroot,
                 clustersroot,
-                shipsroot,
-                squadronsroot,
+                factionsroot,
+                unitclassesroot,
             )),
         }
     }
@@ -1997,6 +2001,7 @@ pub struct Objective {
     pub battle_escape_scalar: f32,
     pub required_subgoals: Vec<Objective>,
     pub optional_subgoals: Vec<Objective>,
+    pub state: export::ObjectiveState,
 }
 
 impl Objective {
@@ -2024,21 +2029,22 @@ impl Objective {
                 .iter()
                 .map(|x| Objective::desiccate(x))
                 .collect(),
+            state: self_entity.state,
         }
     }
     pub fn rehydrate(
         &self,
         nodesroot: &Vec<Arc<export::Node>>,
         clustersroot: &Vec<Arc<export::Cluster>>,
-        shipsroot: &Vec<Arc<export::Ship>>,
-        squadronsroot: &Vec<Arc<export::Squadron>>,
+        factionsroot: &Vec<Arc<export::Faction>>,
+        unitclassesroot: &Vec<export::UnitClass>,
     ) -> export::Objective {
         export::Objective {
             visible_name: self.visible_name.clone(),
             start_turn: self.start_turn,
             task: self
                 .task
-                .rehydrate(nodesroot, clustersroot, shipsroot, squadronsroot),
+                .rehydrate(nodesroot, clustersroot, factionsroot, unitclassesroot),
             fraction: self.fraction,
             duration: self.duration,
             time_limit: self.time_limit,
@@ -2051,13 +2057,14 @@ impl Objective {
             required_subgoals: self
                 .required_subgoals
                 .iter()
-                .map(|x| x.rehydrate(nodesroot, clustersroot, shipsroot, squadronsroot))
+                .map(|x| x.rehydrate(nodesroot, clustersroot, factionsroot, unitclassesroot))
                 .collect(),
             optional_subgoals: self
                 .optional_subgoals
                 .iter()
-                .map(|x| x.rehydrate(nodesroot, clustersroot, shipsroot, squadronsroot))
+                .map(|x| x.rehydrate(nodesroot, clustersroot, factionsroot, unitclassesroot))
                 .collect(),
+            state: self.state,
         }
     }
 }
@@ -2272,7 +2279,12 @@ impl EngagementRecord {
                         factionsroot[*faction].clone(),
                         objs.iter()
                             .map(|x| {
-                                x.rehydrate(&nodesroot, &clustersroot, &shipsroot, &squadronsroot)
+                                x.rehydrate(
+                                    &nodesroot,
+                                    &clustersroot,
+                                    &factionsroot,
+                                    &unitclassesroot,
+                                )
                             })
                             .collect(),
                     )
@@ -2342,7 +2354,8 @@ pub struct Root {
     pub unitclasses: Vec<UnitClass>,
     pub ships: Vec<Ship>,
     pub squadrons: Vec<Squadron>,
-    pub unitcounter: u64,
+    pub unit_creation_counter: u64,
+    pub unit_death_counter: u64,
     pub engagements: Vec<EngagementRecord>,
     pub globalsalience: GlobalSalience,
     pub turn: u64,
@@ -2467,8 +2480,11 @@ impl Root {
                 .iter()
                 .map(|x| Squadron::desiccate(x))
                 .collect(),
-            unitcounter: self_entity
+            unit_creation_counter: self_entity
                 .unit_creation_counter
+                .load(atomic::Ordering::Relaxed),
+            unit_death_counter: self_entity
+                .unit_death_counter
                 .load(atomic::Ordering::Relaxed),
             engagements: self_entity
                 .engagements
@@ -2646,6 +2662,8 @@ impl Root {
                     &hangarclasses,
                     &ships.read().unwrap(),
                     &squadrons.read().unwrap(),
+                    &factions,
+                    &unitclasses,
                 )
             })
             .flatten()
@@ -2668,9 +2686,12 @@ impl Root {
                 &ships.read().unwrap(),
                 &squadrons.read().unwrap(),
                 &hangarslist,
+                &factions,
+                &unitclasses,
             )
         });
-        let unitcounter = Arc::new(AtomicU64::new(self.unitcounter));
+        let unit_creation_counter = Arc::new(AtomicU64::new(self.unit_creation_counter));
+        let unit_death_counter = Arc::new(AtomicU64::new(self.unit_death_counter));
         let engagements = RwLock::new(
             self.engagements
                 .drain(0..)
@@ -2715,7 +2736,8 @@ impl Root {
             unitclasses,
             ships,
             squadrons,
-            unit_creation_counter: unitcounter,
+            unit_creation_counter,
+            unit_death_counter,
             engagements,
             global_salience: globalsalience,
             turn,

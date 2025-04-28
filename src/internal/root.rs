@@ -15,11 +15,11 @@ use rand::prelude::*;
 use rand_hc::Hc128Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::sync::atomic::{self, AtomicU64};
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::Instant;
-use std::fmt::Debug;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Config {
@@ -79,7 +79,7 @@ pub enum ObjectiveTask {
     Capture(ObjectiveTarget),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ObjectiveState {
     Obstructed,
     Complete,
