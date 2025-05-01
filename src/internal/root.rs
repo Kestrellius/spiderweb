@@ -473,7 +473,6 @@ impl Root {
         faction: Arc<Faction>,
     ) -> Arc<Squadron> {
         //we call the shipclass instantiate method, and feed it the parameters it wants
-        //let index_lock = RwLock::new(self.ships);
         let new_squadron = Arc::new(SquadronClass::instantiate(
             class.clone(),
             location.clone(),
@@ -681,7 +680,7 @@ impl Root {
         //propagate saliences, create salience map
         //NOTE: I'm thinking of setting this up such that we use last turn's threat salience map as the degradation map for this turn's threat salience propagation.
         //That's what'll happen here with the way it is currently. Previous turn's values get used in calc faction salience, then get overwritten.
-        //At least assuming the order of operations works like I'm expecting -- check that with Amaryllis.
+        //At least assuming the order of operations works like I'm expecting -- check that.
         //On turn 1, we'll want to run calc faction salience several times to get the values to settle.
         let salience_propagation_start = Instant::now();
         let gfs = self.calculate_global_faction_salience();

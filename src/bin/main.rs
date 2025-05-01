@@ -77,15 +77,15 @@ fn main() {
     paste.set_contents(print).unwrap();
     */
 
-    let empire = internal::Key::<internal::Faction>::new_from_index(0);
+    let faction_a = internal::Key::<internal::Faction>::new_from_index(0);
     let steel = internal::Key::<internal::Resource>::new_from_index(0);
     let components = internal::Key::<internal::Resource>::new_from_index(1);
     let food = internal::Key::<internal::Resource>::new_from_index(2);
     let personnel = internal::Key::<internal::Resource>::new_from_index(3);
-    let tieln = internal::Key::<internal::ShipClass>::new_from_index(1);
-    let z95 = internal::Key::<internal::ShipClass>::new_from_index(2);
-    let isd = internal::Key::<internal::ShipClass>::new_from_index(3);
-    let nebulonb = internal::Key::<internal::ShipClass>::new_from_index(4);
+    let fighter_a = internal::Key::<internal::ShipClass>::new_from_index(1);
+    let fighter_b = internal::Key::<internal::ShipClass>::new_from_index(2);
+    let cap_a = internal::Key::<internal::ShipClass>::new_from_index(3);
+    let cap_b = internal::Key::<internal::ShipClass>::new_from_index(4);
     */
 
     /*
@@ -153,32 +153,32 @@ fn main() {
         resource_contents: HashMap::from([(steel, 0), (components, 0)]),
         ship_contents: HashSet::from([
             root.create_ship(
-                tieln,
+                fighter_a,
                 ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
-                empire,
+                faction_a,
             ),
             root.create_ship(
-                tieln,
+                fighter_a,
                 ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
-                empire,
+                faction_a,
             ),
             root.create_ship(
-                tieln,
+                fighter_a,
                 ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
-                empire,
+                faction_a,
             ),
             root.create_ship(
-                tieln,
+                fighter_a,
                 ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
-                empire,
+                faction_a,
             ),
             root.create_ship(
-                tieln,
+                fighter_a,
                 ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
-                empire,
+                faction_a,
             ),
         ]),
-        allowed: Some((Vec::new(), vec![tieln])),
+        allowed: Some((Vec::new(), vec![fighter_a])),
         target: 500,
         capacity: 1000,
         propagate: false,
@@ -193,59 +193,59 @@ fn main() {
         ]),
         ship_contents: HashSet::from([
             root.create_ship(
-                tieln,
+                fighter_a,
                 ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
-                empire,
+                faction_a,
             ),
             root.create_ship(
-                tieln,
+                fighter_a,
                 ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
-                empire,
+                faction_a,
             ),
             root.create_ship(
-                tieln,
+                fighter_a,
                 ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
-                empire,
+                faction_a,
             ),
             root.create_ship(
-                z95,
+                fighter_b,
                 ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
-                empire,
+                faction_a,
             ),
             root.create_ship(
-                z95,
+                fighter_b,
                 ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
-                empire,
+                faction_a,
             ),
             root.create_ship(
-                z95,
+                fighter_b,
                 ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
-                empire,
+                faction_a,
             ),
             root.create_ship(
-                z95,
+                fighter_b,
                 ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
-                empire,
+                faction_a,
             ),
             root.create_ship(
-                z95,
+                fighter_b,
                 ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
-                empire,
+                faction_a,
             ),
             root.create_ship(
-                z95,
+                fighter_b,
                 ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
-                empire,
+                faction_a,
             ),
             root.create_ship(
-                z95,
+                fighter_b,
                 ShipLocationFlavor::Node(internal::Key::<internal::Node>::new_from_index(0)),
-                empire,
+                faction_a,
             ),
         ]),
         allowed: Some((
             vec![steel, components, food, personnel],
-            vec![tieln, z95, isd, nebulonb],
+            vec![fighter_a, fighter_b, cap_a, cap_b],
         )),
         target: 500,
         capacity: 1000000,
@@ -257,13 +257,13 @@ fn main() {
     let quantity = 5;
 
     println!(
-        "Attempting to transfer {} Z95s from Stockpile2 to Stockpile1.",
+        "Attempting to transfer {} fighter_bs from Stockpile2 to Stockpile1.",
         quantity
     );
     stockpile2.transfer(
         &mut stockpile1,
         &root,
-        CollatedCargo::ShipClass(z95),
+        CollatedCargo::ShipClass(fighter_b),
         quantity,
     );
 

@@ -117,8 +117,8 @@ pub struct Node {
     pub visible_name: String, //location name as shown to player
     pub position: [i64; 3], //node's position in 3d space; this is used for autogenerating skyboxes and determining reinforcement delay between nodes
     pub description: String,
-    pub environment: String, //name of the FRED environment to use for missions set in this node
-    pub bitmap: Option<(String, f32)>, //name of the bitmap used to depict this node in other nodes' FRED environments, and a size factor
+    pub environment: String, //name of the local environment to use for missions set in this node
+    pub bitmap: Option<(String, f32)>, //name of the bitmap used to depict this node in other nodes' local environments, and a size factor
     pub mutables: NodeMut,
     pub unit_container: UnitContainer,
 }

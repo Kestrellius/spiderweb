@@ -132,7 +132,7 @@ struct NodeTemplate {
     flavor: Vec<(String, u64)>, //type of location this node is -- planet, asteroid field, hyperspace transit zone
     factories: HashMap<String, (f32, u64, u64)>, //a list of the factories this node has, in the form of FactoryClass IDs
     shipyards: HashMap<String, (f32, u64, u64)>,
-    environment: Vec<(String, u64)>, //name of the FRED environment to use for missions set in this node
+    environment: Vec<(String, u64)>, //name of the local environment to use for missions set in this node
     bitmap: Option<Vec<((String, f32), u64)>>,
     allegiance: Vec<(String, u64)>, //faction that currently holds the node
     efficiency: Option<f32>, //efficiency of any production facilities in this node; changes over time based on faction ownership
@@ -152,7 +152,7 @@ pub struct Node {
     pub flavor: Option<String>, //type of location this node is -- planet, asteroid field, hyperspace transit zone
     pub factories: Option<Vec<String>>, //a list of the factories this node has, in the form of FactoryClass IDs
     pub shipyards: Option<Vec<String>>,
-    pub environment: Option<String>, //name of the FRED environment to use for missions set in this node
+    pub environment: Option<String>, //name of the local environment to use for missions set in this node
     pub bitmap: Option<(String, f32)>,
     pub allegiance: Option<String>, //faction that currently holds the node
     pub efficiency: Option<f32>, //efficiency of any production facilities in this node; changes over time based on faction ownership
@@ -1642,7 +1642,7 @@ impl Root {
             }))
             .collect();
 
-        let mut rng = rand_hc::Hc128Rng::seed_from_u64(1138);
+        let mut rng = rand_hc::Hc128Rng::seed_from_u64(5380948923);
 
         //here we iterate over the json clusters to create a map between nodes' json string-ids and root ids
         let node_id_map: HashMap<String, Arc<export::Node>> = self

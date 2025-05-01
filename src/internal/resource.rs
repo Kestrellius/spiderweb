@@ -20,7 +20,7 @@ pub struct Resource {
     pub visibility: bool,
     pub propagates: bool,
     pub unit_vol: u64, //how much volume (in e.g. cubic meters) one unit of this resource takes up; this is intended only for player-facing use
-    pub value_mult: f32, //how valuable the AI considers one unit of this resource to be
+    pub value_mult: f32, //how valuable the AI considers one volume-unit of this resource to be
 }
 
 impl PartialEq for Resource {
@@ -73,8 +73,7 @@ pub trait Stockpileness {
     }
 }
 
-//this is a horrible incomprehensible nightmare that Amaryllis put me through for some reason
-//okay, so, a year later, what this actually does is that it takes two individual stockpiles and allows them to function together as a single stockpile
+//this takes two individual stockpiles and allows them to function together as a single stockpile
 impl<A: Stockpileness, B: Stockpileness> Stockpileness for (A, B) {
     fn collate_contents(&self) -> HashMap<Arc<Resource>, u64> {
         self.0

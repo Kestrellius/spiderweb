@@ -525,7 +525,6 @@ pub trait Mobility {
         let ship_value_specific: f32 = unitclass_salience[allegiance.id]
             [self.get_unitclass().get_id()][node.id][0]
             * ai.ship_attract_specific;
-        //oh, THIS is why we needed the placeholder ship class
         //this checks how much demand there is in the node for ships in general
         let ship_value_generic: f32 =
             unitclass_salience[allegiance.id][0][node.id][0] * ai.ship_attract_generic;
@@ -2776,6 +2775,7 @@ impl Mobility for Arc<Squadron> {
         //by checking strength of failed ships, and then all daughters
         //we don't just call get_strength on the squadron itself
         //if we did, the squadron's strength modifiers would be counted only toward its total
+        //and not toward the actual current value
         let failed_strength = failed_ships
             .iter()
             .map(|ship| ship.get_strength(root.config.battle_scalars.avg_duration) as f32)

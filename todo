@@ -146,9 +146,9 @@ GENERAL:
 [ ] Clean up processor demand in navigation
 
 LONGER-TERM:
-[ ] Build system for transmitting data to FSO
-[ ] Build in-FSO display system for Spiderweb data
-[ ] Hook Spiderweb into Project Alderaan
+[ ] Build system for transmitting data to frontend
+[ ] Build display system for Spiderweb data
+[ ] Hook Spiderweb into frontend
 
 LOW-PRIORITY:
 [ ] Have relations between factions in a coalition fighting together affect strength score
@@ -165,7 +165,7 @@ LOW-PRIORITY:
 [ ] Replace shipbuilding system with a more simulationistic one
 [ ] Build parser to convert .blend file to Spiderweb nodemap
 
-QUESTIONS FOR AMARYLLIS:
+QUESTIONS:
 [x] process_engines short-circuiting
 [x] retain for remove_dead and disband_fleets
 [x] orphan checking/how does the all-to-all edge generation even work currently?

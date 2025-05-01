@@ -460,7 +460,7 @@ impl EngagementPrep {
 
         //NOTE: This isn't quite ideal -- we determine the victor faction by summing unit strengths, but we have to use this special-case method
         //that doesn't pay attention to daughters, because we're looking at all the units total --
-        //so fleets are just counted as zero and we don't get any fleet modifiers
+        //so squadrons are just counted as zero and we don't get any squadrons modifiers
         let victor = unit_status
             .get(&victor_coalition)
             .unwrap()
